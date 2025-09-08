@@ -1,23 +1,46 @@
 {
-  "name": "tiflux-mcp",
+  "name": "@tiflux/mcp",
   "version": "1.0.0",
-  "description": "TiFlux MCP Server for Claude Code - Padronização entre equipes",
-  "main": "server.js",
+  "description": "TiFlux MCP Server - Model Context Protocol integration for Claude Code and other AI clients",
+  "main": "server-sdk.js",
   "bin": {
     "tiflux-mcp": "./server-sdk.js"
   },
   "scripts": {
-    "start": "node server.js",
+    "start": "node server-sdk.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "TiFlux",
+  "author": "TiFlux <dev@tiflux.com>",
   "license": "MIT",
+  "homepage": "https://github.com/tiflux/tiflux-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tiflux/tiflux-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tiflux/tiflux-mcp/issues"
+  },
   "engines": {
     "node": ">=16.0.0"
   },
-  "keywords": [],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "tiflux",
+    "ai-integration",
+    "help-desk",
+    "ticket-management"
+  ],
+  "files": [
+    "server-sdk.js",
+    ".env.example",
+    "README.md"
+  ],
   "type": "commonjs",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5"
-  }
+  },
+  "peerDependencies": {},
+  "devDependencies": {}
 }
