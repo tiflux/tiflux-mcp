@@ -1,0 +1,23 @@
+{
+  "name": "tiflux-mcp",
+  "version": "1.0.0",
+  "description": "TiFlux MCP Server for Claude Code - Padronização entre equipes",
+  "main": "server.js",
+  "bin": {
+    "tiflux-mcp": "./server-sdk.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "TiFlux",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5"
+  }
+}
