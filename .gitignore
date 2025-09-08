@@ -91,3 +91,6 @@ logs
 
 # MCP specific
 .mcp.json
+
+# Local development files
+PROGRESSO.md
