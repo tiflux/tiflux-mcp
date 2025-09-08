@@ -49,6 +49,20 @@ class TifluxMCPServer {
           }
         },
         {
+          name: 'search_client',
+          description: 'Buscar clientes no TiFlux por nome',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              client_name: {
+                type: 'string',
+                description: 'Nome do cliente a ser buscado (busca parcial)'
+              }
+            },
+            required: ['client_name']
+          }
+        },
+        {
           name: 'create_ticket',
           description: 'Criar um novo ticket no TiFlux',
           inputSchema: {
@@ -65,6 +79,10 @@ class TifluxMCPServer {
               client_id: {
                 type: 'number',
                 description: 'ID do cliente (opcional - usa TIFLUX_DEFAULT_CLIENT_ID se não informado)'
+              },
+              client_name: {
+                type: 'string',
+                description: 'Nome do cliente para busca automática (alternativa ao client_id)'
               },
               desk_id: {
                 type: 'number',
@@ -117,12 +135,88 @@ class TifluxMCPServer {
         return this.handleGetTicket(args);
       }
       
+      if (name === 'search_client') {
+        return this.handleSearchClient(args);
+      }
+      
       if (name === 'create_ticket') {
         return this.handleCreateTicket(args);
       }
       
       throw new Error(`Unknown tool: ${name}`);
     });
+  }
+
+  async handleSearchClient(args) {
+    const { client_name } = args;
+    
+    if (!client_name) {
+      throw new Error('client_name é obrigatório');
+    }
+
+    try {
+      const response = await this.fetchClientByName(client_name);
+      
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao buscar cliente "${client_name}"**\n\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o nome está correto e se você tem permissão para acessar os dados de clientes.*`
+            }
+          ]
+        };
+      }
+
+      const clients = response.data || [];
+      
+      if (clients.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**🔍 Busca por "${client_name}"**\n\n` +
+                    `**Resultado:** Nenhum cliente encontrado\n\n` +
+                    `*Tente usar um termo de busca diferente ou verifique a grafia.*`
+            }
+          ]
+        };
+      }
+
+      let resultText = `**🔍 Busca por "${client_name}"**\n\n` +
+                      `**Resultados encontrados:** ${clients.length}\n\n`;
+
+      resultText += '**📋 Clientes encontrados:**\n';
+      clients.forEach((client, index) => {
+        resultText += `${index + 1}. **ID:** ${client.id} | **Nome:** ${client.name} | **Razão Social:** ${client.social || 'N/A'} | **Ativo:** ${client.status ? 'Sim' : 'Não'}\n`;
+      });
+
+      resultText += '\n*✅ Para criar um ticket, use o ID do cliente desejado no parâmetro `client_id` ou use o nome no parâmetro `client_name`.*';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: resultText
+          }
+        ]
+      };
+      
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro interno ao buscar cliente "${client_name}"**\n\n` +
+                  `**Erro:** ${error.message}\n\n` +
+                  `*Verifique sua conexão e configurações da API.*`
+          }
+        ]
+      };
+    }
   }
 
   async handleGetTicket(args) {
@@ -189,6 +283,7 @@ class TifluxMCPServer {
       title, 
       description, 
       client_id, 
+      client_name,
       desk_id, 
       priority_id, 
       services_catalogs_item_id, 
@@ -205,8 +300,61 @@ class TifluxMCPServer {
     }
 
     try {
+      let finalClientId = client_id;
+      
+      // Se client_name foi fornecido, buscar o ID do cliente
+      if (client_name && !client_id) {
+        const clientSearchResponse = await this.fetchClientByName(client_name);
+        
+        if (clientSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Erro ao buscar cliente "${client_name}"**\n\n` +
+                      `**Erro:** ${clientSearchResponse.error}\n\n` +
+                      `*Verifique se o nome do cliente está correto ou use client_id diretamente.*`
+              }
+            ]
+          };
+        }
+        
+        const clients = clientSearchResponse.data || [];
+        if (clients.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Cliente "${client_name}" não encontrado**\n\n` +
+                    `*Verifique se o nome está correto ou use client_id diretamente.*`
+              }
+            ]
+          };
+        }
+        
+        if (clients.length > 1) {
+          let clientsList = '**Clientes encontrados:**\n';
+          clients.forEach((client, index) => {
+            clientsList += `${index + 1}. **ID:** ${client.id} | **Nome:** ${client.name}\n`;
+          });
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**⚠️ Múltiplos clientes encontrados para "${client_name}"**\n\n` +
+                      `${clientsList}\n` +
+                      `*Use client_id específico ou seja mais específico no client_name.*`
+              }
+            ]
+          };
+        }
+        
+        finalClientId = clients[0].id;
+      }
+      
       // Usar valores padrão das variáveis de ambiente se não informados
-      const finalClientId = client_id || process.env.TIFLUX_DEFAULT_CLIENT_ID;
+      finalClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
       const finalDeskId = desk_id || process.env.TIFLUX_DEFAULT_DESK_ID;
       const finalPriorityId = priority_id || process.env.TIFLUX_DEFAULT_PRIORITY_ID;
       const finalCatalogItemId = services_catalogs_item_id || process.env.TIFLUX_DEFAULT_CATALOG_ITEM_ID;
@@ -329,6 +477,95 @@ class TifluxMCPServer {
                   error: `Ticket #${ticketId} não encontrado`, 
                   status: res.statusCode 
                 });
+              } else if (res.statusCode === 401) {
+                resolve({ 
+                  error: 'Token de API inválido ou expirado', 
+                  status: res.statusCode 
+                });
+              } else {
+                resolve({ 
+                  error: `Erro HTTP ${res.statusCode}`, 
+                  status: res.statusCode 
+                });
+              }
+            } catch (parseError) {
+              resolve({ 
+                error: `Erro ao processar resposta: ${parseError.message}`, 
+                status: 'PARSE_ERROR' 
+              });
+            }
+          });
+        });
+
+        req.on('error', (error) => {
+          resolve({ 
+            error: `Erro de conexão: ${error.message}`, 
+            status: 'CONNECTION_ERROR' 
+          });
+        });
+
+        req.setTimeout(10000, () => {
+          req.destroy();
+          resolve({ 
+            error: 'Timeout na requisição (10s)', 
+            status: 'TIMEOUT' 
+          });
+        });
+
+        req.end();
+      });
+      
+    } catch (error) {
+      return {
+        error: `Erro interno: ${error.message}`,
+        status: 'INTERNAL_ERROR'
+      };
+    }
+  }
+
+  async fetchClientByName(clientName) {
+    const apiKey = process.env.TIFLUX_API_KEY;
+    
+    if (!apiKey) {
+      return {
+        error: 'TIFLUX_API_KEY não configurada',
+        status: 'CONFIG_ERROR'
+      };
+    }
+
+    try {
+      // Usar parâmetros corretos baseados no curl que funcionou
+      const nameParam = clientName ? `&name=${encodeURIComponent(clientName)}` : '';
+      const url = `https://api.tiflux.com/api/v2/clients?active=true${nameParam}`;
+      const https = require('https');
+      const { URL } = require('url');
+      
+      return new Promise((resolve) => {
+        const parsedUrl = new URL(url);
+        
+        const options = {
+          hostname: parsedUrl.hostname,
+          port: parsedUrl.port || 443,
+          path: parsedUrl.pathname + parsedUrl.search,
+          method: 'GET',
+          headers: {
+            'accept': 'application/json',
+            'authorization': `Bearer ${apiKey}`
+          }
+        };
+
+        const req = https.request(options, (res) => {
+          let data = '';
+          
+          res.on('data', (chunk) => {
+            data += chunk;
+          });
+          
+          res.on('end', () => {
+            try {
+              if (res.statusCode === 200) {
+                const jsonData = JSON.parse(data);
+                resolve({ data: jsonData });
               } else if (res.statusCode === 401) {
                 resolve({ 
                   error: 'Token de API inválido ou expirado', 
