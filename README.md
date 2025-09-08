@@ -43,7 +43,6 @@ Create a `.env` file with your TiFlux API credentials:
 ```bash
 # TiFlux API Configuration
 TIFLUX_API_TOKEN=your_api_token_here
-TIFLUX_API_URL=https://api.tiflux.com/api/v2
 
 # Default values for ticket creation
 TIFLUX_DEFAULT_CLIENT_ID=1
