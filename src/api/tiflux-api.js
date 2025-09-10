@@ -270,68 +270,13 @@ class TiFluxAPI {
    */
   async createInternalCommunication(ticketNumber, text, files = []) {
     try {
-      // Gerar boundary único para multipart/form-data
-      const boundary = `----formdata-tiflux-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      let formData = '';
-      
-      // Adicionar campo de texto
-      formData += `--${boundary}\r\n`;
-      formData += 'Content-Disposition: form-data; name="text"\r\n';
-      formData += '\r\n';
-      formData += text + '\r\n';
-      
-      // Adicionar arquivos se fornecidos
-      if (files && files.length > 0) {
-        for (let i = 0; i < Math.min(files.length, 10); i++) {
-          const filePath = files[i];
-          
-          // Verificar se o arquivo existe
-          if (!fs.existsSync(filePath)) {
-            return {
-              error: `Arquivo não encontrado: ${filePath}`,
-              status: 'FILE_NOT_FOUND'
-            };
-          }
-          
-          // Verificar tamanho do arquivo (25MB = 26214400 bytes)
-          const fileStats = fs.statSync(filePath);
-          if (fileStats.size > 26214400) {
-            return {
-              error: `Arquivo muito grande (máx 25MB): ${path.basename(filePath)}`,
-              status: 'FILE_TOO_LARGE'
-            };
-          }
-          
-          const fileName = path.basename(filePath);
-          const fileContent = fs.readFileSync(filePath);
-          
-          formData += `--${boundary}\r\n`;
-          formData += `Content-Disposition: form-data; name="files[]"; filename="${fileName}"\r\n`;
-          formData += 'Content-Type: application/octet-stream\r\n';
-          formData += '\r\n';
-          
-          // Converter Buffer para string binária
-          formData += fileContent.toString('binary') + '\r\n';
-        }
+      // Para apenas texto, usar abordagem mais simples
+      if (!files || files.length === 0) {
+        return await this.createInternalCommunicationTextOnly(ticketNumber, text);
       }
       
-      // Finalizar boundary
-      formData += `--${boundary}--\r\n`;
-      
-      // Converter para Buffer para preservar dados binários
-      const formDataBuffer = Buffer.from(formData, 'binary');
-      
-      const headers = {
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': formDataBuffer.length
-      };
-      
-      return await this.makeRequestBinary(
-        `/tickets/${ticketNumber}/internal_communications`, 
-        'POST', 
-        formDataBuffer, 
-        headers
-      );
+      // Para arquivos, usar multipart/form-data completo
+      return await this.createInternalCommunicationWithFiles(ticketNumber, text, files);
       
     } catch (error) {
       return {
@@ -339,6 +284,105 @@ class TiFluxAPI {
         status: 'PREPARE_ERROR'
       };
     }
+  }
+
+  /**
+   * Versão simplificada para texto apenas
+   */
+  async createInternalCommunicationTextOnly(ticketNumber, text) {
+    const boundary = `----formdata-tiflux-${Date.now()}`;
+    let formData = '';
+    
+    formData += `--${boundary}\r\n`;
+    formData += 'Content-Disposition: form-data; name="text"\r\n';
+    formData += '\r\n';
+    formData += text + '\r\n';
+    formData += `--${boundary}--\r\n`;
+    
+    const formDataBuffer = Buffer.from(formData);
+    
+    const headers = {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': formDataBuffer.length
+    };
+    
+    return await this.makeRequestBinary(
+      `/tickets/${ticketNumber}/internal_communications`, 
+      'POST', 
+      formDataBuffer, 
+      headers
+    );
+  }
+
+  /**
+   * Versão completa com arquivos
+   */
+  async createInternalCommunicationWithFiles(ticketNumber, text, files) {
+    // Validar arquivos
+    for (let i = 0; i < Math.min(files.length, 10); i++) {
+      const filePath = files[i];
+      
+      if (!fs.existsSync(filePath)) {
+        return {
+          error: `Arquivo não encontrado: ${filePath}`,
+          status: 'FILE_NOT_FOUND'
+        };
+      }
+      
+      const fileStats = fs.statSync(filePath);
+      if (fileStats.size > 26214400) {
+        return {
+          error: `Arquivo muito grande (máx 25MB): ${path.basename(filePath)}`,
+          status: 'FILE_TOO_LARGE'
+        };
+      }
+    }
+
+    const boundary = `----formdata-tiflux-${Date.now()}`;
+    const parts = [];
+    
+    // Parte do texto
+    let textPart = '';
+    textPart += `--${boundary}\r\n`;
+    textPart += 'Content-Disposition: form-data; name="text"\r\n';
+    textPart += '\r\n';
+    textPart += text + '\r\n';
+    parts.push(Buffer.from(textPart));
+    
+    // Partes dos arquivos
+    for (let i = 0; i < Math.min(files.length, 10); i++) {
+      const filePath = files[i];
+      const fileName = path.basename(filePath);
+      const fileContent = fs.readFileSync(filePath);
+      
+      let filePart = '';
+      filePart += `--${boundary}\r\n`;
+      filePart += `Content-Disposition: form-data; name="files[]"; filename="${fileName}"\r\n`;
+      filePart += 'Content-Type: application/octet-stream\r\n';
+      filePart += '\r\n';
+      
+      parts.push(Buffer.from(filePart));
+      parts.push(fileContent);
+      parts.push(Buffer.from('\r\n'));
+    }
+    
+    // Finalizar boundary
+    parts.push(Buffer.from(`--${boundary}--\r\n`));
+    
+    // Combinar todas as partes
+    const formDataBuffer = Buffer.concat(parts);
+    
+    const headers = {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': formDataBuffer.length
+    };
+    
+    return await this.makeRequestBinary(
+      `/tickets/${ticketNumber}/internal_communications`, 
+      'POST', 
+      formDataBuffer, 
+      headers
+    );
   }
 
   /**
