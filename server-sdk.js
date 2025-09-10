@@ -16,6 +16,7 @@ const {
 const schemas = require('./src/schemas');
 const TicketHandlers = require('./src/handlers/tickets');
 const ClientHandlers = require('./src/handlers/clients');
+const InternalCommunicationsHandlers = require('./src/handlers/internal_communications');
 
 class TifluxMCPServer {
   constructor() {
@@ -35,6 +36,7 @@ class TifluxMCPServer {
     // Inicializar handlers
     this.ticketHandlers = new TicketHandlers();
     this.clientHandlers = new ClientHandlers();
+    this.internalCommunicationsHandlers = new InternalCommunicationsHandlers();
 
     this.setupHandlers();
   }
@@ -58,9 +60,22 @@ class TifluxMCPServer {
         case 'create_ticket':
           return this.ticketHandlers.handleCreateTicket(args);
         
+        case 'update_ticket':
+          return this.ticketHandlers.handleUpdateTicket(args);
+        
+        case 'list_tickets':
+          return this.ticketHandlers.handleListTickets(args);
+        
         // Tools de clientes
         case 'search_client':
           return this.clientHandlers.handleSearchClient(args);
+        
+        // Tools de comunicações internas
+        case 'create_internal_communication':
+          return this.internalCommunicationsHandlers.handleCreateInternalCommunication(args);
+        
+        case 'list_internal_communications':
+          return this.internalCommunicationsHandlers.handleListInternalCommunications(args);
         
         default:
           throw new Error(`Unknown tool: ${name}`);

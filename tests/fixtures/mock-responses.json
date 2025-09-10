@@ -1,0 +1,186 @@
+{
+  "tickets": {
+    "get_success": {
+      "data": {
+        "id": 1,
+        "ticket_number": 123,
+        "title": "Ticket de teste",
+        "description": "Descrição do ticket de teste",
+        "status": "open",
+        "priority": "normal",
+        "client": {
+          "id": 1,
+          "name": "Cliente Teste"
+        },
+        "assigned_to": {
+          "id": 1,
+          "name": "Técnico Teste"
+        },
+        "created_at": "2024-01-01T10:00:00Z",
+        "updated_at": "2024-01-01T10:00:00Z"
+      }
+    },
+    "get_not_found": {
+      "error": "Ticket não encontrado",
+      "status": 404
+    },
+    "create_success": {
+      "data": {
+        "ticket": {
+          "id": 1,
+          "ticket_number": 124,
+          "title": "Novo ticket",
+          "client": {
+            "name": "Cliente Teste"
+          },
+          "desk": {
+            "display_name": "Mesa de Teste"
+          },
+          "status": {
+            "name": "Aberto"
+          },
+          "priority": {
+            "name": "Normal"
+          },
+          "created_at": "2024-01-01T10:00:00Z",
+          "url_external_path": "https://app.tiflux.com/tickets/124",
+          "url_internal_path": "https://app.tiflux.com/internal/tickets/124"
+        }
+      }
+    },
+    "list_success": [
+      {
+        "ticket_number": 123,
+        "title": "Ticket 1",
+        "client": { "name": "Cliente 1" },
+        "desk": { "name": "Mesa 1" },
+        "stage": { "name": "To Do" },
+        "responsible": { "name": "Técnico 1" },
+        "status": { "name": "Aberto" },
+        "created_at": "2024-01-01T10:00:00Z",
+        "description": "Descrição do ticket 1"
+      },
+      {
+        "ticket_number": 124,
+        "title": "Ticket 2",
+        "client": { "name": "Cliente 2" },
+        "desk": { "name": "Mesa 1" },
+        "stage": { "name": "In Progress" },
+        "responsible": null,
+        "status": { "name": "Em Progresso" },
+        "created_at": "2024-01-02T10:00:00Z",
+        "description": "Descrição do ticket 2"
+      }
+    ]
+  },
+  "clients": {
+    "search_success": {
+      "data": [
+        {
+          "id": 1,
+          "name": "Cliente Teste Ltda",
+          "active": true
+        },
+        {
+          "id": 2,
+          "name": "Cliente Teste SA",
+          "active": true
+        }
+      ]
+    },
+    "search_empty": {
+      "data": []
+    }
+  },
+  "internal_communications": {
+    "create_success": {
+      "data": {
+        "id": 1,
+        "text": "<div>Comunicação interna de teste</div>",
+        "user": {
+          "id": 1,
+          "name": "Usuario Teste"
+        },
+        "created_at": "2024-01-01T10:00:00Z",
+        "updated_at": "2024-01-01T10:00:00Z",
+        "files": [
+          {
+            "id": 1,
+            "content_type": "image/png",
+            "file_name": "teste.png",
+            "size": 5265,
+            "url": "https://files.tiflux.com/teste.png"
+          }
+        ],
+        "files_count": 1
+      }
+    },
+    "create_no_files": {
+      "data": {
+        "id": 2,
+        "text": "<div>Comunicação sem arquivos</div>",
+        "user": {
+          "id": 1,
+          "name": "Usuario Teste"
+        },
+        "created_at": "2024-01-01T11:00:00Z",
+        "updated_at": "2024-01-01T11:00:00Z",
+        "files": [],
+        "files_count": 0
+      }
+    },
+    "list_success": {
+      "data": [
+        {
+          "id": 1,
+          "text": "Primeira comunicação interna",
+          "user": {
+            "id": 1,
+            "name": "Usuario Teste"
+          },
+          "created_at": "2024-01-01T10:00:00Z",
+          "files_count": 1
+        },
+        {
+          "id": 2,
+          "text": "Segunda comunicação com texto muito longo que deve ser truncado nos testes para verificar se o handler está limitando corretamente o tamanho do conteúdo exibido",
+          "user": {
+            "id": 2,
+            "name": "Outro Usuario"
+          },
+          "created_at": "2024-01-01T11:00:00Z",
+          "files_count": 0
+        }
+      ]
+    },
+    "list_empty": {
+      "data": []
+    },
+    "not_found": {
+      "error": "Ticket não encontrado",
+      "status": 404
+    },
+    "validation_error": {
+      "error": "Erro de validação: texto é obrigatório",
+      "status": 422
+    }
+  },
+  "errors": {
+    "unauthorized": {
+      "error": "Token de API inválido ou expirado",
+      "status": 401
+    },
+    "connection_error": {
+      "error": "Erro de conexão: connect ECONNREFUSED",
+      "status": "CONNECTION_ERROR"
+    },
+    "timeout": {
+      "error": "Timeout na requisição (15s)",
+      "status": "TIMEOUT"
+    },
+    "config_error": {
+      "error": "TIFLUX_API_KEY não configurada",
+      "status": "CONFIG_ERROR"
+    }
+  }
+}

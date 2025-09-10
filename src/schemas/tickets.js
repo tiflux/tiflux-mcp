@@ -79,6 +79,96 @@ const ticketSchemas = {
       },
       required: ['title', 'description']
     }
+  },
+
+  update_ticket: {
+    name: 'update_ticket',
+    description: 'Atualizar um ticket existente no TiFlux',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_id: {
+          type: 'string',
+          description: 'ID do ticket a ser atualizado (ex: "123", "456")'
+        },
+        title: {
+          type: 'string',
+          description: 'Novo título do ticket (opcional)'
+        },
+        description: {
+          type: 'string',
+          description: 'Nova descrição do ticket (opcional)'
+        },
+        client_id: {
+          type: 'number',
+          description: 'Novo ID do cliente (opcional)'
+        },
+        desk_id: {
+          type: 'number',
+          description: 'Novo ID da mesa (opcional)'
+        },
+        stage_id: {
+          type: 'number',
+          description: 'ID do estágio/fase do ticket (opcional)'
+        },
+        responsible_id: {
+          type: 'number',
+          description: 'ID do responsável (opcional - use null ou omita para remover responsável)'
+        },
+        followers: {
+          type: 'string',
+          description: 'Emails dos seguidores separados por vírgula (opcional)'
+        }
+      },
+      required: ['ticket_id']
+    }
+  },
+
+  list_tickets: {
+    name: 'list_tickets',
+    description: 'Listar tickets do TiFlux com filtros (pelo menos um filtro obrigatório: desk_ids/desk_name, client_ids, stage_ids/stage_name ou responsible_ids)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        desk_ids: {
+          type: 'string',
+          description: 'IDs das mesas separados por vírgula (ex: "1,2,3") - máximo 15 IDs'
+        },
+        desk_name: {
+          type: 'string',
+          description: 'Nome da mesa para busca automática (alternativa ao desk_ids)'
+        },
+        client_ids: {
+          type: 'string',
+          description: 'IDs dos clientes separados por vírgula (ex: "1,2,3") - máximo 15 IDs'
+        },
+        stage_ids: {
+          type: 'string',
+          description: 'IDs dos estágios separados por vírgula (ex: "1,2,3") - máximo 15 IDs'
+        },
+        stage_name: {
+          type: 'string',
+          description: 'Nome do estágio para busca automática (deve ser usado junto com desk_name)'
+        },
+        responsible_ids: {
+          type: 'string',
+          description: 'IDs dos responsáveis separados por vírgula (ex: "1,2,3") - máximo 15 IDs'
+        },
+        offset: {
+          type: 'number',
+          description: 'Número da página (padrão: 1)'
+        },
+        limit: {
+          type: 'number',
+          description: 'Número de tickets por página (padrão: 20, máximo: 200)'
+        },
+        is_closed: {
+          type: 'boolean',
+          description: 'Filtrar tickets fechados (padrão: false - apenas abertos)'
+        }
+      },
+      required: []
+    }
   }
 };
 
