@@ -91,6 +91,15 @@ logs
 
 # MCP specific
 .mcp.json
+.mcp-cache/
+
+# Test related
+coverage/
+*.test.log
+test-output/
+temp/
+tmp/
 
 # Local development files
 PROGRESSO.md
+debug-*.json

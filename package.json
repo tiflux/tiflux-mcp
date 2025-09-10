@@ -8,7 +8,13 @@
   },
   "scripts": {
     "start": "node server-sdk.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:verbose": "jest --verbose",
+    "test:silent": "jest --silent"
   },
   "author": "TiFlux <dev@tiflux.com>",
   "license": "MIT",
@@ -41,6 +47,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5"
   },
-  "peerDependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "jest": "^30.1.3"
+  }
 }
