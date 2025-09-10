@@ -11,7 +11,7 @@ async function testInternalCommunications() {
   console.log('🧪 Testando funcionalidades de comunicações internas...\n');
   
   const handlers = new InternalCommunicationsHandlers();
-  const testTicketNumber = '1'; // Ticket de teste
+  const testTicketNumber = '84181'; // Ticket de teste
   
   try {
     // Teste 1: Listar comunicações internas
