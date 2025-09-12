@@ -143,6 +143,13 @@ List internal communications for a ticket.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Communications per page (default: 20, max: 200)
 
+### get_internal_communication
+Get a specific internal communication with full content.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number containing the communication
+- `communication_id` (string, required): ID of the internal communication to retrieve
+
 ## API Endpoints Used
 
 The MCP server integrates with the following TiFlux API v2 endpoints:
@@ -154,6 +161,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /clients` - Search clients
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
+- `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
 
 ## Development
 
