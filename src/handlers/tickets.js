@@ -79,7 +79,8 @@ class TicketHandlers {
       description, 
       client_id, 
       client_name,
-      desk_id, 
+      desk_id,
+      desk_name,
       priority_id, 
       services_catalogs_item_id, 
       status_id,
@@ -147,10 +148,63 @@ class TicketHandlers {
         
         finalClientId = clients[0].id;
       }
+
+      let finalDeskId = desk_id;
+      
+      // Se desk_name foi fornecido, buscar o ID da mesa
+      if (desk_name && !desk_id) {
+        const deskSearchResponse = await this.api.searchDesks(desk_name);
+        
+        if (deskSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Erro ao buscar mesa "${desk_name}"**\n\n` +
+                      `**Erro:** ${deskSearchResponse.error}\n\n` +
+                      `*Verifique se o nome da mesa está correto ou use desk_id diretamente.*`
+              }
+            ]
+          };
+        }
+        
+        const desks = deskSearchResponse.data || [];
+        if (desks.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Mesa "${desk_name}" não encontrada**\n\n` +
+                      `*Verifique se o nome está correto ou use desk_id diretamente.*`
+              }
+            ]
+          };
+        }
+        
+        if (desks.length > 1) {
+          let desksList = '**Mesas encontradas:**\n';
+          desks.forEach((desk, index) => {
+            desksList += `${index + 1}. **ID:** ${desk.id} | **Nome:** ${desk.name} | **Display:** ${desk.display_name}\n`;
+          });
+          
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**⚠️ Múltiplas mesas encontradas para "${desk_name}"**\n\n` +
+                      `${desksList}\n` +
+                      `*Use desk_id específico ou seja mais específico no desk_name.*`
+              }
+            ]
+          };
+        }
+        
+        finalDeskId = desks[0].id;
+      }
       
       // Usar valores padrão das variáveis de ambiente se não informados
       finalClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
-      const finalDeskId = desk_id || process.env.TIFLUX_DEFAULT_DESK_ID;
+      finalDeskId = finalDeskId || process.env.TIFLUX_DEFAULT_DESK_ID;
       const finalPriorityId = priority_id || process.env.TIFLUX_DEFAULT_PRIORITY_ID;
       const finalCatalogItemId = services_catalogs_item_id || process.env.TIFLUX_DEFAULT_CATALOG_ITEM_ID;
       
@@ -232,7 +286,7 @@ class TicketHandlers {
       title, 
       description, 
       client_id, 
-      desk_id, 
+      desk_id,
       stage_id,
       responsible_id,
       followers
@@ -243,13 +297,32 @@ class TicketHandlers {
     }
 
     try {
+      // Verificar se transferência de mesa foi solicitada
+      if (desk_id) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**⚠️ Transferência de mesa não suportada via update**\n\n` +
+                    `**Limitação da API:** O TiFlux não permite alterar \`desk_id\` em tickets existentes.\n\n` +
+                    `**Alternativas disponíveis:**\n` +
+                    `• Use a interface web do TiFlux para transferir o ticket\n` +
+                    `• Contate o administrador para transferência manual\n` +
+                    `• Use outros campos editáveis: title, description, stage_id, responsible_id, followers\n\n` +
+                    `**Ticket ID:** #${ticket_id}\n` +
+                    `**Mesa solicitada:** ID ${desk_id}\n\n` +
+                    `*Para criar tickets em mesas específicas, use create_ticket com desk_name.*`
+            }
+          ]
+        };
+      }
+
       // Preparar dados de atualização (apenas campos fornecidos)
       const updateData = {};
       
       if (title !== undefined) updateData.title = title;
       if (description !== undefined) updateData.description = description;
       if (client_id !== undefined) updateData.client_id = parseInt(client_id);
-      if (desk_id !== undefined) updateData.desk_id = parseInt(desk_id);
       if (stage_id !== undefined) updateData.stage_id = parseInt(stage_id);
       if (followers !== undefined) updateData.followers = followers;
       
@@ -296,7 +369,6 @@ class TicketHandlers {
       if (title !== undefined) changesText += `• Título: ${title}\n`;
       if (description !== undefined) changesText += `• Descrição: ${description.substring(0, 50)}...\n`;
       if (client_id !== undefined) changesText += `• Cliente ID: ${client_id}\n`;
-      if (desk_id !== undefined) changesText += `• Mesa ID: ${desk_id}\n`;
       if (stage_id !== undefined) changesText += `• Estágio ID: ${stage_id}\n`;
       if (responsible_id !== undefined) {
         changesText += `• Responsável: ${responsible_id ? `ID ${responsible_id}` : 'Removido (não atribuído)'}\n`;

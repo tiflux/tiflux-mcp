@@ -44,6 +44,10 @@ const ticketSchemas = {
           type: 'number',
           description: 'ID da mesa (opcional - usa TIFLUX_DEFAULT_DESK_ID se não informado)'
         },
+        desk_name: {
+          type: 'string',
+          description: 'Nome da mesa para busca automática (alternativa ao desk_id)'
+        },
         priority_id: {
           type: 'number',
           description: 'ID da prioridade (opcional - usa TIFLUX_DEFAULT_PRIORITY_ID se não informado)'
@@ -105,7 +109,7 @@ const ticketSchemas = {
         },
         desk_id: {
           type: 'number',
-          description: 'Novo ID da mesa (opcional)'
+          description: 'Novo ID da mesa (opcional - LIMITAÇÃO: API não suporta transferência de mesa via update)'
         },
         stage_id: {
           type: 'number',
