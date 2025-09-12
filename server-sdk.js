@@ -77,6 +77,9 @@ class TifluxMCPServer {
         case 'list_internal_communications':
           return this.internalCommunicationsHandlers.handleListInternalCommunications(args);
         
+        case 'get_internal_communication':
+          return this.internalCommunicationsHandlers.handleGetInternalCommunication(args);
+        
         default:
           throw new Error(`Unknown tool: ${name}`);
       }

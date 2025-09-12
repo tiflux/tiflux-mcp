@@ -50,6 +50,25 @@ const internalCommunicationsSchemas = {
       },
       required: ['ticket_number']
     }
+  },
+
+  get_internal_communication: {
+    name: 'get_internal_communication',
+    description: 'Obter uma comunicação interna específica com texto completo',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_number: {
+          type: 'string',
+          description: 'Número do ticket da comunicação interna'
+        },
+        communication_id: {
+          type: 'string',
+          description: 'ID da comunicação interna a ser obtida'
+        }
+      },
+      required: ['ticket_number', 'communication_id']
+    }
   }
 };
 

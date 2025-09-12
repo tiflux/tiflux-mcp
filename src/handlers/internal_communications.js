@@ -224,6 +224,74 @@ class InternalCommunicationsHandlers {
       };
     }
   }
+
+  /**
+   * Handler para obter uma comunicação interna específica
+   */
+  async handleGetInternalCommunication(args) {
+    const { ticket_number, communication_id } = args;
+    
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+    
+    if (!communication_id) {
+      throw new Error('communication_id é obrigatório');
+    }
+
+    try {
+      // Buscar comunicação interna específica via API
+      const response = await this.api.getInternalCommunication(ticket_number, communication_id);
+      
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao buscar comunicação interna**\n\n` +
+                    `**Ticket:** #${ticket_number}\n` +
+                    `**Comunicação ID:** ${communication_id}\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o ticket e a comunicação existem e se você tem permissão para visualizar.*`
+            }
+          ]
+        };
+      }
+
+      const communication = response.data;
+      
+      // Formatear texto da comunicação (remover HTML se presente)
+      const communicationText = communication.text ? 
+        communication.text.replace(/<[^>]*>/g, '').trim() : 
+        'Conteúdo não disponível';
+      
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**📋 Comunicação Interna #${communication.id}**\n\n` +
+                  `${communicationText}\n\n` +
+                  `*✅ Texto completo obtido da API TiFlux*`
+          }
+        ]
+      };
+      
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro interno ao buscar comunicação interna**\n\n` +
+                  `**Ticket:** #${ticket_number}\n` +
+                  `**Comunicação ID:** ${communication_id}\n` +
+                  `**Erro:** ${error.message}\n\n` +
+                  `*Verifique sua conexão e configurações da API.*`
+          }
+        ]
+      };
+    }
+  }
 }
 
 module.exports = InternalCommunicationsHandlers;

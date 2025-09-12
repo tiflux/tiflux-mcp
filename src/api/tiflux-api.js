@@ -402,6 +402,14 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca uma comunicação interna específica de um ticket
+   */
+  async getInternalCommunication(ticketNumber, communicationId) {
+    const endpoint = `/tickets/${ticketNumber}/internal_communications/${communicationId}`;
+    return await this.makeRequest(endpoint);
+  }
+
+  /**
    * Versão especial do makeRequest para dados binários (arquivos)
    */
   async makeRequestBinary(endpoint, method = 'GET', data = null, headers = {}) {
