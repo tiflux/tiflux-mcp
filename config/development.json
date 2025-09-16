@@ -1,0 +1,18 @@
+{
+  "logging": {
+    "level": "debug",
+    "enableConsole": true,
+    "enableFile": true,
+    "fileName": "logs/tiflux-mcp-dev.log"
+  },
+  "api": {
+    "timeout": 30000,
+    "retries": 2
+  },
+  "cache": {
+    "ttl": 60
+  },
+  "rateLimit": {
+    "enabled": false
+  }
+}

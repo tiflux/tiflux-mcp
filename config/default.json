@@ -1,0 +1,35 @@
+{
+  "server": {
+    "name": "tiflux-mcp",
+    "version": "2.0.0",
+    "vendor": "TiFlux"
+  },
+  "api": {
+    "baseUrl": "https://api.tiflux.com/api/v2",
+    "timeout": 15000,
+    "retries": 3,
+    "retryDelay": 1000
+  },
+  "cache": {
+    "enabled": true,
+    "ttl": 300,
+    "maxSize": 1000
+  },
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "enableConsole": true,
+    "enableFile": false
+  },
+  "rateLimit": {
+    "enabled": true,
+    "maxRequests": 100,
+    "windowMs": 60000
+  },
+  "defaults": {
+    "clientId": null,
+    "deskId": null,
+    "priorityId": null,
+    "catalogItemId": null
+  }
+}
