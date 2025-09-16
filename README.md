@@ -4,7 +4,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 
 ## Features
 
-- **Ticket Management**: Get, create, update and list tickets with comprehensive filtering
+- **Ticket Management**: Get, create, update, close and list tickets with comprehensive filtering
 - **Internal Communications**: Create and list internal communications for tickets with file attachments
 - **Client Search**: Search for clients by name with automatic resolution
 - **File Upload Support**: Attach up to 10 files (25MB each) to internal communications
@@ -110,6 +110,28 @@ List tickets with filtering options.
 
 **Note:** At least one filter (desk_ids/desk_name, client_ids, stage_ids/stage_name, or responsible_ids) is required.
 
+### close_ticket
+Close a specific ticket in TiFlux.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number to be closed (e.g., "37", "123")
+
+**Example:**
+```json
+{
+  "ticket_number": "84429"
+}
+```
+
+**Success Response:**
+```markdown
+**✅ Ticket #84429 fechado com sucesso!**
+
+**Mensagem:** Ticket 84429 closed successfully
+
+*✅ Ticket fechado via API TiFlux*
+```
+
 ### search_client
 Search for clients by name.
 
@@ -157,6 +179,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets
 - `PUT /tickets/{id}` - Update existing tickets
+- `PUT /tickets/{ticket_number}/close` - Close specific ticket
 - `GET /tickets` - List tickets with filters
 - `GET /clients` - Search clients
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication

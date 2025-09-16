@@ -1,0 +1,22 @@
+{
+  "logging": {
+    "level": "warn",
+    "enableConsole": false,
+    "enableFile": true,
+    "fileName": "logs/tiflux-mcp.log"
+  },
+  "api": {
+    "timeout": 10000,
+    "retries": 5,
+    "retryDelay": 2000
+  },
+  "cache": {
+    "ttl": 600,
+    "maxSize": 5000
+  },
+  "rateLimit": {
+    "enabled": true,
+    "maxRequests": 200,
+    "windowMs": 60000
+  }
+}

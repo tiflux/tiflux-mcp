@@ -1,0 +1,18 @@
+{
+  "logging": {
+    "level": "error",
+    "enableConsole": false,
+    "enableFile": false
+  },
+  "api": {
+    "baseUrl": "http://localhost:3000/api/v2",
+    "timeout": 5000,
+    "retries": 1
+  },
+  "cache": {
+    "enabled": false
+  },
+  "rateLimit": {
+    "enabled": false
+  }
+}
