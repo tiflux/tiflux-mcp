@@ -121,9 +121,9 @@ class DefaultMiddlewares {
 
     // Validações básicas por operação
     const requiredArgs = {
-      get_ticket: ['ticket_id'],
+      get_ticket: ['ticket_number'],
       create_ticket: ['title', 'description'],
-      update_ticket: ['ticket_id'],
+      update_ticket: ['ticket_number'],
       list_tickets: [], // Sem argumentos obrigatórios
       search_client: ['client_name'],
       get_client: ['client_id'],

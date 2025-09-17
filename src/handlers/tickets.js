@@ -13,21 +13,21 @@ class TicketHandlers {
    * Handler para buscar um ticket específico
    */
   async handleGetTicket(args) {
-    const { ticket_id } = args;
-    
-    if (!ticket_id) {
-      throw new Error('ticket_id é obrigatório');
+    const { ticket_number } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
     }
 
     try {
-      const response = await this.api.fetchTicket(ticket_id);
+      const response = await this.api.fetchTicket(ticket_number);
       
       if (response.error) {
         return {
           content: [
             {
               type: 'text',
-              text: `**❌ Erro ao buscar ticket #${ticket_id}**\n\n` +
+              text: `**❌ Erro ao buscar ticket #${ticket_number}**\n\n` +
                     `**Código:** ${response.status}\n` +
                     `**Mensagem:** ${response.error}\n\n` +
                     `*Verifique se o ticket existe e se você tem permissão para acessá-lo.*`
@@ -42,7 +42,7 @@ class TicketHandlers {
         content: [
           {
             type: 'text',
-            text: `**Ticket #${ticket_id}**\n\n` +
+            text: `**Ticket #${ticket_number}**\n\n` +
                   `**Título:** ${ticket.title || 'N/A'}\n` +
                   `**Status:** ${ticket.status || 'N/A'}\n` +
                   `**Prioridade:** ${ticket.priority || 'N/A'}\n` +
@@ -61,7 +61,7 @@ class TicketHandlers {
         content: [
           {
             type: 'text',
-            text: `**❌ Erro interno ao buscar ticket #${ticket_id}**\n\n` +
+            text: `**❌ Erro interno ao buscar ticket #${ticket_number}**\n\n` +
                   `**Erro:** ${error.message}\n\n` +
                   `*Verifique sua conexão e configurações da API.*`
           }
@@ -281,19 +281,19 @@ class TicketHandlers {
    * Handler para atualizar um ticket existente
    */
   async handleUpdateTicket(args) {
-    const { 
-      ticket_id,
-      title, 
-      description, 
-      client_id, 
+    const {
+      ticket_number,
+      title,
+      description,
+      client_id,
       desk_id,
       stage_id,
       responsible_id,
       followers
     } = args;
-    
-    if (!ticket_id) {
-      throw new Error('ticket_id é obrigatório');
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
     }
 
     try {
@@ -309,7 +309,7 @@ class TicketHandlers {
                     `• Use a interface web do TiFlux para transferir o ticket\n` +
                     `• Contate o administrador para transferência manual\n` +
                     `• Use outros campos editáveis: title, description, stage_id, responsible_id, followers\n\n` +
-                    `**Ticket ID:** #${ticket_id}\n` +
+                    `**Ticket ID:** #${ticket_number}\n` +
                     `**Mesa solicitada:** ID ${desk_id}\n\n` +
                     `*Para criar tickets em mesas específicas, use create_ticket com desk_name.*`
             }
@@ -338,7 +338,7 @@ class TicketHandlers {
             {
               type: 'text',
               text: `**⚠️ Nenhum campo informado para atualização**\n\n` +
-                    `**Ticket ID:** #${ticket_id}\n\n` +
+                    `**Ticket ID:** #${ticket_number}\n\n` +
                     `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, responsible_id, followers*`
             }
           ]
@@ -346,14 +346,14 @@ class TicketHandlers {
       }
 
       // Atualizar ticket via API
-      const response = await this.api.updateTicket(ticket_id, updateData);
+      const response = await this.api.updateTicket(ticket_number, updateData);
       
       if (response.error) {
         return {
           content: [
             {
               type: 'text',
-              text: `**❌ Erro ao atualizar ticket #${ticket_id}**\n\n` +
+              text: `**❌ Erro ao atualizar ticket #${ticket_number}**\n\n` +
                     `**Código:** ${response.status}\n` +
                     `**Mensagem:** ${response.error}\n\n` +
                     `*Verifique se o ticket existe e se você tem permissão para editá-lo.*`
@@ -379,7 +379,7 @@ class TicketHandlers {
         content: [
           {
             type: 'text',
-            text: `**✅ Ticket #${ticket_id} atualizado com sucesso!**\n\n` +
+            text: `**✅ Ticket #${ticket_number} atualizado com sucesso!**\n\n` +
                   `${changesText}\n` +
                   `**Atualizado em:** ${new Date().toISOString()}\n\n` +
                   `*✅ Ticket atualizado via API TiFlux*`
@@ -392,9 +392,61 @@ class TicketHandlers {
         content: [
           {
             type: 'text',
-            text: `**❌ Erro interno ao atualizar ticket #${ticket_id}**\n\n` +
+            text: `**❌ Erro interno ao atualizar ticket #${ticket_number}**\n\n` +
                   `**Erro:** ${error.message}\n\n` +
                   `*Verifique sua conexão e configurações da API.*`
+          }
+        ]
+      };
+    }
+  }
+
+  /**
+   * Handler para cancelar um ticket específico
+   */
+  async handleCancelTicket(args) {
+    const { ticket_number } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+
+    try {
+      const response = await this.api.cancelTicket(ticket_number);
+
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao cancelar ticket #${ticket_number}**\n\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o ticket existe e se você tem permissão para cancelá-lo.*`
+            }
+          ]
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**✅ Ticket #${ticket_number} cancelado com sucesso!**\n\n` +
+                  `**Mensagem:** ${response.data?.message || response.message || 'Ticket cancelado'}\n\n` +
+                  `*O ticket foi cancelado e não pode mais receber atualizações.*`
+          }
+        ]
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro interno ao cancelar ticket #${ticket_number}**\n\n` +
+                  `**Erro:** ${error.message}\n\n` +
+                  `*Verifique sua conexão e tente novamente.*`
           }
         ]
       };

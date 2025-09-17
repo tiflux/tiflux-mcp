@@ -185,9 +185,9 @@ class TiFluxMCPServer {
             inputSchema: {
               type: 'object',
               properties: {
-                ticket_id: { type: 'string', description: 'ID do ticket a ser buscado' }
+                ticket_number: { type: 'string', description: 'Número do ticket a ser buscado' }
               },
-              required: ['ticket_id']
+              required: ['ticket_number']
             }
           },
           {
@@ -220,7 +220,7 @@ class TiFluxMCPServer {
             inputSchema: {
               type: 'object',
               properties: {
-                ticket_id: { type: 'string', description: 'ID do ticket a ser atualizado' },
+                ticket_number: { type: 'string', description: 'Número do ticket a ser atualizado' },
                 title: { type: 'string', description: 'Novo título do ticket (opcional)' },
                 description: { type: 'string', description: 'Nova descrição do ticket (opcional)' },
                 client_id: { type: 'number', description: 'Novo ID do cliente (opcional)' },
@@ -229,7 +229,7 @@ class TiFluxMCPServer {
                 stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
                 followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' }
               },
-              required: ['ticket_id']
+              required: ['ticket_number']
             }
           },
           {

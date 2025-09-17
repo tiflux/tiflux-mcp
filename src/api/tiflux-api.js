@@ -198,6 +198,13 @@ class TiFluxAPI {
   }
 
   /**
+   * Cancela um ticket específico
+   */
+  async cancelTicket(ticketNumber) {
+    return await this.makeRequest(`/tickets/${ticketNumber}/cancel`, 'PUT');
+  }
+
+  /**
    * Busca mesas por nome
    */
   async searchDesks(deskName = '') {

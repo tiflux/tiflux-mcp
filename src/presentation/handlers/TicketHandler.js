@@ -26,16 +26,16 @@ class TicketHandler {
 
     try {
       this.logger.info('Handling get ticket request', {
-        ticketId: args.ticket_id
+        ticketNumber: args.ticket_number
       });
 
       // Validação básica de parâmetros
-      if (!args.ticket_id) {
-        throw new ValidationError('ticket_id é obrigatório');
+      if (!args.ticket_number) {
+        throw new ValidationError('ticket_number é obrigatório');
       }
 
       // Delega para o domain service
-      const result = await this.ticketService.getTicket(args.ticket_id);
+      const result = await this.ticketService.getTicket(args.ticket_number);
 
       timer();
       return result; // TicketService já retorna formato MCP
@@ -99,25 +99,25 @@ class TicketHandler {
 
     try {
       this.logger.info('Handling update ticket request', {
-        ticketId: args.ticket_id,
-        fields: Object.keys(args).filter(key => key !== 'ticket_id')
+        ticketNumber: args.ticket_number,
+        fields: Object.keys(args).filter(key => key !== 'ticket_number')
       });
 
       // Validação básica
-      if (!args.ticket_id) {
-        throw new ValidationError('ticket_id é obrigatório');
+      if (!args.ticket_number) {
+        throw new ValidationError('ticket_number é obrigatório');
       }
 
-      // Extrai dados de atualização (remove ticket_id)
+      // Extrai dados de atualização (remove ticket_number)
       const updateData = { ...args };
-      delete updateData.ticket_id;
+      delete updateData.ticket_number;
 
       if (Object.keys(updateData).length === 0) {
         throw new ValidationError('Pelo menos um campo deve ser fornecido para atualização');
       }
 
       // Delega para o domain service
-      const result = await this.ticketService.updateTicket(args.ticket_id, updateData);
+      const result = await this.ticketService.updateTicket(args.ticket_number, updateData);
 
       timer();
       return result;
@@ -125,7 +125,7 @@ class TicketHandler {
     } catch (error) {
       timer();
       this.logger.error('Failed to handle update ticket', {
-        ticketId: args.ticket_id,
+        ticketNumber: args.ticket_number,
         error: error.message
       });
 
