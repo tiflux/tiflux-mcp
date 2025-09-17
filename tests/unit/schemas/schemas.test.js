@@ -87,19 +87,19 @@ describe('Schemas', () => {
 
   describe('Schemas de Tickets', () => {
     it('deve ter todos os schemas esperados de tickets', () => {
-      const expectedSchemas = ['get_ticket', 'create_ticket', 'update_ticket', 'list_tickets'];
-      
+      const expectedSchemas = ['get_ticket', 'create_ticket', 'update_ticket', 'cancel_ticket', 'list_tickets'];
+
       expectedSchemas.forEach(schemaName => {
         expect(schemas.tickets[schemaName]).toBeDefined();
         expect(schemas.tickets[schemaName].name).toBe(schemaName);
       });
     });
 
-    it('get_ticket deve ter ticket_id obrigatório', () => {
+    it('get_ticket deve ter ticket_number obrigatório', () => {
       const schema = schemas.tickets.get_ticket;
-      
-      expect(schema.inputSchema.required).toContain('ticket_id');
-      expect(schema.inputSchema.properties.ticket_id.type).toBe('string');
+
+      expect(schema.inputSchema.required).toContain('ticket_number');
+      expect(schema.inputSchema.properties.ticket_number.type).toBe('string');
     });
 
     it('create_ticket deve ter campos obrigatórios', () => {
@@ -107,6 +107,14 @@ describe('Schemas', () => {
       
       expect(schema.inputSchema.required).toContain('title');
       expect(schema.inputSchema.required).toContain('description');
+    });
+
+    it('cancel_ticket deve ter ticket_number obrigatório', () => {
+      const schema = schemas.tickets.cancel_ticket;
+
+      expect(schema.inputSchema.required).toContain('ticket_number');
+      expect(schema.inputSchema.properties.ticket_number.type).toBe('string');
+      expect(schema.description).toBe('Cancelar um ticket específico no TiFlux');
     });
 
     it('list_tickets deve ter filtros opcionais', () => {
@@ -158,15 +166,15 @@ describe('Schemas', () => {
 
   describe('Consistência de tipos', () => {
     it('IDs devem ser consistentemente string ou number', () => {
-      const idFields = ['ticket_id', 'client_id', 'desk_id', 'stage_id', 'responsible_id'];
-      
+      const idFields = ['ticket_number', 'client_id', 'desk_id', 'stage_id', 'responsible_id'];
+
       schemas.all.forEach(schema => {
         const properties = schema.inputSchema.properties || {};
-        
+
         idFields.forEach(idField => {
           if (properties[idField]) {
-            // ticket_id é sempre string, outros IDs são number
-            const expectedType = idField === 'ticket_id' ? 'string' : 'number';
+            // ticket_number é sempre string, outros IDs são number
+            const expectedType = idField === 'ticket_number' ? 'string' : 'number';
             expect(properties[idField].type).toBe(expectedType);
           }
         });

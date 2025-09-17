@@ -87,6 +87,17 @@ class MockTiFluxAPI {
     return { data: { ...this.mockResponses.tickets.get_success.data, ...ticketData } };
   }
 
+  async cancelTicket(ticketNumber) {
+    if (ticketNumber === '999') {
+      return this.mockResponses.tickets.get_not_found;
+    }
+    return {
+      data: {
+        message: `Ticket ${ticketNumber} cancelled successfully`
+      }
+    };
+  }
+
   async listTickets(filters = {}) {
     return { data: this.mockResponses.tickets.list_success };
   }

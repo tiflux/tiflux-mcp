@@ -5,16 +5,16 @@
 const ticketSchemas = {
   get_ticket: {
     name: 'get_ticket',
-    description: 'Buscar um ticket específico no TiFlux pelo ID',
+    description: 'Buscar um ticket específico no TiFlux pelo número',
     inputSchema: {
       type: 'object',
       properties: {
-        ticket_id: {
+        ticket_number: {
           type: 'string',
-          description: 'ID do ticket a ser buscado (ex: "123", "456")'
+          description: 'Número do ticket a ser buscado (ex: "123", "456")'
         }
       },
-      required: ['ticket_id']
+      required: ['ticket_number']
     }
   },
 
@@ -91,9 +91,9 @@ const ticketSchemas = {
     inputSchema: {
       type: 'object',
       properties: {
-        ticket_id: {
+        ticket_number: {
           type: 'string',
-          description: 'ID do ticket a ser atualizado (ex: "123", "456")'
+          description: 'Número do ticket a ser atualizado (ex: "123", "456")'
         },
         title: {
           type: 'string',
@@ -124,7 +124,22 @@ const ticketSchemas = {
           description: 'Emails dos seguidores separados por vírgula (opcional)'
         }
       },
-      required: ['ticket_id']
+      required: ['ticket_number']
+    }
+  },
+
+  cancel_ticket: {
+    name: 'cancel_ticket',
+    description: 'Cancelar um ticket específico no TiFlux',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_number: {
+          type: 'string',
+          description: 'Número do ticket a ser cancelado (ex: "123", "456")'
+        }
+      },
+      required: ['ticket_number']
     }
   },
 

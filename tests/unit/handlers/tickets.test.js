@@ -19,7 +19,7 @@ describe('TicketHandlers', () => {
   describe('handleGetTicket', () => {
     it('deve buscar ticket com sucesso', async () => {
       // Arrange
-      const args = { ticket_id: '123' };
+      const args = { ticket_number: '123' };
 
       // Act
       const result = await handlers.handleGetTicket(args);
@@ -31,18 +31,18 @@ describe('TicketHandlers', () => {
       expect(result.content[0].text).toContain('**Técnico:** Técnico Teste');
     });
 
-    it('deve rejeitar quando ticket_id não informado', async () => {
+    it('deve rejeitar quando ticket_number não informado', async () => {
       // Arrange
       const args = {};
 
       // Act & Assert
       await expect(handlers.handleGetTicket(args))
-        .rejects.toThrow('ticket_id é obrigatório');
+        .rejects.toThrow('ticket_number é obrigatório');
     });
 
     it('deve tratar ticket não encontrado', async () => {
       // Arrange
-      const args = { ticket_id: '999' };
+      const args = { ticket_number: '999' };
 
       // Act
       const result = await handlers.handleGetTicket(args);
@@ -118,6 +118,66 @@ describe('TicketHandlers', () => {
     });
   });
 
+  describe('handleCancelTicket', () => {
+    it('deve cancelar ticket com sucesso', async () => {
+      // Arrange
+      const args = { ticket_number: '123' };
+
+      // Act
+      const result = await handlers.handleCancelTicket(args);
+
+      // Assert
+      expect(result.content[0].text).toContain('**✅ Ticket #123 cancelado com sucesso!**');
+      expect(result.content[0].text).toContain('*O ticket foi cancelado e não pode mais receber atualizações.*');
+    });
+
+    it('deve rejeitar quando ticket_number não informado', async () => {
+      // Arrange
+      const args = {};
+
+      // Act & Assert
+      await expect(handlers.handleCancelTicket(args))
+        .rejects.toThrow('ticket_number é obrigatório');
+    });
+
+    it('deve tratar ticket não encontrado', async () => {
+      // Mock da API para simular ticket não encontrado
+      handlers.api.cancelTicket = jest.fn().mockResolvedValue({
+        error: 'Ticket not found',
+        status: 404
+      });
+
+      // Arrange
+      const args = { ticket_number: '999' };
+
+      // Act
+      const result = await handlers.handleCancelTicket(args);
+
+      // Assert
+      expect(result.content[0].text).toContain('❌ Erro ao cancelar ticket #999');
+      expect(result.content[0].text).toContain('Ticket not found');
+      expect(result.content[0].text).toContain('*Verifique se o ticket existe e se você tem permissão para cancelá-lo.*');
+    });
+
+    it('deve tratar erro de permissão', async () => {
+      // Mock da API para simular erro de permissão
+      handlers.api.cancelTicket = jest.fn().mockResolvedValue({
+        error: 'Access denied',
+        status: 403
+      });
+
+      // Arrange
+      const args = { ticket_number: '123' };
+
+      // Act
+      const result = await handlers.handleCancelTicket(args);
+
+      // Assert
+      expect(result.content[0].text).toContain('❌ Erro ao cancelar ticket #123');
+      expect(result.content[0].text).toContain('Access denied');
+    });
+  });
+
   describe('Integração com busca de clientes', () => {
     it('deve criar ticket usando client_name', async () => {
       // Arrange
@@ -154,7 +214,7 @@ describe('TicketHandlers', () => {
     it('deve tratar erro de conexão', async () => {
       // Arrange
       handlers.api = createMockApiWithError('connection_error');
-      const args = { ticket_id: '123' };
+      const args = { ticket_number: '123' };
 
       // Act
       const result = await handlers.handleGetTicket(args);
@@ -167,7 +227,7 @@ describe('TicketHandlers', () => {
     it('deve tratar timeout', async () => {
       // Arrange
       handlers.api = createMockApiWithError('timeout');
-      const args = { ticket_id: '123' };
+      const args = { ticket_number: '123' };
 
       // Act
       const result = await handlers.handleGetTicket(args);

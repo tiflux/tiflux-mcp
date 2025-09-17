@@ -21,33 +21,33 @@ class TicketService {
   }
 
   /**
-   * Busca um ticket por ID com cache inteligente
+   * Busca um ticket por número com cache inteligente
    */
-  async getTicket(ticketId) {
-    const timer = this.logger.startTimer(`get_ticket_${ticketId}`);
+  async getTicket(ticketNumber) {
+    const timer = this.logger.startTimer(`get_ticket_${ticketNumber}`);
 
     try {
-      this.logger.info('Getting ticket', { ticketId });
+      this.logger.info('Getting ticket', { ticketNumber });
 
       // Validação básica
-      if (!ticketId || ticketId.toString().trim() === '') {
-        throw new ValidationError('ticket_id é obrigatório');
+      if (!ticketNumber || ticketNumber.toString().trim() === '') {
+        throw new ValidationError('ticket_number é obrigatório');
       }
 
-      // Normaliza ID
-      const normalizedId = ticketId.toString().trim();
+      // Normaliza número
+      const normalizedNumber = ticketNumber.toString().trim();
 
       // Tenta buscar no cache primeiro
-      const cached = await this.cacheStrategy.getTicket(normalizedId);
+      const cached = await this.cacheStrategy.getTicket(normalizedNumber);
       if (cached) {
-        this.logger.debug('Ticket found in cache', { ticketId: normalizedId });
+        this.logger.debug('Ticket found in cache', { ticketNumber: normalizedNumber });
         timer();
         return this._formatTicketForResponse(cached);
       }
 
       // Busca no repository (API)
-      this.logger.debug('Fetching ticket from API', { ticketId: normalizedId });
-      const ticketData = await this._getTicketRepository().getById(normalizedId);
+      this.logger.debug('Fetching ticket from API', { ticketNumber: normalizedNumber });
+      const ticketData = await this._getTicketRepository().getById(normalizedNumber);
 
       // Valida dados retornados
       if (!ticketData) {
@@ -120,29 +120,29 @@ class TicketService {
   /**
    * Atualiza um ticket existente
    */
-  async updateTicket(ticketId, updateData) {
-    const timer = this.logger.startTimer(`update_ticket_${ticketId}`);
+  async updateTicket(ticketNumber, updateData) {
+    const timer = this.logger.startTimer(`update_ticket_${ticketNumber}`);
 
     try {
       this.logger.info('Updating ticket', {
-        ticketId,
+        ticketNumber,
         fields: Object.keys(updateData)
       });
 
       // Validações
-      if (!ticketId) {
-        throw new ValidationError('ticket_id é obrigatório para atualização');
+      if (!ticketNumber) {
+        throw new ValidationError('ticket_number é obrigatório para atualização');
       }
 
-      const normalizedId = ticketId.toString().trim();
+      const normalizedNumber = ticketNumber.toString().trim();
 
       // Valida dados de atualização
       await this._getTicketValidator().validateUpdateData(updateData);
 
       // Busca ticket atual (para validar se existe)
-      const currentTicket = await this._getTicketRepository().getById(normalizedId);
+      const currentTicket = await this._getTicketRepository().getById(normalizedNumber);
       if (!currentTicket) {
-        throw new NotFoundError(`Ticket #${normalizedId} não encontrado`);
+        throw new NotFoundError(`Ticket #${normalizedNumber} não encontrado`);
       }
 
       // Aplica business rules de atualização

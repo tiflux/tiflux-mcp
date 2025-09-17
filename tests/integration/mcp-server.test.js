@@ -104,7 +104,7 @@ describe('TifluxMCPServer Integration', () => {
   describe('Handlers integração - Tickets', () => {
     it('deve executar get_ticket via handler', async () => {
       // Act
-      const result = await server.ticketHandlers.handleGetTicket({ ticket_id: '123' });
+      const result = await server.ticketHandlers.handleGetTicket({ ticket_number: '123' });
 
       // Assert
       expect(result.content[0].text).toContain('**Ticket #123**');
@@ -150,7 +150,7 @@ describe('TifluxMCPServer Integration', () => {
       // Criar 10 requisições simultâneas via handlers diretos
       for (let i = 0; i < 10; i++) {
         if (i % 3 === 0) {
-          requests.push(server.ticketHandlers.handleGetTicket({ ticket_id: '123' }));
+          requests.push(server.ticketHandlers.handleGetTicket({ ticket_number: '123' }));
         } else if (i % 3 === 1) {
           requests.push(server.internalCommunicationsHandlers.handleListInternalCommunications({ ticket_number: '123' }));
         } else {
