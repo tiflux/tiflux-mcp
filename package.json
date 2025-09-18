@@ -41,7 +41,8 @@
   "files": [
     "server-sdk.js",
     ".env.example",
-    "README.md"
+    "README.md",
+    "src/"
   ],
   "type": "commonjs",
   "dependencies": {
