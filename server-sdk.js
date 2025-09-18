@@ -182,7 +182,7 @@ class TifluxMCPServerV2 {
             throw new Error(`Unknown tool: ${name}`);
         }
 
-        timer.done();
+        timer();
 
         this.logger.info('Tool execution completed successfully', {
           requestId,
@@ -193,7 +193,7 @@ class TifluxMCPServerV2 {
         return result;
 
       } catch (error) {
-        timer.done();
+        timer();
 
         this.logger.error('Tool execution failed', {
           requestId,

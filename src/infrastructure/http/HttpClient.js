@@ -123,7 +123,7 @@ class HttpClient {
 
         const response = await this._executeRequest(options, requestId);
 
-        timer?.done();
+        timer?.();
         this.logger.info?.(`HTTP Request successful`, {
           requestId,
           method: options.method,
@@ -159,7 +159,7 @@ class HttpClient {
       }
     }
 
-    timer?.done();
+    timer?.();
     this.logger.error?.(`HTTP Request failed after ${maxRetries + 1} attempts`, {
       requestId,
       method: options.method,
