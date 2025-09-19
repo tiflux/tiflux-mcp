@@ -205,6 +205,131 @@ class TiFluxAPI {
   }
 
   /**
+   * Fecha um ticket específico
+   */
+  async closeTicket(ticketNumber) {
+    return await this.makeRequest(`/tickets/${ticketNumber}/close`, 'PUT');
+  }
+
+  /**
+   * Cria uma resposta (comunicação com cliente) em um ticket específico
+   */
+  async createTicketAnswer(ticketNumber, answerData) {
+    try {
+      // Para multipart/form-data, precisamos fazer uma requisição especial
+      const FormData = require('form-data');
+      const form = new FormData();
+
+      // Adicionar campo obrigatório
+      if (answerData.name) {
+        form.append('name', answerData.name);
+      } else {
+        return {
+          error: 'Campo "name" é obrigatório',
+          status: 'VALIDATION_ERROR'
+        };
+      }
+
+      // Adicionar campo opcional de assinatura
+      if (answerData.with_signature !== undefined) {
+        form.append('with_signature', answerData.with_signature ? 'true' : 'false');
+      }
+
+      // Adicionar arquivos se fornecidos
+      if (answerData.files && Array.isArray(answerData.files)) {
+        answerData.files.forEach((filePath) => {
+          if (fs.existsSync(filePath)) {
+            form.append('files[]', fs.createReadStream(filePath));
+          }
+        });
+      }
+
+      const url = `${this.baseUrl}/tickets/${ticketNumber}/answers`;
+
+      return new Promise((resolve) => {
+        const parsedUrl = new URL(url);
+
+        const options = {
+          hostname: parsedUrl.hostname,
+          port: parsedUrl.port || 443,
+          path: parsedUrl.pathname,
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'authorization': `Bearer ${this.apiKey}`,
+            ...form.getHeaders()
+          }
+        };
+
+        const req = https.request(options, (res) => {
+          let responseData = '';
+
+          res.on('data', (chunk) => {
+            responseData += chunk;
+          });
+
+          res.on('end', () => {
+            try {
+              if (res.statusCode >= 200 && res.statusCode < 300) {
+                const jsonData = JSON.parse(responseData);
+                resolve({ data: jsonData, status: res.statusCode });
+              } else if (res.statusCode === 401) {
+                resolve({
+                  error: 'Token de API inválido ou expirado',
+                  status: res.statusCode
+                });
+              } else if (res.statusCode === 404) {
+                resolve({
+                  error: `Ticket #${ticketNumber} não encontrado`,
+                  status: res.statusCode
+                });
+              } else if (res.statusCode === 422) {
+                resolve({
+                  error: `Erro de validação: ${responseData}`,
+                  status: res.statusCode
+                });
+              } else {
+                resolve({
+                  error: `Erro HTTP ${res.statusCode}: ${responseData}`,
+                  status: res.statusCode
+                });
+              }
+            } catch (parseError) {
+              resolve({
+                error: `Erro ao processar resposta: ${parseError.message}`,
+                status: 'PARSE_ERROR'
+              });
+            }
+          });
+        });
+
+        req.on('error', (error) => {
+          resolve({
+            error: `Erro de conexão: ${error.message}`,
+            status: 'CONNECTION_ERROR'
+          });
+        });
+
+        req.setTimeout(30000, () => {
+          req.destroy();
+          resolve({
+            error: 'Timeout na requisição (30s)',
+            status: 'TIMEOUT'
+          });
+        });
+
+        form.pipe(req);
+      });
+
+    } catch (error) {
+      return {
+        error: `Erro interno: ${error.message}`,
+        status: 'INTERNAL_ERROR'
+      };
+    }
+  }
+
+  /**
    * Busca mesas por nome
    */
   async searchDesks(deskName = '') {

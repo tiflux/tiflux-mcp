@@ -143,6 +143,21 @@ const ticketSchemas = {
     }
   },
 
+  close_ticket: {
+    name: 'close_ticket',
+    description: 'Fechar um ticket específico no TiFlux',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_number: {
+          type: 'string',
+          description: 'Número do ticket a ser fechado (ex: "123", "456")'
+        }
+      },
+      required: ['ticket_number']
+    }
+  },
+
   list_tickets: {
     name: 'list_tickets',
     description: 'Listar tickets do TiFlux com filtros (pelo menos um filtro obrigatório: desk_ids/desk_name, client_ids, stage_ids/stage_name ou responsible_ids)',
@@ -187,6 +202,36 @@ const ticketSchemas = {
         }
       },
       required: []
+    }
+  },
+
+  create_ticket_answer: {
+    name: 'create_ticket_answer',
+    description: 'Criar uma nova resposta (comunicação com cliente) em um ticket específico',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_number: {
+          type: 'string',
+          description: 'Número do ticket onde será criada a resposta'
+        },
+        text: {
+          type: 'string',
+          description: 'Conteúdo da resposta que será enviada ao cliente'
+        },
+        with_signature: {
+          type: 'boolean',
+          description: 'Incluir assinatura do usuário na resposta (padrão: false)'
+        },
+        files: {
+          type: 'array',
+          description: 'Lista com os caminhos dos arquivos a serem anexados (opcional, máximo 10 arquivos de 25MB cada)',
+          items: {
+            type: 'string'
+          }
+        }
+      },
+      required: ['ticket_number', 'text']
     }
   }
 };

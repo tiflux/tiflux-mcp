@@ -2,6 +2,7 @@
  * Handlers para operações relacionadas a tickets
  */
 
+const fs = require('fs');
 const TiFluxAPI = require('../api/tiflux-api');
 
 class TicketHandlers {
@@ -447,6 +448,179 @@ class TicketHandlers {
             text: `**❌ Erro interno ao cancelar ticket #${ticket_number}**\n\n` +
                   `**Erro:** ${error.message}\n\n` +
                   `*Verifique sua conexão e tente novamente.*`
+          }
+        ]
+      };
+    }
+  }
+
+  /**
+   * Handler para fechar um ticket específico
+   */
+  async handleCloseTicket(args) {
+    const { ticket_number } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+
+    try {
+      const response = await this.api.closeTicket(ticket_number);
+
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao fechar ticket #${ticket_number}**\n\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o ticket existe e se você tem permissão para fechá-lo.*`
+            }
+          ]
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**✅ Ticket #${ticket_number} fechado com sucesso!**\n\n` +
+                  `**Mensagem:** ${response.data?.message || response.message || 'Ticket fechado'}\n\n` +
+                  `*O ticket foi fechado e marcado como resolvido.*`
+          }
+        ]
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro interno ao fechar ticket #${ticket_number}**\n\n` +
+                  `**Erro:** ${error.message}\n\n` +
+                  `*Verifique sua conexão e tente novamente.*`
+          }
+        ]
+      };
+    }
+  }
+
+  /**
+   * Handler para criar uma resposta (comunicação com cliente) em um ticket
+   */
+  async handleCreateTicketAnswer(args) {
+    const { ticket_number, text, with_signature, files } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+
+    if (!text) {
+      throw new Error('text é obrigatório');
+    }
+
+    try {
+      // Preparar dados da resposta
+      const answerData = {
+        name: text, // O campo 'name' na API corresponde ao texto da resposta
+        with_signature: with_signature || false
+      };
+
+      // Adicionar arquivos se fornecidos
+      if (files && Array.isArray(files) && files.length > 0) {
+        // Validar arquivos
+        const invalidFiles = files.filter(filePath => !fs.existsSync(filePath));
+        if (invalidFiles.length > 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Arquivos não encontrados:**\n\n` +
+                      invalidFiles.map(file => `• ${file}`).join('\n') + '\n\n' +
+                      `*Verifique se os caminhos dos arquivos estão corretos.*`
+              }
+            ]
+          };
+        }
+
+        // Validar tamanho dos arquivos (25MB cada)
+        const maxSize = 25 * 1024 * 1024; // 25MB em bytes
+        const oversizedFiles = [];
+
+        files.forEach(filePath => {
+          try {
+            const stats = fs.statSync(filePath);
+            if (stats.size > maxSize) {
+              oversizedFiles.push(`${filePath} (${Math.round(stats.size / 1024 / 1024)}MB)`);
+            }
+          } catch (error) {
+            // Arquivo não encontrado já foi tratado acima
+          }
+        });
+
+        if (oversizedFiles.length > 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Arquivos muito grandes (máx. 25MB cada):**\n\n` +
+                      oversizedFiles.map(file => `• ${file}`).join('\n') + '\n\n' +
+                      `*Reduza o tamanho dos arquivos ou envie em respostas separadas.*`
+              }
+            ]
+          };
+        }
+
+        answerData.files = files;
+      }
+
+      // Criar resposta via API
+      const response = await this.api.createTicketAnswer(ticket_number, answerData);
+
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao criar resposta no ticket #${ticket_number}**\n\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o ticket existe e se você tem permissão para responder.*`
+            }
+          ]
+        };
+      }
+
+      const answer = response.data;
+      const filesInfo = files && files.length > 0
+        ? `\n**Arquivos anexados:** ${files.length} arquivo(s)`
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**✅ Resposta criada com sucesso no ticket #${ticket_number}!**\n\n` +
+                  `**ID da resposta:** ${answer.id}\n` +
+                  `**Autor:** ${answer.author}\n` +
+                  `**Data/Hora:** ${answer.answer_time}\n` +
+                  `**Origem:** ${answer.answer_origin}\n` +
+                  `**Com assinatura:** ${answer.signature ? 'Sim' : 'Não'}${filesInfo}\n\n` +
+                  `**Conteúdo enviado:**\n${text}\n\n` +
+                  `*✅ Resposta enviada via API TiFlux*`
+          }
+        ]
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro interno ao criar resposta no ticket #${ticket_number}**\n\n` +
+                  `**Erro:** ${error.message}\n\n` +
+                  `*Verifique sua conexão e configurações da API.*`
           }
         ]
       };
