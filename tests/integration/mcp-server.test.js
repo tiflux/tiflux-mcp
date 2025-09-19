@@ -14,10 +14,11 @@ describe('TifluxMCPServer Integration', () => {
   let server;
   let mockApi;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     server = new TifluxMCPServer();
+    await server.initialize();
     mockApi = new MockTiFluxAPI();
-    
+
     // Injetar mock APIs nos handlers
     server.ticketHandlers.api = mockApi;
     server.clientHandlers.api = mockApi;
