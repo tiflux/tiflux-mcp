@@ -164,6 +164,10 @@ class TifluxMCPServerV2 {
             result = await this.ticketHandlers.handleCloseTicket(args);
             break;
 
+          case 'create_ticket_answer':
+            result = await this.ticketHandlers.handleCreateTicketAnswer(args);
+            break;
+
           // Tools de clientes
           case 'search_client':
             result = await this.clientHandlers.handleSearchClient(args);
