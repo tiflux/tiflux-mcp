@@ -14,15 +14,19 @@ class TicketHandlers {
    * Handler para buscar um ticket específico
    */
   async handleGetTicket(args) {
-    const { ticket_number } = args;
+    const { ticket_number, show_entities, include_filled_entity } = args;
 
     if (!ticket_number) {
       throw new Error('ticket_number é obrigatório');
     }
 
     try {
-      const response = await this.api.fetchTicket(ticket_number);
-      
+      const options = {};
+      if (show_entities) options.show_entities = true;
+      if (include_filled_entity) options.include_filled_entity = true;
+
+      const response = await this.api.fetchTicket(ticket_number, options);
+
       if (response.error) {
         return {
           content: [
@@ -38,25 +42,53 @@ class TicketHandlers {
       }
 
       const ticket = response.data;
-      
+
+      // Formatar campos personalizados se existirem
+      let entitiesText = '';
+      if (ticket.entities || ticket.entity_fields) {
+        const entities = ticket.entities || [];
+        const entityFields = ticket.entity_fields || [];
+
+        if (entities.length > 0) {
+          entitiesText = '\n\n**Campos Personalizados (entities):**\n';
+          entities.forEach(entity => {
+            entitiesText += `\n**${entity.name || 'Menu'}** (ID: ${entity.id})\n`;
+            if (entity.entity_fields && entity.entity_fields.length > 0) {
+              entity.entity_fields.forEach(field => {
+                const value = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
+                entitiesText += `  • ${field.name} (${field.field_type}): ${value}\n`;
+                entitiesText += `    - entity_field_id: ${field.entity_field_id}\n`;
+              });
+            }
+          });
+        } else if (entityFields.length > 0) {
+          entitiesText = '\n\n**Campos Personalizados (entity_fields):**\n';
+          entityFields.forEach(field => {
+            const value = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
+            entitiesText += `  • ${field.name} (${field.field_type}): ${value}\n`;
+            entitiesText += `    - entity_field_id: ${field.entity_field_id}\n`;
+          });
+        }
+      }
+
       return {
         content: [
           {
             type: 'text',
             text: `**Ticket #${ticket_number}**\n\n` +
                   `**Título:** ${ticket.title || 'N/A'}\n` +
-                  `**Status:** ${ticket.status || 'N/A'}\n` +
-                  `**Prioridade:** ${ticket.priority || 'N/A'}\n` +
+                  `**Status:** ${ticket.status?.name || ticket.status || 'N/A'}\n` +
+                  `**Prioridade:** ${ticket.priority?.name || ticket.priority || 'N/A'}\n` +
                   `**Cliente:** ${ticket.client?.name || ticket.client_name || 'N/A'}\n` +
-                  `**Técnico:** ${ticket.assigned_to?.name || ticket.assigned_to_name || 'Não atribuído'}\n` +
+                  `**Técnico:** ${ticket.responsible?.name || ticket.assigned_to?.name || 'Não atribuído'}\n` +
                   `**Criado em:** ${ticket.created_at || 'N/A'}\n` +
                   `**Atualizado em:** ${ticket.updated_at || 'N/A'}\n\n` +
-                  `**Descrição:**\n${ticket.description || 'Sem descrição'}\n\n` +
+                  `**Descrição:**\n${ticket.description || 'Sem descrição'}${entitiesText}\n\n` +
                   `*✅ Dados obtidos da API TiFlux em tempo real*`
           }
         ]
       };
-      
+
     } catch (error) {
       return {
         content: [
@@ -882,13 +914,136 @@ class TicketHandlers {
           }
         ]
       };
-      
+
     } catch (error) {
       return {
         content: [
           {
             type: 'text',
             text: `**❌ Erro interno ao listar tickets**\n\n` +
+                  `**Erro:** ${error.message}\n\n` +
+                  `*Verifique sua conexão e configurações da API.*`
+          }
+        ]
+      };
+    }
+  }
+
+  /**
+   * Handler para atualizar campos personalizados (entities) de um ticket
+   */
+  async handleUpdateTicketEntities(args) {
+    const { ticket_number, entities } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+
+    if (!entities || !Array.isArray(entities) || entities.length === 0) {
+      throw new Error('entities é obrigatório e deve ser um array com pelo menos 1 campo');
+    }
+
+    if (entities.length > 50) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Limite excedido**\n\n` +
+                  `Você está tentando atualizar ${entities.length} campos, mas o limite é de 50 campos por requisição.\n\n` +
+                  `*Divida a atualização em múltiplas requisições.*`
+          }
+        ]
+      };
+    }
+
+    try {
+      // Validar estrutura de cada entity
+      for (let i = 0; i < entities.length; i++) {
+        const entity = entities[i];
+        if (!entity.entity_field_id) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Erro de validação no campo ${i + 1}**\n\n` +
+                      `O campo \`entity_field_id\` é obrigatório.\n\n` +
+                      `*Exemplo: { "entity_field_id": 72, "value": "Novo valor" }*`
+              }
+            ]
+          };
+        }
+
+        if (entity.value === undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**❌ Erro de validação no campo ${i + 1}**\n\n` +
+                      `O campo \`value\` é obrigatório (use null para limpar).\n\n` +
+                      `*Exemplo: { "entity_field_id": 72, "value": "Novo valor" } ou { "entity_field_id": 72, "value": null }*`
+              }
+            ]
+          };
+        }
+      }
+
+      // Preparar dados para a API
+      const updateData = { entities };
+
+      // Atualizar via API
+      const response = await this.api.updateTicketEntities(ticket_number, updateData);
+
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao atualizar campos personalizados do ticket #${ticket_number}**\n\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o ticket existe, se os entity_field_id são válidos e se você tem permissão para editar.*`
+            }
+          ]
+        };
+      }
+
+      // Formatar resposta de sucesso
+      const updatedEntities = response.data?.entities || [];
+      let entitiesText = '';
+
+      if (updatedEntities.length > 0) {
+        entitiesText = '\n\n**Campos atualizados:**\n';
+        updatedEntities.forEach(entity => {
+          if (entity.entity_fields && entity.entity_fields.length > 0) {
+            entity.entity_fields.forEach(field => {
+              const wasUpdated = entities.some(e => e.entity_field_id === field.entity_field_id);
+              if (wasUpdated) {
+                entitiesText += `• ${field.name}: ${field.value || '(vazio)'}\n`;
+              }
+            });
+          }
+        });
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**✅ Campos personalizados atualizados com sucesso!**\n\n` +
+                  `**Ticket:** #${ticket_number}\n` +
+                  `**Campos processados:** ${entities.length}${entitiesText}\n\n` +
+                  `*✅ Campos atualizados via API TiFlux*`
+          }
+        ]
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro interno ao atualizar campos personalizados**\n\n` +
+                  `**Ticket:** #${ticket_number}\n` +
                   `**Erro:** ${error.message}\n\n` +
                   `*Verifique sua conexão e configurações da API.*`
           }

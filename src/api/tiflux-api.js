@@ -123,8 +123,19 @@ class TiFluxAPI {
   /**
    * Busca um ticket específico pelo ID
    */
-  async fetchTicket(ticketId) {
-    return await this.makeRequest(`/tickets/${ticketId}`);
+  async fetchTicket(ticketId, options = {}) {
+    const queryParams = [];
+
+    // Adicionar parâmetros para incluir campos personalizados
+    if (options.show_entities) {
+      queryParams.push('show_entities=true');
+    }
+    if (options.include_filled_entity) {
+      queryParams.push('include_filled_entity=true');
+    }
+
+    const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
+    return await this.makeRequest(`/tickets/${ticketId}${queryString}`);
   }
 
   /**
@@ -195,6 +206,19 @@ class TiFluxAPI {
     };
 
     return await this.makeRequest(`/tickets/${ticketId}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Atualiza campos personalizados (entities) de um ticket
+   */
+  async updateTicketEntities(ticketNumber, entitiesData) {
+    const jsonData = JSON.stringify(entitiesData);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest(`/tickets/${ticketNumber}/entities`, 'PUT', jsonData, headers);
   }
 
   /**
