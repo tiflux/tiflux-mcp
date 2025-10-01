@@ -12,6 +12,14 @@ const ticketSchemas = {
         ticket_number: {
           type: 'string',
           description: 'Número do ticket a ser buscado (ex: "123", "456")'
+        },
+        show_entities: {
+          type: 'boolean',
+          description: 'Incluir TODOS os campos personalizados vinculados ao ticket na resposta (padrão: false)'
+        },
+        include_filled_entity: {
+          type: 'boolean',
+          description: 'Incluir apenas campos personalizados que possuem valores preenchidos (padrão: false)'
         }
       },
       required: ['ticket_number']
@@ -232,6 +240,43 @@ const ticketSchemas = {
         }
       },
       required: ['ticket_number', 'text']
+    }
+  },
+
+  update_ticket_entities: {
+    name: 'update_ticket_entities',
+    description: 'Atualizar campos personalizados (entities) de um ticket no TiFlux. Suporta até 50 campos por requisição.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_number: {
+          type: 'string',
+          description: 'Número do ticket a ser atualizado'
+        },
+        entities: {
+          type: 'array',
+          description: 'Lista de campos personalizados a serem atualizados',
+          items: {
+            type: 'object',
+            properties: {
+              entity_field_id: {
+                type: 'number',
+                description: 'ID do campo personalizado (obtido via get_ticket)'
+              },
+              value: {
+                type: 'string',
+                description: 'Valor do campo. Tipos aceitos: text (string), text_area (string), currency (float como string ex: "150.55"), phone (apenas números ex: "47999999999"), email (string), link (URL começando com http/https/ftp), date (formato YYYY-MM-DD), single_select (ID da opção como string), checkbox (boolean como string "true"/"false"). Use null para limpar campos não obrigatórios.'
+              },
+              country_code: {
+                type: 'string',
+                description: 'Código do país (opcional, apenas para campos tipo phone de outros países além do Brasil)'
+              }
+            },
+            required: ['entity_field_id', 'value']
+          }
+        }
+      },
+      required: ['ticket_number', 'entities']
     }
   }
 };
