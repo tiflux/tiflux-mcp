@@ -85,7 +85,7 @@ Update an existing ticket in TiFlux.
 **Parameters:**
 - `ticket_id` (string, required): ID of the ticket to update
 - `title` (string, optional): New ticket title
-- `description` (string, optional): New ticket description  
+- `description` (string, optional): New ticket description
 - `client_id` (number, optional): New client ID
 - `desk_id` (number, optional): New desk ID
 - `stage_id` (number, optional): Stage/phase ID
@@ -93,6 +93,58 @@ Update an existing ticket in TiFlux.
 - `followers` (string, optional): Comma-separated follower emails
 
 **Note:** At least one optional field must be provided along with the ticket_id.
+
+### update_ticket_entities
+Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields per request.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number to update
+- `entities` (array, required): List of custom fields to update
+
+**Entity Object Structure:**
+- `entity_field_id` (number, required): Custom field ID (obtained via get_ticket)
+- `value` (string, required): Field value. Accepted types:
+  - `text`: string
+  - `text_area`: string
+  - `currency`: float as string (e.g., "150.55")
+  - `phone`: numbers only (e.g., "47999999999")
+  - `email`: string
+  - `link`: URL starting with http/https/ftp
+  - `date`: format YYYY-MM-DD
+  - `single_select`: option ID as string
+  - `checkbox`: boolean as string "true"/"false"
+  - Use `null` to clear non-required fields
+- `country_code` (string, optional): Country code (for phone fields outside Brazil)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "entities": [
+    {
+      "entity_field_id": 72,
+      "value": "New value"
+    },
+    {
+      "entity_field_id": 73,
+      "value": "2025-01-15"
+    }
+  ]
+}
+```
+
+### cancel_ticket
+Cancel a specific ticket in TiFlux.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number to be cancelled (e.g., "37", "123")
+
+**Example:**
+```json
+{
+  "ticket_number": "84429"
+}
+```
 
 ### list_tickets
 List tickets with filtering options.
@@ -125,11 +177,30 @@ Close a specific ticket in TiFlux.
 
 **Success Response:**
 ```markdown
-**✅ Ticket #84429 fechado com sucesso!**
+**Ticket #84429 fechado com sucesso!**
 
 **Mensagem:** Ticket 84429 closed successfully
 
-*✅ Ticket fechado via API TiFlux*
+*Ticket fechado via API TiFlux*
+```
+
+### create_ticket_answer
+Create a new answer (client communication) in a specific ticket.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number where answer will be created
+- `text` (string, required): Answer content that will be sent to the client
+- `with_signature` (boolean, optional): Include user signature in the answer (default: false)
+- `files` (array, optional): Array of file paths to attach (max 10 files, 25MB each)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "text": "Hello, your issue has been resolved.",
+  "with_signature": true,
+  "files": ["/path/to/attachment.pdf"]
+}
 ```
 
 ### search_client
@@ -179,9 +250,14 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets
 - `PUT /tickets/{id}` - Update existing tickets
+- `PUT /tickets/{id}/entities` - Update ticket custom fields
+- `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
 - `PUT /tickets/{ticket_number}/close` - Close specific ticket
+- `POST /tickets/{ticket_number}/answers` - Create ticket answer (client communication)
 - `GET /tickets` - List tickets with filters
 - `GET /clients` - Search clients
+- `GET /desks` - Search desks
+- `GET /desks/{id}/stages` - Get desk stages
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
