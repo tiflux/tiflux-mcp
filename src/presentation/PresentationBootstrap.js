@@ -181,6 +181,7 @@ class PresentationBootstrap {
             get_ticket: 'ticketHandler',
             create_ticket: 'ticketHandler',
             update_ticket: 'ticketHandler',
+            update_ticket_entities: 'ticketHandler',
             list_tickets: 'ticketHandler',
             close_ticket: 'ticketHandler',
             create_ticket_answer: 'ticketHandler',
