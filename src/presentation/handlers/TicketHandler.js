@@ -200,6 +200,39 @@ class TicketHandler {
   }
 
   /**
+   * Handler para buscar arquivos de um ticket
+   */
+  async handleGetTicketFiles(args) {
+    const timer = this.logger.startTimer('handle_get_ticket_files');
+
+    try {
+      this.logger.info('Handling get ticket files request', {
+        ticketNumber: args.ticket_number
+      });
+
+      // Validação básica de parâmetros
+      if (!args.ticket_number) {
+        throw new ValidationError('ticket_number é obrigatório');
+      }
+
+      // Delega para o domain service
+      const result = await this.ticketService.getTicketFiles(args.ticket_number);
+
+      timer();
+      return result; // TicketService já retorna formato MCP
+
+    } catch (error) {
+      timer();
+      this.logger.error('Failed to handle get ticket files', {
+        ticketNumber: args.ticket_number,
+        error: error.message
+      });
+
+      return this._formatErrorResponse(error, 'get_ticket_files');
+    }
+  }
+
+  /**
    * Formata resposta de erro padronizada
    */
   _formatErrorResponse(error, operation) {
@@ -218,7 +251,8 @@ class TicketHandler {
       create_ticket: 'criar ticket',
       update_ticket: 'atualizar ticket',
       list_tickets: 'listar tickets',
-      close_ticket: 'fechar ticket'
+      close_ticket: 'fechar ticket',
+      get_ticket_files: 'buscar arquivos do ticket'
     };
 
     let errorMessage = error.message;
@@ -262,7 +296,7 @@ class TicketHandler {
    */
   getStats() {
     return {
-      operations: ['get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket'],
+      operations: ['get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket', 'get_ticket_files'],
       features: {
         domain_service_integration: true,
         orchestrator_support: true,

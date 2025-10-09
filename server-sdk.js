@@ -30,6 +30,7 @@ const InfrastructureBootstrap = require('./src/infrastructure/InfrastructureBoot
 const schemas = require('./src/schemas');
 const TicketHandlers = require('./src/handlers/tickets');
 const ClientHandlers = require('./src/handlers/clients');
+const UserHandlers = require('./src/handlers/users');
 const InternalCommunicationsHandlers = require('./src/handlers/internal_communications');
 
 class TifluxMCPServerV2 {
@@ -42,6 +43,7 @@ class TifluxMCPServerV2 {
     // Handlers (serão substituídos por services na Fase 3)
     this.ticketHandlers = null;
     this.clientHandlers = null;
+    this.userHandlers = null;
     this.internalCommunicationsHandlers = null;
 
     this.isInitialized = false;
@@ -85,6 +87,7 @@ class TifluxMCPServerV2 {
       // 6. Initialize handlers (temporário até Fase 3)
       this.ticketHandlers = new TicketHandlers();
       this.clientHandlers = new ClientHandlers();
+      this.userHandlers = new UserHandlers();
       this.internalCommunicationsHandlers = new InternalCommunicationsHandlers();
 
       // 7. Setup handlers
@@ -168,9 +171,22 @@ class TifluxMCPServerV2 {
             result = await this.ticketHandlers.handleCreateTicketAnswer(args);
             break;
 
+          case 'get_ticket_files':
+            result = await this.ticketHandlers.handleGetTicketFiles(args);
+            break;
+
+          case 'update_ticket_entities':
+            result = await this.ticketHandlers.handleUpdateTicketEntities(args);
+            break;
+
           // Tools de clientes
           case 'search_client':
             result = await this.clientHandlers.handleSearchClient(args);
+            break;
+
+          // Tools de usuários
+          case 'search_user':
+            result = await this.userHandlers.handleSearchUser(args);
             break;
 
           // Tools de comunicações internas

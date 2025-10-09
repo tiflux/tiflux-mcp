@@ -184,6 +184,7 @@ class PresentationBootstrap {
             update_ticket_entities: 'ticketHandler',
             list_tickets: 'ticketHandler',
             close_ticket: 'ticketHandler',
+            get_ticket_files: 'ticketHandler',
             create_ticket_answer: 'ticketHandler',
 
             // Client operations
@@ -218,6 +219,7 @@ class PresentationBootstrap {
             update_ticket_entities: 'handleUpdateTicketEntities',
             list_tickets: 'handleListTickets',
             close_ticket: 'handleCloseTicket',
+            get_ticket_files: 'handleGetTicketFiles',
             create_ticket_answer: 'handleCreateTicketAnswer',
 
             // Client operations

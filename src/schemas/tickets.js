@@ -84,6 +84,10 @@ const ticketSchemas = {
           type: 'number',
           description: 'ID do responsável (opcional)'
         },
+        responsible_name: {
+          type: 'string',
+          description: 'Nome do responsável para busca automática (alternativa ao responsible_id)'
+        },
         followers: {
           type: 'string',
           description: 'Emails dos seguidores separados por vírgula (opcional)'
@@ -126,6 +130,10 @@ const ticketSchemas = {
         responsible_id: {
           type: 'number',
           description: 'ID do responsável (opcional - use null ou omita para remover responsável)'
+        },
+        responsible_name: {
+          type: 'string',
+          description: 'Nome do responsável para busca automática (alternativa ao responsible_id)'
         },
         followers: {
           type: 'string',
@@ -277,6 +285,21 @@ const ticketSchemas = {
         }
       },
       required: ['ticket_number', 'entities']
+    }
+  },
+
+  get_ticket_files: {
+    name: 'get_ticket_files',
+    description: 'Buscar arquivos anexados a um ticket específico no TiFlux',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket_number: {
+          type: 'string',
+          description: 'Número do ticket para buscar os arquivos anexados (ex: "123", "456")'
+        }
+      },
+      required: ['ticket_number']
     }
   }
 };
