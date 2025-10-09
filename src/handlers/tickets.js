@@ -107,20 +107,21 @@ class TicketHandlers {
    * Handler para criar um novo ticket
    */
   async handleCreateTicket(args) {
-    const { 
-      title, 
-      description, 
-      client_id, 
+    const {
+      title,
+      description,
+      client_id,
       client_name,
       desk_id,
       desk_name,
-      priority_id, 
-      services_catalogs_item_id, 
+      priority_id,
+      services_catalogs_item_id,
       status_id,
       requestor_name,
       requestor_email,
       requestor_telephone,
       responsible_id,
+      responsible_name,
       followers
     } = args;
     
@@ -234,7 +235,65 @@ class TicketHandlers {
         
         finalDeskId = desks[0].id;
       }
-      
+
+      let finalResponsibleId = responsible_id;
+
+      // Se responsible_name foi fornecido, buscar o ID do usuário
+      if (responsible_name && !responsible_id) {
+        const userSearchResponse = await this.api.searchUsers({
+          name: responsible_name,
+          active: true,
+          type: 'attendant', // Apenas atendentes podem ser responsáveis
+          limit: 10
+        });
+
+        if (userSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Erro ao buscar usuario "${responsible_name}"**\n\n` +
+                      `**Erro:** ${userSearchResponse.error}\n\n` +
+                      `*Verifique se o nome do usuario esta correto ou use responsible_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        const users = userSearchResponse.data || [];
+        if (users.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Usuario "${responsible_name}" nao encontrado**\n\n` +
+                      `*Verifique se o nome esta correto ou use responsible_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        if (users.length > 1) {
+          let usersList = '**Usuarios encontrados:**\n';
+          users.forEach((user, index) => {
+            usersList += `${index + 1}. **ID:** ${user.id} | **Nome:** ${user.name} | **Email:** ${user.email}\n`;
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Multiplos usuarios encontrados para "${responsible_name}"**\n\n` +
+                      `${usersList}\n` +
+                      `*Use responsible_id especifico ou seja mais especifico no responsible_name.*`
+              }
+            ]
+          };
+        }
+
+        finalResponsibleId = users[0].id;
+      }
+
       // Usar valores padrão das variáveis de ambiente se não informados
       finalClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
       finalDeskId = finalDeskId || process.env.TIFLUX_DEFAULT_DESK_ID;
@@ -257,7 +316,7 @@ class TicketHandlers {
         requestor_name,
         requestor_email,
         requestor_telephone,
-        responsible_id: responsible_id ? parseInt(responsible_id) : undefined,
+        responsible_id: finalResponsibleId ? parseInt(finalResponsibleId) : undefined,
         followers
       });
       
@@ -322,6 +381,7 @@ class TicketHandlers {
       desk_id,
       stage_id,
       responsible_id,
+      responsible_name,
       followers
     } = args;
 
@@ -330,38 +390,77 @@ class TicketHandlers {
     }
 
     try {
-      // Verificar se transferência de mesa foi solicitada
-      if (desk_id) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `**⚠️ Transferência de mesa não suportada via update**\n\n` +
-                    `**Limitação da API:** O TiFlux não permite alterar \`desk_id\` em tickets existentes.\n\n` +
-                    `**Alternativas disponíveis:**\n` +
-                    `• Use a interface web do TiFlux para transferir o ticket\n` +
-                    `• Contate o administrador para transferência manual\n` +
-                    `• Use outros campos editáveis: title, description, stage_id, responsible_id, followers\n\n` +
-                    `**Ticket ID:** #${ticket_number}\n` +
-                    `**Mesa solicitada:** ID ${desk_id}\n\n` +
-                    `*Para criar tickets em mesas específicas, use create_ticket com desk_name.*`
-            }
-          ]
-        };
+      let finalResponsibleId = responsible_id;
+
+      // Se responsible_name foi fornecido, buscar o ID do usuário
+      if (responsible_name && !responsible_id) {
+        const userSearchResponse = await this.api.searchUsers({
+          name: responsible_name,
+          active: true,
+          type: 'attendant',
+          limit: 10
+        });
+
+        if (userSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Erro ao buscar usuario "${responsible_name}"**\n\n` +
+                      `**Erro:** ${userSearchResponse.error}\n\n` +
+                      `*Verifique se o nome do usuario esta correto ou use responsible_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        const users = userSearchResponse.data || [];
+        if (users.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Usuario "${responsible_name}" nao encontrado**\n\n` +
+                      `*Verifique se o nome esta correto ou use responsible_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        if (users.length > 1) {
+          let usersList = '**Usuarios encontrados:**\n';
+          users.forEach((user, index) => {
+            usersList += `${index + 1}. **ID:** ${user.id} | **Nome:** ${user.name} | **Email:** ${user.email}\n`;
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Multiplos usuarios encontrados para "${responsible_name}"**\n\n` +
+                      `${usersList}\n` +
+                      `*Use responsible_id especifico ou seja mais especifico no responsible_name.*`
+              }
+            ]
+          };
+        }
+
+        finalResponsibleId = users[0].id;
       }
 
       // Preparar dados de atualização (apenas campos fornecidos)
       const updateData = {};
-      
+
       if (title !== undefined) updateData.title = title;
       if (description !== undefined) updateData.description = description;
       if (client_id !== undefined) updateData.client_id = parseInt(client_id);
+      if (desk_id !== undefined) updateData.desk_id = parseInt(desk_id);
       if (stage_id !== undefined) updateData.stage_id = parseInt(stage_id);
       if (followers !== undefined) updateData.followers = followers;
-      
+
       // Tratamento especial para responsible_id (pode ser null)
-      if (responsible_id !== undefined) {
-        updateData.responsible_id = responsible_id ? parseInt(responsible_id) : null;
+      if (finalResponsibleId !== undefined) {
+        updateData.responsible_id = finalResponsibleId ? parseInt(finalResponsibleId) : null;
       }
 
       // Verificar se há campos para atualizar
@@ -402,6 +501,7 @@ class TicketHandlers {
       if (title !== undefined) changesText += `• Título: ${title}\n`;
       if (description !== undefined) changesText += `• Descrição: ${description.substring(0, 50)}...\n`;
       if (client_id !== undefined) changesText += `• Cliente ID: ${client_id}\n`;
+      if (desk_id !== undefined) changesText += `• Mesa transferida: ID ${desk_id}\n`;
       if (stage_id !== undefined) changesText += `• Estágio ID: ${stage_id}\n`;
       if (responsible_id !== undefined) {
         changesText += `• Responsável: ${responsible_id ? `ID ${responsible_id}` : 'Removido (não atribuído)'}\n`;
@@ -1050,6 +1150,95 @@ class TicketHandlers {
         ]
       };
     }
+  }
+
+  /**
+   * Handler para buscar arquivos anexados a um ticket
+   */
+  async handleGetTicketFiles(args) {
+    const { ticket_number } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+
+    try {
+      const response = await this.api.fetchTicketFiles(ticket_number);
+
+      if (response.error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**❌ Erro ao buscar arquivos do ticket #${ticket_number}**\n\n` +
+                    `**Código:** ${response.status}\n` +
+                    `**Mensagem:** ${response.error}\n\n` +
+                    `*Verifique se o ticket existe e se você tem permissão para acessá-lo.*`
+            }
+          ]
+        };
+      }
+
+      const files = response.data || [];
+
+      if (files.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**📎 Arquivos do Ticket #${ticket_number}**\n\n` +
+                    `*Nenhum arquivo anexado neste ticket.*\n\n` +
+                    `*✅ Dados obtidos da API TiFlux em tempo real*`
+            }
+          ]
+        };
+      }
+
+      // Formatar lista de arquivos
+      let filesText = `**📎 Arquivos do Ticket #${ticket_number}** (${files.length} ${files.length === 1 ? 'arquivo' : 'arquivos'})\n\n`;
+
+      files.forEach((file, index) => {
+        filesText += `**${index + 1}. ${file.name || 'Sem nome'}**\n`;
+        filesText += `   • **ID:** ${file.id}\n`;
+        filesText += `   • **Tipo:** ${file.content_type || 'N/A'}\n`;
+        filesText += `   • **Tamanho:** ${this.formatFileSize(file.size || 0)}\n`;
+        filesText += `   • **URL:** ${file.url || 'N/A'}\n`;
+        filesText += `   • **Criado em:** ${file.created_at || 'N/A'}\n`;
+        filesText += `   • **Criado por:** ${file.created_by?.name || 'N/A'}\n\n`;
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: filesText + `*✅ Dados obtidos da API TiFlux em tempo real*`
+          }
+        ]
+      };
+
+    } catch (error) {
+      return {
+        content: [
+            {
+              type: 'text',
+              text: `**❌ Erro interno ao buscar arquivos do ticket #${ticket_number}**\n\n` +
+                    `**Erro:** ${error.message}\n\n` +
+                    `*Verifique sua conexão e configurações da API.*`
+            }
+          ]
+      };
+    }
+  }
+
+  /**
+   * Formata tamanho de arquivo em formato legível
+   */
+  formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   }
 }
 

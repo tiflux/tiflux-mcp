@@ -674,6 +674,58 @@ class TiFluxAPI {
       };
     }
   }
+
+  /**
+   * Busca os arquivos anexados a um ticket específico
+   * GET /tickets/{ticket_number}/files
+   */
+  async fetchTicketFiles(ticketNumber) {
+    if (!ticketNumber) {
+      return {
+        error: 'ticket_number é obrigatório',
+        status: 'VALIDATION_ERROR'
+      };
+    }
+
+    return await this.makeRequest(`/tickets/${ticketNumber}/files`);
+  }
+
+  /**
+   * Busca usuários por nome com filtros opcionais
+   * GET /users
+   */
+  async searchUsers(filters = {}) {
+    const params = new URLSearchParams();
+
+    // Paginação
+    const offset = filters.offset || 1;
+    const limit = Math.min(filters.limit || 20, 200);
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    // Filtro de nome (busca parcial)
+    if (filters.name) {
+      params.append('name', filters.name);
+    }
+
+    // Filtro de usuários ativos/inativos
+    if (filters.active !== undefined) {
+      params.append('active', filters.active);
+    }
+
+    // Filtro por tipo de usuário (client, attendant, admin)
+    if (filters.type) {
+      params.append('type', filters.type);
+    }
+
+    // Filtro por autenticação de 2 fatores
+    if (filters.gauth_enabled !== undefined) {
+      params.append('gauth_enabled', filters.gauth_enabled);
+    }
+
+    const endpoint = `/users?${params.toString()}`;
+    return await this.makeRequest(endpoint);
+  }
 }
 
 module.exports = TiFluxAPI;

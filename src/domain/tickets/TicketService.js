@@ -519,6 +519,96 @@ class TicketService {
     }
     return this.ticketMapper;
   }
+
+  /**
+   * Busca arquivos anexados a um ticket
+   */
+  async getTicketFiles(ticketNumber) {
+    const timer = this.logger.startTimer(`get_ticket_files_${ticketNumber}`);
+
+    try {
+      this.logger.info('Getting ticket files', { ticketNumber });
+
+      // Validação básica
+      if (!ticketNumber || ticketNumber.toString().trim() === '') {
+        throw new ValidationError('ticket_number é obrigatório');
+      }
+
+      // Normaliza número
+      const normalizedNumber = ticketNumber.toString().trim();
+
+      // Busca arquivos no repository (API)
+      this.logger.debug('Fetching ticket files from API', { ticketNumber: normalizedNumber });
+      const filesData = await this._getTicketRepository().getFiles(normalizedNumber);
+
+      timer();
+      this.logger.info('Ticket files retrieved successfully', {
+        ticketNumber: normalizedNumber,
+        filesCount: filesData?.length || 0
+      });
+
+      return this._formatFilesForResponse(filesData, normalizedNumber);
+
+    } catch (error) {
+      timer();
+      this.logger.error('Failed to get ticket files', {
+        ticketNumber,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Formata lista de arquivos para resposta MCP
+   */
+  _formatFilesForResponse(files, ticketNumber) {
+    if (!files || files.length === 0) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**📎 Arquivos do Ticket #${ticketNumber}**\n\n` +
+                  `*Nenhum arquivo anexado neste ticket.*\n\n` +
+                  `*✅ Dados obtidos da API TiFlux em tempo real*`
+          }
+        ]
+      };
+    }
+
+    // Formatar lista de arquivos
+    let filesText = `**📎 Arquivos do Ticket #${ticketNumber}** (${files.length} ${files.length === 1 ? 'arquivo' : 'arquivos'})\n\n`;
+
+    files.forEach((file, index) => {
+      filesText += `**${index + 1}. ${file.name || 'Sem nome'}**\n`;
+      filesText += `   • **ID:** ${file.id}\n`;
+      filesText += `   • **Tipo:** ${file.content_type || 'N/A'}\n`;
+      filesText += `   • **Tamanho:** ${this._formatFileSize(file.size || 0)}\n`;
+      filesText += `   • **URL:** ${file.url || 'N/A'}\n`;
+      filesText += `   • **Criado em:** ${file.created_at || 'N/A'}\n`;
+      filesText += `   • **Criado por:** ${file.created_by?.name || 'N/A'}\n\n`;
+    });
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: filesText + `*✅ Dados obtidos da API TiFlux em tempo real*`
+        }
+      ]
+    };
+  }
+
+  /**
+   * Formata tamanho de arquivo em formato legível
+   */
+  _formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  }
 }
 
 // Import das classes de erro (serão criadas)

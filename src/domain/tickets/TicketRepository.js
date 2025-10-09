@@ -439,6 +439,41 @@ class TicketRepository {
   }
 
   /**
+   * Busca arquivos anexados a um ticket
+   */
+  async getFiles(ticketNumber) {
+    const timer = this.logger.startTimer(`repository_get_ticket_files_${ticketNumber}`);
+
+    try {
+      this.logger.debug('Fetching ticket files from API', { ticketNumber });
+
+      const response = await this._getHttpClient().get(`/tickets/${ticketNumber}/files`);
+
+      timer();
+
+      if (!response || !response.data) {
+        this.logger.warn('No files data in response', { ticketNumber });
+        return [];
+      }
+
+      return response.data;
+
+    } catch (error) {
+      timer();
+      this.logger.error('Failed to fetch ticket files', {
+        ticketNumber,
+        error: error.message,
+        statusCode: error.statusCode
+      });
+
+      throw new APIError(
+        `Falha ao buscar arquivos do ticket #${ticketNumber}: ${error.message}`,
+        error.statusCode
+      );
+    }
+  }
+
+  /**
    * Estatísticas do repository
    */
   getStats() {

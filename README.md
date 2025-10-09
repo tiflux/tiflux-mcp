@@ -69,7 +69,9 @@ Create a new ticket in TiFlux.
 - `title` (string, required): Ticket title
 - `description` (string, required): Ticket description
 - `client_id` (number, optional): Client ID
+- `client_name` (string, optional): Client name for automatic search (alternative to client_id)
 - `desk_id` (number, optional): Desk ID
+- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id)
 - `priority_id` (number, optional): Priority ID
 - `services_catalogs_item_id` (number, optional): Service catalog item ID
 - `status_id` (number, optional): Status ID
@@ -77,6 +79,7 @@ Create a new ticket in TiFlux.
 - `requestor_email` (string, optional): Requestor email
 - `requestor_telephone` (string, optional): Requestor phone
 - `responsible_id` (number, optional): Responsible user ID
+- `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
 
 ### update_ticket
@@ -90,6 +93,7 @@ Update an existing ticket in TiFlux.
 - `desk_id` (number, optional): New desk ID
 - `stage_id` (number, optional): Stage/phase ID
 - `responsible_id` (number, optional): Responsible user ID (use null to unassign)
+- `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
 
 **Note:** At least one optional field must be provided along with the ticket_id.
@@ -209,6 +213,25 @@ Search for clients by name.
 **Parameters:**
 - `client_name` (string, required): Client name to search (partial match supported)
 
+### search_user
+Search for users by name to use as responsible in tickets.
+
+**Parameters:**
+- `name` (string, required): User name to search (partial match supported)
+- `type` (string, optional): User type filter (client, attendant, admin)
+- `active` (boolean, optional): Filter active (true) or inactive (false) users
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+- `offset` (number, optional): Page number (default: 1)
+
+**Example:**
+```json
+{
+  "name": "John",
+  "type": "attendant",
+  "active": true
+}
+```
+
 ## Internal Communications
 
 ### create_internal_communication
@@ -256,6 +279,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /tickets/{ticket_number}/answers` - Create ticket answer (client communication)
 - `GET /tickets` - List tickets with filters
 - `GET /clients` - Search clients
+- `GET /users` - Search users by name
 - `GET /desks` - Search desks
 - `GET /desks/{id}/stages` - Get desk stages
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication

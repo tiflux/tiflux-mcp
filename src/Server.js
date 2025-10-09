@@ -263,6 +263,17 @@ class TiFluxMCPServer {
             }
           },
           {
+            name: 'get_ticket_files',
+            description: 'Buscar os arquivos anexados a um ticket específico no TiFlux',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                ticket_number: { type: 'string', description: 'Número do ticket para buscar os arquivos (ex: "85218")' }
+              },
+              required: ['ticket_number']
+            }
+          },
+          {
             name: 'create_ticket_answer',
             description: 'Criar uma nova resposta (comunicação com cliente) em um ticket específico',
             inputSchema: {
@@ -519,7 +530,7 @@ class TiFluxMCPServer {
     } catch (error) {
       this.logger.warn('Failed to get available operations', { error: error.message });
       return [
-        'get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket', 'create_ticket_answer',
+        'get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket', 'get_ticket_files', 'create_ticket_answer',
         'search_client', 'create_internal_communication',
         'list_internal_communications', 'get_internal_communication'
       ];
