@@ -64,6 +64,10 @@ const ticketSchemas = {
           type: 'number',
           description: 'ID do item de catálogo (opcional - usa TIFLUX_DEFAULT_CATALOG_ITEM_ID se não informado)'
         },
+        catalog_item_name: {
+          type: 'string',
+          description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)'
+        },
         status_id: {
           type: 'number',
           description: 'ID do status (opcional)'

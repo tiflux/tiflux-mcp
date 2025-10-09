@@ -74,6 +74,7 @@ Create a new ticket in TiFlux.
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id)
 - `priority_id` (number, optional): Priority ID
 - `services_catalogs_item_id` (number, optional): Service catalog item ID
+- `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 - `status_id` (number, optional): Status ID
 - `requestor_name` (string, optional): Requestor name
 - `requestor_email` (string, optional): Requestor email
@@ -248,7 +249,30 @@ Search for stages of a specific desk to use in ticket updates.
 **Example:**
 ```json
 {
+  "desk_name": "Suporte",
+  "limit": 20
+}
+```
+
+### search_catalog_item
+Search for service catalog items by name within a specific desk.
+
+**Parameters:**
+- `desk_id` (number, optional): Desk ID to search catalog items
+- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id)
+- `catalog_item_name` (string, required): Catalog item name to search (partial match supported)
+- `area_id` (number, optional): Service area ID to filter results
+- `catalog_id` (number, optional): Service catalog ID to filter results
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+- `offset` (number, optional): Page number (default: 1)
+
+**Note:** At least one parameter (desk_id or desk_name) must be provided along with catalog_item_name.
+
+**Example:**
+```json
+{
   "desk_name": "Support",
+  "catalog_item_name": "Installation",
   "limit": 10
 }
 ```
@@ -303,6 +327,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /users` - Search users by name
 - `GET /desks` - Search desks
 - `GET /desks/{id}/stages` - Get desk stages
+- `GET /desks/{id}/services-catalogs-items` - Get service catalog items
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication

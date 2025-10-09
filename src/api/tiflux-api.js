@@ -734,6 +734,32 @@ class TiFluxAPI {
     const endpoint = `/users?${params.toString()}`;
     return await this.makeRequest(endpoint);
   }
+
+  /**
+   * Busca itens de catálogo de serviços de uma mesa específica
+   * GET /desks/{id}/services-catalogs-items
+   */
+  async searchCatalogItems(deskId, filters = {}) {
+    const params = new URLSearchParams();
+
+    // Paginação
+    const offset = filters.offset || 1;
+    const limit = Math.min(filters.limit || 20, 200);
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    // Filtros opcionais
+    if (filters.area_id) {
+      params.append('area_id', filters.area_id);
+    }
+
+    if (filters.catalog_id) {
+      params.append('catalog_id', filters.catalog_id);
+    }
+
+    const endpoint = `/desks/${deskId}/services-catalogs-items?${params.toString()}`;
+    return await this.makeRequest(endpoint);
+  }
 }
 
 module.exports = TiFluxAPI;
