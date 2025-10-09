@@ -379,7 +379,9 @@ class TicketHandlers {
       description,
       client_id,
       desk_id,
+      desk_name,
       stage_id,
+      stage_name,
       responsible_id,
       responsible_name,
       followers
@@ -390,7 +392,130 @@ class TicketHandlers {
     }
 
     try {
+      let finalDeskId = desk_id;
+      let finalStageId = stage_id;
       let finalResponsibleId = responsible_id;
+
+      // Se desk_name foi fornecido, buscar o ID da mesa
+      if (desk_name && !desk_id) {
+        const deskSearchResponse = await this.api.searchDesks(desk_name);
+
+        if (deskSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Erro ao buscar mesa "${desk_name}"**\n\n` +
+                      `**Erro:** ${deskSearchResponse.error}\n\n` +
+                      `*Verifique se o nome da mesa esta correto ou use desk_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        const desks = deskSearchResponse.data || [];
+        if (desks.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Mesa "${desk_name}" nao encontrada**\n\n` +
+                      `*Verifique se o nome esta correto ou use desk_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        if (desks.length > 1) {
+          let desksList = '**Mesas encontradas:**\n';
+          desks.forEach((desk, index) => {
+            desksList += `${index + 1}. **ID:** ${desk.id} | **Nome:** ${desk.name} | **Display:** ${desk.display_name}\n`;
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Multiplas mesas encontradas para "${desk_name}"**\n\n` +
+                      `${desksList}\n` +
+                      `*Use desk_id especifico ou seja mais especifico no desk_name.*`
+              }
+            ]
+          };
+        }
+
+        finalDeskId = desks[0].id;
+      }
+
+      // Se stage_name foi fornecido, buscar o ID do estágio
+      // Precisa de desk_id ou desk_name para buscar estágios
+      if (stage_name && !stage_id) {
+        const deskIdForStage = finalDeskId || desk_id;
+
+        if (!deskIdForStage) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Erro: desk_id ou desk_name obrigatorio para buscar estagio por nome**\n\n` +
+                      `*Para usar stage_name, informe tambem desk_id ou desk_name.*`
+              }
+            ]
+          };
+        }
+
+        const stageSearchResponse = await this.api.searchStages(deskIdForStage);
+
+        if (stageSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Erro ao buscar estagios da mesa ID ${deskIdForStage}**\n\n` +
+                      `**Erro:** ${stageSearchResponse.error}\n\n` +
+                      `*Verifique se a mesa existe e possui estagios.*`
+              }
+            ]
+          };
+        }
+
+        const stages = stageSearchResponse.data || [];
+        const matchingStages = stages.filter(s =>
+          s.name.toLowerCase().includes(stage_name.toLowerCase())
+        );
+
+        if (matchingStages.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Estagio "${stage_name}" nao encontrado na mesa ID ${deskIdForStage}**\n\n` +
+                      `*Verifique se o nome esta correto ou use stage_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        if (matchingStages.length > 1) {
+          let stagesList = '**Estagios encontrados:**\n';
+          matchingStages.forEach((stage, index) => {
+            stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name} | **Ordem:** ${stage.index}\n`;
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Multiplos estagios encontrados para "${stage_name}"**\n\n` +
+                      `${stagesList}\n` +
+                      `*Use stage_id especifico ou seja mais especifico no stage_name.*`
+              }
+            ]
+          };
+        }
+
+        finalStageId = matchingStages[0].id;
+      }
 
       // Se responsible_name foi fornecido, buscar o ID do usuário
       if (responsible_name && !responsible_id) {
@@ -454,8 +579,8 @@ class TicketHandlers {
       if (title !== undefined) updateData.title = title;
       if (description !== undefined) updateData.description = description;
       if (client_id !== undefined) updateData.client_id = parseInt(client_id);
-      if (desk_id !== undefined) updateData.desk_id = parseInt(desk_id);
-      if (stage_id !== undefined) updateData.stage_id = parseInt(stage_id);
+      if (finalDeskId !== undefined) updateData.desk_id = parseInt(finalDeskId);
+      if (finalStageId !== undefined) updateData.stage_id = parseInt(finalStageId);
       if (followers !== undefined) updateData.followers = followers;
 
       // Tratamento especial para responsible_id (pode ser null)

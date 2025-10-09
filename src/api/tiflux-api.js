@@ -363,10 +363,18 @@ class TiFluxAPI {
   }
 
   /**
-   * Busca estágios de uma mesa específica
+   * Busca estágios de uma mesa específica com paginação
    */
-  async searchStages(deskId) {
-    const endpoint = `/desks/${deskId}/stages`;
+  async searchStages(deskId, filters = {}) {
+    const params = new URLSearchParams();
+
+    // Paginação
+    const offset = filters.offset || 1;
+    const limit = Math.min(filters.limit || 20, 200);
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    const endpoint = `/desks/${deskId}/stages?${params.toString()}`;
     return await this.makeRequest(endpoint);
   }
 

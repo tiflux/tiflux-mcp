@@ -31,6 +31,7 @@ const schemas = require('./src/schemas');
 const TicketHandlers = require('./src/handlers/tickets');
 const ClientHandlers = require('./src/handlers/clients');
 const UserHandlers = require('./src/handlers/users');
+const StageHandlers = require('./src/handlers/stages');
 const InternalCommunicationsHandlers = require('./src/handlers/internal_communications');
 
 class TifluxMCPServerV2 {
@@ -44,6 +45,7 @@ class TifluxMCPServerV2 {
     this.ticketHandlers = null;
     this.clientHandlers = null;
     this.userHandlers = null;
+    this.stageHandlers = null;
     this.internalCommunicationsHandlers = null;
 
     this.isInitialized = false;
@@ -88,6 +90,7 @@ class TifluxMCPServerV2 {
       this.ticketHandlers = new TicketHandlers();
       this.clientHandlers = new ClientHandlers();
       this.userHandlers = new UserHandlers();
+      this.stageHandlers = new StageHandlers();
       this.internalCommunicationsHandlers = new InternalCommunicationsHandlers();
 
       // 7. Setup handlers
@@ -187,6 +190,11 @@ class TifluxMCPServerV2 {
           // Tools de usuários
           case 'search_user':
             result = await this.userHandlers.handleSearchUser(args);
+            break;
+
+          // Tools de estágios
+          case 'search_stage':
+            result = await this.stageHandlers.handleSearchStage(args);
             break;
 
           // Tools de comunicações internas
