@@ -1,0 +1,54 @@
+# Excluir do bundle Lambda e publicacao npm
+
+# Testes
+tests/
+*.test.js
+*.spec.js
+jest.config.js
+test-*.js
+
+# Documentacao interna
+.docs/
+CLAUDE.md
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Pastas de cache/temp
+.playwright-mcp/
+.qwen/
+.serena/
+.slashcommands/
+.mcp.json
+
+# Arquivos de debug
+debug.js
+clean-mcp-config.js
+
+# Build artifacts
+lambda-deployment.zip
+*.zip
+
+# Coverage
+coverage/
+
+# Env local (manter .env.example)
+.env
+
+# OS
+.DS_Store
+Thumbs.db

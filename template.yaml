@@ -1,0 +1,60 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: TiFlux MCP Server - AWS Lambda deployment with Function URL
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: nodejs18.x
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        NODE_ENV: production
+
+Resources:
+  TiFluxMCPFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: tiflux-mcp-server
+      Description: TiFlux MCP Server for Claude Code and AI clients
+      Handler: lambda.handler
+      CodeUri: .
+      Policies:
+        - CloudWatchLogsFullAccess
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - '*'
+          AllowMethods:
+            - GET
+            - POST
+            - OPTIONS
+          AllowHeaders:
+            - content-type
+            - x-tiflux-api-key
+            - mcp-session-id
+          MaxAge: 86400
+      Tags:
+        Project: TiFlux
+        Component: MCP-Server
+        Environment: Production
+
+Outputs:
+  TiFluxMCPFunctionUrl:
+    Description: URL do endpoint Lambda Function URL
+    Value: !GetAtt TiFluxMCPFunctionUrl.FunctionUrl
+    Export:
+      Name: TiFluxMCPEndpoint
+
+  TiFluxMCPFunctionArn:
+    Description: ARN da funcao Lambda
+    Value: !GetAtt TiFluxMCPFunction.Arn
+    Export:
+      Name: TiFluxMCPFunctionArn
+
+  TiFluxMCPFunctionName:
+    Description: Nome da funcao Lambda
+    Value: !Ref TiFluxMCPFunction

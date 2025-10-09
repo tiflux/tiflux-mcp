@@ -10,9 +10,10 @@ const fs = require('fs');
 const path = require('path');
 
 class TiFluxAPI {
-  constructor() {
+  constructor(apiKey = null) {
     this.baseUrl = 'https://api.tiflux.com/api/v2';
-    this.apiKey = process.env.TIFLUX_API_KEY;
+    // Aceita API key via parametro (para Lambda) ou env var (para uso local)
+    this.apiKey = apiKey || process.env.TIFLUX_API_KEY;
   }
 
   /**
