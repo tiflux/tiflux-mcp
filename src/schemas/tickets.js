@@ -123,9 +123,17 @@ const ticketSchemas = {
           type: 'number',
           description: 'Novo ID da mesa (opcional - LIMITAÇÃO: API não suporta transferência de mesa via update)'
         },
+        desk_name: {
+          type: 'string',
+          description: 'Nome da mesa para busca automática (alternativa ao desk_id)'
+        },
         stage_id: {
           type: 'number',
           description: 'ID do estágio/fase do ticket (opcional)'
+        },
+        stage_name: {
+          type: 'string',
+          description: 'Nome do estágio para busca automática (alternativa ao stage_id, requer desk_id ou desk_name)'
         },
         responsible_id: {
           type: 'number',

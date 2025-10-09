@@ -91,7 +91,9 @@ Update an existing ticket in TiFlux.
 - `description` (string, optional): New ticket description
 - `client_id` (number, optional): New client ID
 - `desk_id` (number, optional): New desk ID
+- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id)
 - `stage_id` (number, optional): Stage/phase ID
+- `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id, requires desk_id or desk_name)
 - `responsible_id` (number, optional): Responsible user ID (use null to unassign)
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
@@ -229,6 +231,25 @@ Search for users by name to use as responsible in tickets.
   "name": "John",
   "type": "attendant",
   "active": true
+}
+```
+
+### search_stage
+Search for stages of a specific desk to use in ticket updates.
+
+**Parameters:**
+- `desk_id` (number, optional): Desk ID to search stages
+- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+- `offset` (number, optional): Page number (default: 1)
+
+**Note:** At least one parameter (desk_id or desk_name) must be provided.
+
+**Example:**
+```json
+{
+  "desk_name": "Support",
+  "limit": 10
 }
 ```
 
