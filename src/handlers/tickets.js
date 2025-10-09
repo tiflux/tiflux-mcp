@@ -116,6 +116,7 @@ class TicketHandlers {
       desk_name,
       priority_id,
       services_catalogs_item_id,
+      catalog_item_name,
       status_id,
       requestor_name,
       requestor_email,
@@ -298,7 +299,76 @@ class TicketHandlers {
       finalClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
       finalDeskId = finalDeskId || process.env.TIFLUX_DEFAULT_DESK_ID;
       const finalPriorityId = priority_id || process.env.TIFLUX_DEFAULT_PRIORITY_ID;
-      const finalCatalogItemId = services_catalogs_item_id || process.env.TIFLUX_DEFAULT_CATALOG_ITEM_ID;
+      let finalCatalogItemId = services_catalogs_item_id || process.env.TIFLUX_DEFAULT_CATALOG_ITEM_ID;
+
+      // Se catalog_item_name foi fornecido, buscar o ID do item de catálogo
+      if (catalog_item_name && !services_catalogs_item_id && finalDeskId) {
+        const catalogSearchResponse = await this.api.searchCatalogItems(finalDeskId, { limit: 200 });
+
+        if (catalogSearchResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Erro ao buscar item de catalogo "${catalog_item_name}"**\n\n` +
+                      `**Erro:** ${catalogSearchResponse.error}\n\n` +
+                      `*Verifique se o nome do item esta correto ou use services_catalogs_item_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        const catalogItems = catalogSearchResponse.data || [];
+        if (catalogItems.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Nenhum item de catalogo encontrado na mesa ${finalDeskId}**\n\n` +
+                      `*Verifique se a mesa possui itens de catalogo configurados.*`
+              }
+            ]
+          };
+        }
+
+        // Filtrar por nome (busca parcial case-insensitive)
+        const searchTerm = catalog_item_name.toLowerCase();
+        const matchingItems = catalogItems.filter(item =>
+          item.name.toLowerCase().includes(searchTerm)
+        );
+
+        if (matchingItems.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Item de catalogo "${catalog_item_name}" nao encontrado**\n\n` +
+                      `*Verifique se o nome esta correto ou use services_catalogs_item_id diretamente.*`
+              }
+            ]
+          };
+        }
+
+        if (matchingItems.length > 1) {
+          let itemsList = '**Itens de catalogo encontrados:**\n';
+          matchingItems.forEach((item, index) => {
+            itemsList += `${index + 1}. **ID:** ${item.id} | **Nome:** ${item.name} | **Area:** ${item.area.name} | **Catalogo:** ${item.catalog.name}\n`;
+          });
+
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `**Multiplos itens de catalogo encontrados para "${catalog_item_name}"**\n\n` +
+                      `${itemsList}\n` +
+                      `*Use services_catalogs_item_id especifico ou seja mais especifico no catalog_item_name.*`
+              }
+            ]
+          };
+        }
+
+        finalCatalogItemId = matchingItems[0].id;
+      }
       
       if (!finalClientId || !finalDeskId) {
         throw new Error('client_id e desk_id são obrigatórios (configure TIFLUX_DEFAULT_CLIENT_ID e TIFLUX_DEFAULT_DESK_ID ou informe nos parâmetros)');
