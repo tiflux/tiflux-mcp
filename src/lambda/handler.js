@@ -28,11 +28,26 @@ class MCPHandler {
     let sessionId = null;
 
     try {
-      // 1. Parse do evento Lambda
+      // 1. Extrair path primeiro (antes de validar API key)
+      const path = event.requestContext?.http?.path || event.path || event.rawPath || '/';
+      const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
+
+      // 2. Roteamento por path (health e 404 nao precisam de API key)
+      if (path === '/health' || path === '/health/') {
+        return this.handleHealth();
+      }
+
+      // Verificar se path é válido antes de exigir API key
+      if (path !== '/mcp' && path !== '/mcp/' && path !== '/') {
+        // Path desconhecido - retornar 404 sem exigir API key
+        return ResponseBuilder.notFound(`Path nao encontrado: ${path}`, null);
+      }
+
+      // 3. Parse completo do evento (valida API key) - apenas para /mcp
       parsedEvent = EventParser.parse(event);
       sessionId = parsedEvent.sessionId;
 
-      const { method, path, apiKey, body } = parsedEvent;
+      const { apiKey, body } = parsedEvent;
 
       console.log('[MCPHandler] Requisicao recebida', {
         sessionId,
@@ -42,39 +57,31 @@ class MCPHandler {
         timestamp: new Date().toISOString()
       });
 
-      // 2. Roteamento por path
-      if (path === '/health' || path === '/health/') {
-        return this.handleHealth();
+      // 4. Processar endpoint /mcp
+
+      // 4.1. Tratar preflight CORS
+      if (method === 'OPTIONS') {
+        return ResponseBuilder.corsPreFlight();
       }
 
-      if (path === '/mcp' || path === '/mcp/' || path === '/') {
-        // 2.1. Tratar preflight CORS
-        if (method === 'OPTIONS') {
-          return ResponseBuilder.corsPreFlight();
-        }
-
-        // 2.2. Apenas POST e permitido no endpoint MCP
-        if (method !== 'POST') {
-          return ResponseBuilder.badRequest(
-            `Metodo ${method} nao permitido. Use POST para /mcp`,
-            sessionId
-          );
-        }
-
-        // 2.3. Validar que body e uma requisicao MCP valida
-        if (!EventParser.isValidMCPRequest(parsedEvent)) {
-          return ResponseBuilder.badRequest(
-            'Body deve ser uma requisicao JSON-RPC 2.0 valida',
-            sessionId
-          );
-        }
-
-        // 3. Processar requisicao MCP
-        return await this.handleMCPRequest(apiKey, body, sessionId);
+      // 4.2. Apenas POST e permitido no endpoint MCP
+      if (method !== 'POST') {
+        return ResponseBuilder.badRequest(
+          `Metodo ${method} nao permitido. Use POST para /mcp`,
+          sessionId
+        );
       }
 
-      // Path desconhecido
-      return ResponseBuilder.notFound(`Path nao encontrado: ${path}`, sessionId);
+      // 4.3. Validar que body e uma requisicao MCP valida
+      if (!EventParser.isValidMCPRequest(parsedEvent)) {
+        return ResponseBuilder.badRequest(
+          'Body deve ser uma requisicao JSON-RPC 2.0 valida',
+          sessionId
+        );
+      }
+
+      // 5. Processar requisicao MCP
+      return await this.handleMCPRequest(apiKey, body, sessionId);
 
     } catch (error) {
       // Erro de parse ou validacao
