@@ -112,8 +112,8 @@ class EventParser {
     return (
       body.jsonrpc === '2.0' &&
       body.method &&
-      typeof body.method === 'string' &&
-      (body.id !== undefined)
+      typeof body.method === 'string'
+      // Nota: id e opcional (notificacoes JSON-RPC nao tem id)
     );
   }
 
