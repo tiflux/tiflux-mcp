@@ -132,6 +132,37 @@ class ResponseBuilder {
   }
 
   /**
+   * Cria resposta de informacoes do servidor MCP
+   * Endpoint GET /mcp para compatibilidade com MCP clients
+   * @returns {Object} - Resposta Lambda formatada
+   */
+  static serverInfo() {
+    return {
+      statusCode: 200,
+      headers: this.getDefaultHeaders(),
+      body: JSON.stringify({
+        name: 'tiflux-mcp',
+        version: '2.0.0',
+        vendor: 'TiFlux',
+        transport: 'streamable-http',
+        deployment: 'aws-lambda',
+        protocol: 'mcp',
+        description: 'TiFlux MCP Server - AWS Lambda deployment',
+        endpoint: '/mcp',
+        methods: {
+          GET: 'Server information',
+          POST: 'MCP JSON-RPC requests'
+        },
+        headers: {
+          required: ['x-tiflux-api-key'],
+          optional: ['mcp-session-id']
+        },
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
+
+  /**
    * Cria resposta MCP JSON-RPC
    * @param {Object} result - Resultado MCP
    * @param {string|number} id - ID da requisicao JSON-RPC
@@ -203,6 +234,26 @@ class ResponseBuilder {
     return {
       statusCode: 200,
       headers: this.getDefaultHeaders(),
+      body: ''
+    };
+  }
+
+  /**
+   * Cria resposta 204 No Content (para notificacoes JSON-RPC)
+   * Notificacoes nao esperam resposta, entao retornamos 204
+   * @param {string} sessionId - Session ID para tracking
+   * @returns {Object} - Resposta Lambda formatada
+   */
+  static noContent(sessionId = null) {
+    const headers = this.getDefaultHeaders();
+
+    if (sessionId) {
+      headers['mcp-session-id'] = sessionId;
+    }
+
+    return {
+      statusCode: 204,
+      headers,
       body: ''
     };
   }

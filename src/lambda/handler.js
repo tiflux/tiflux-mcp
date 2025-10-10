@@ -43,7 +43,24 @@ class MCPHandler {
         return ResponseBuilder.notFound(`Path nao encontrado: ${path}`, null);
       }
 
-      // 3. Parse completo do evento (valida API key) - apenas para /mcp
+      // 3. Processar endpoint /mcp
+
+      // 3.1. Tratar preflight CORS (sem API key)
+      if (method === 'OPTIONS') {
+        return ResponseBuilder.corsPreFlight();
+      }
+
+      // 3.2. GET retorna info do servidor (sem API key - para MCP client discovery)
+      if (method === 'GET') {
+        console.log('[MCPHandler] GET /mcp - Server info request', {
+          method,
+          path,
+          timestamp: new Date().toISOString()
+        });
+        return ResponseBuilder.serverInfo();
+      }
+
+      // 4. Parse completo do evento (valida API key) - apenas para POST
       parsedEvent = EventParser.parse(event);
       sessionId = parsedEvent.sessionId;
 
@@ -57,17 +74,12 @@ class MCPHandler {
         timestamp: new Date().toISOString()
       });
 
-      // 4. Processar endpoint /mcp
+      // 5. Processar operacoes MCP
 
-      // 4.1. Tratar preflight CORS
-      if (method === 'OPTIONS') {
-        return ResponseBuilder.corsPreFlight();
-      }
-
-      // 4.2. Apenas POST e permitido no endpoint MCP
+      // 4.3. Apenas POST e permitido para operacoes MCP
       if (method !== 'POST') {
         return ResponseBuilder.badRequest(
-          `Metodo ${method} nao permitido. Use POST para /mcp`,
+          `Metodo ${method} nao permitido. Use POST para /mcp ou GET para info`,
           sessionId
         );
       }
@@ -113,11 +125,13 @@ class MCPHandler {
   static async handleMCPRequest(apiKey, body, sessionId) {
     try {
       const { method, id } = body;
+      const isNotification = id === undefined;
 
       console.log('[MCPHandler] Processando requisicao MCP', {
         sessionId,
         mcpMethod: method,
         mcpId: id,
+        isNotification,
         timestamp: new Date().toISOString()
       });
 
@@ -140,7 +154,23 @@ class MCPHandler {
           result = await this.handleInitialize(server);
           break;
 
+        case 'notifications/initialized':
+          // Notificacao do cliente informando que inicializacao completa
+          // Nao precisa retornar nada (notificacoes nao tem resposta)
+          console.log('[MCPHandler] Cliente inicializado', { sessionId });
+          return ResponseBuilder.noContent(sessionId);
+
         default:
+          // Se for notificacao desconhecida, ignorar (sem resposta)
+          if (isNotification) {
+            console.log('[MCPHandler] Notificacao desconhecida ignorada', {
+              sessionId,
+              method
+            });
+            return ResponseBuilder.noContent(sessionId);
+          }
+
+          // Se for request desconhecido, retornar erro
           return ResponseBuilder.mcpError(
             `Metodo MCP desconhecido: ${method}`,
             -32601, // Method not found
@@ -156,7 +186,11 @@ class MCPHandler {
         timestamp: new Date().toISOString()
       });
 
-      // 3. Retornar resposta MCP
+      // 3. Retornar resposta MCP (apenas para requests, nao para notificacoes)
+      if (isNotification) {
+        return ResponseBuilder.noContent(sessionId);
+      }
+
       return ResponseBuilder.mcpResponse(result, id, sessionId);
 
     } catch (error) {
@@ -165,6 +199,11 @@ class MCPHandler {
         error: error.message,
         stack: error.stack
       });
+
+      // Notificacoes nao retornam erro
+      if (body.id === undefined) {
+        return ResponseBuilder.noContent(sessionId);
+      }
 
       return ResponseBuilder.mcpError(
         error.message,
