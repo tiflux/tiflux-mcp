@@ -21,6 +21,8 @@ Resources:
       Description: TiFlux MCP Server for Claude Code and AI clients
       Handler: lambda.handler
       CodeUri: .
+      # Limitar execuções simultâneas para controlar custos e prevenir abuso
+      ReservedConcurrentExecutions: 10
       Policies:
         - CloudWatchLogsFullAccess
       FunctionUrlConfig:
@@ -31,7 +33,6 @@ Resources:
           AllowMethods:
             - GET
             - POST
-            - OPTIONS
           AllowHeaders:
             - content-type
             - x-tiflux-api-key
