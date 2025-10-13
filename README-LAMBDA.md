@@ -4,11 +4,51 @@ Guia completo para deploy do TiFlux MCP Server em AWS Lambda com Function URL.
 
 ## Arquitetura
 
-- **Transport:** Streamable HTTP (MCP 2025-03-26)
+- **Transport:** Implementação MCP otimizada para Lambda
 - **Deployment:** AWS Lambda com Function URL
 - **Multi-tenancy:** Cada cliente passa sua API key via header `x-tiflux-api-key`
 - **Stateless:** Cada request cria nova instancia do servidor MCP
 - **Endpoint:** `/mcp` (POST) e `/health` (GET)
+
+### Protocol Implementation
+
+O servidor implementa o protocolo MCP (Model Context Protocol) usando o SDK oficial `@modelcontextprotocol/sdk` com uma arquitetura otimizada para AWS Lambda:
+
+- ✅ **MCP Server SDK**: Usa `@modelcontextprotocol/sdk/server` para handlers MCP
+- ✅ **JSON-RPC 2.0**: Implementação manual otimizada para Lambda stateless
+- ✅ **Protocol Compliance**: Suporte completo a initialize, tools/list, tools/call
+- ✅ **Session Management**: Headers customizados para tracking de sessões
+
+### Por que não usar StreamableHTTPServerTransport?
+
+O `StreamableHTTPServerTransport` do SDK MCP é projetado para servidores HTTP stateful de longa duração (long-running servers). Em ambientes serverless como AWS Lambda:
+
+- ❌ **Stateful sessions**: Transport mantém sessões em memória (incompatível com Lambda)
+- ❌ **SSE (Server-Sent Events)**: Requer conexões persistentes (Lambda timeout 30s)
+- ❌ **Overhead**: Inicialização adicional desnecessária por request
+
+Nossa implementação direta é:
+- ✅ **Stateless**: Nova instância por request (ideal para Lambda)
+- ✅ **Eficiente**: Sem overhead de gerenciamento de sessão
+- ✅ **Simple**: Código mais direto e fácil de debugar
+- ✅ **Cost-effective**: Menor tempo de execução = menor custo
+
+### Fluxo de Requisição
+
+1. **Lambda Function URL** recebe requisição HTTP POST
+2. **EventParser** extrai e valida API key do header `x-tiflux-api-key`
+3. **ServerFactory** cria servidor MCP isolado por request com API key do cliente
+4. **MCPHandler** invoca handlers do servidor diretamente (tools/list, tools/call, initialize)
+5. Servidor MCP processa requisição usando SDK oficial
+6. **ResponseBuilder** formata resposta JSON-RPC 2.0 para Lambda
+
+### Multi-tenancy
+
+Cada requisição cria uma instância isolada do servidor MCP configurada com a API key específica do cliente, garantindo:
+- 🔒 Total isolamento de dados entre organizações
+- 🔑 Autenticação via API key do TiFlux
+- 📊 Tracking por session ID
+- ⚡ Zero compartilhamento de estado entre requests
 
 ## Teste Local
 
@@ -335,9 +375,48 @@ sam delete
 - **Email:** dev@tiflux.com
 - **Documentacao MCP:** https://modelcontextprotocol.io/
 
+## Arquitetura de Componentes
+
+### Componentes Principais
+
+- **[handler.js](src/lambda/handler.js)** - Controlador principal HTTP para Lambda
+  - Roteamento de endpoints (/mcp, /health)
+  - Validação de métodos HTTP
+  - Orquestração de processamento MCP
+
+- **[EventParser.js](src/lambda/EventParser.js)** - Parse e validação de eventos Lambda
+  - Extração de API key do header `x-tiflux-api-key`
+  - Normalização de headers (case-insensitive)
+  - Geração de session IDs
+  - Validação de estrutura JSON-RPC
+
+- **[ServerFactory.js](src/lambda/ServerFactory.js)** - Factory de servidores MCP
+  - Criação de instâncias isoladas do MCP Server
+  - Injeção de API key nos handlers
+  - Registro de tools do TiFlux
+  - Configuração de handlers (tools/list, tools/call)
+
+- **[ResponseBuilder.js](src/lambda/ResponseBuilder.js)** - Formatação de respostas HTTP
+  - Respostas JSON-RPC 2.0
+  - Headers CORS
+  - Códigos de status HTTP apropriados
+  - Session tracking headers
+
+### Decisões Arquiteturais
+
+**Por que implementação manual em vez de StreamableHTTPServerTransport?**
+
+1. **Stateless by design**: Lambda é efêmero, não mantém estado entre requests
+2. **Performance**: Sem overhead de inicialização de transport
+3. **Simplicidade**: Código direto, fácil de debugar e manter
+4. **Custo**: Menor tempo de execução = menor custo AWS
+5. **Controle**: Flexibilidade total sobre formato de requisição/resposta
+
+Esta abordagem usa o `@modelcontextprotocol/sdk` para os handlers MCP (garantindo compliance com o protocolo), mas implementa a camada HTTP/JSON-RPC diretamente, otimizada para Lambda.
+
 ## Proximos Passos
 
-1. ✅ Deploy concluido
+1. ✅ Deploy funcional com arquitetura otimizada para Lambda
 2. ⬜ Adicionar autenticacao custom (opcional)
 3. ⬜ Configurar custom domain (opcional)
 4. ⬜ Implementar rate limiting (opcional)
@@ -346,4 +425,4 @@ sam delete
 ---
 
 **Versao:** 2.0.0
-**Ultima atualizacao:** 2025-10-09
+**Ultima atualizacao:** 2025-10-13
