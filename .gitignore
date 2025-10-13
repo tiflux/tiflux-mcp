@@ -60,6 +60,10 @@ jspm_packages/
 # Serverless directories
 .serverless
 
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
 # FuseBox cache
 .fusebox/
 
