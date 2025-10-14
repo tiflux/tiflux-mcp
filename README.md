@@ -98,6 +98,8 @@ Update an existing ticket in TiFlux.
 - `responsible_id` (number, optional): Responsible user ID (use null to unassign)
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
+- `services_catalogs_item_id` (number, optional): Catalog item ID for updating desk with specific item
+- `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 
 **Note:** At least one optional field must be provided along with the ticket_id.
 
