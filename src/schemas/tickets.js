@@ -150,6 +150,14 @@ const ticketSchemas = {
         followers: {
           type: 'string',
           description: 'Emails dos seguidores separados por vírgula (opcional)'
+        },
+        services_catalogs_item_id: {
+          type: 'number',
+          description: 'ID do item de catálogo para atualizar mesa com item específico (opcional)'
+        },
+        catalog_item_name: {
+          type: 'string',
+          description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)'
         }
       },
       required: ['ticket_number']

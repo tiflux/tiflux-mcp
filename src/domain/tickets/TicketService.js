@@ -447,29 +447,84 @@ class TicketService {
       return {
         content: [{
           type: 'text',
-          text: '**Nenhum ticket encontrado**\n\nVerifique os filtros aplicados.'
+          text: '📭 **Nenhum ticket encontrado**\n\nVerifique os filtros aplicados.'
         }]
       };
     }
 
-    let text = `**📋 Lista de Tickets (${tickets.length} encontrados)**\n\n`;
+    let text = `**📋 Lista de Tickets** (${tickets.length} encontrado${tickets.length > 1 ? 's' : ''})\n\n`;
 
     tickets.forEach((ticket, index) => {
-      text += `**${index + 1}. Ticket #${ticket.id}**\n` +
-              `   **Título:** ${ticket.title || 'N/A'}\n` +
-              `   **Status:** ${ticket.status?.name || ticket.status || 'N/A'}\n` +
-              `   **Cliente:** ${ticket.client?.name || ticket.client_name || 'N/A'}\n` +
-              `   **Técnico:** ${ticket.assigned_to?.name || ticket.responsible?.name || 'Não atribuído'}\n` +
-              `   **Atualizado:** ${ticket.updated_at ? new Date(ticket.updated_at).toLocaleString('pt-BR') : 'N/A'}\n\n`;
+      // Cabeçalho do ticket
+      text += `**${index + 1}. Ticket #${ticket.id}**\n`;
+      text += `   📝 **Título:** ${ticket.title || 'Não informado'}\n`;
+
+      // Responsável
+      const responsible = ticket.assigned_to?.name || ticket.responsible?.name || 'Não atribuído';
+      text += `   👤 **Responsável:** ${responsible}\n`;
+
+      // Cliente
+      const clientName = ticket.client?.name || ticket.client_name || 'Não informado';
+      text += `   🏢 **Cliente:** ${clientName}\n`;
+
+      // Mesa
+      if (ticket.desk?.name || ticket.desk_name) {
+        const deskName = ticket.desk?.name || ticket.desk_name;
+        text += `   🗂️ **Mesa:** ${deskName}\n`;
+      }
+
+      // Estágio com ícone baseado no tipo
+      const stageName = ticket.stage?.name || ticket.stage_name || ticket.status?.name || 'N/A';
+      const stageIcon = this._getStageIcon(stageName);
+      text += `   📊 **Estágio:** ${stageName} ${stageIcon}\n`;
+
+      // Status
+      const statusIcon = ticket.status_id === 1 ? '🚨' : '✅';
+      const statusName = ticket.status?.name || 'Opened';
+      text += `   ${statusIcon} **Status:** ${statusName}\n`;
+
+      // Data de atualização com tempo relativo (SEMPRE mostrar para debug)
+      const hasUpdatedAt = !!ticket.updated_at;
+      const updatedAtValue = ticket.updated_at;
+
+      this.logger.debug('DEBUG updated_at', { hasUpdatedAt, updatedAtValue, ticketId: ticket.id });
+
+      if (hasUpdatedAt) {
+        try {
+          const updatedDate = new Date(updatedAtValue);
+          const timeAgo = this._getTimeAgo(updatedDate);
+          text += `   ⏰ **Atualizado:** ${timeAgo} (${updatedDate.toLocaleDateString('pt-BR')})\n`;
+        } catch (error) {
+          text += `   ⏰ **Atualizado:** Erro ao processar data (${updatedAtValue})\n`;
+        }
+      } else {
+        text += `   ⏰ **Atualizado:** Campo não disponível na API\n`;
+      }
+
+      // Data de criação
+      if (ticket.created_at) {
+        const createdDate = new Date(ticket.created_at);
+        text += `   📅 **Criado em:** ${createdDate.toLocaleDateString('pt-BR')}\n`;
+      }
+
+      text += '\n';
     });
 
-    // Adiciona informações de paginação se disponíveis
-    if (pagination.has_more) {
-      text += `**📄 Paginação**\n` +
-              `Página atual: ${pagination.current_page || 'N/A'}\n` +
-              `Total de páginas: ${pagination.total_pages || 'N/A'}\n` +
-              `Há mais resultados disponíveis.`;
+    // Adiciona informações de paginação
+    if (pagination) {
+      text += `\n**📊 Paginação:**\n`;
+      text += `• Página atual: ${pagination.current_page || 1}\n`;
+      text += `• Tickets por página: ${pagination.per_page || tickets.length}\n`;
+      text += `• Tickets nesta página: ${tickets.length}\n`;
+
+      if (pagination.total_pages && pagination.current_page < pagination.total_pages) {
+        text += `• Há mais resultados disponíveis (use offset=${pagination.current_page + 1})\n`;
+      } else {
+        text += `• Esta é a última página disponível\n`;
+      }
     }
+
+    text += `\n*✅ Dados obtidos da API TiFlux em tempo real*`;
 
     return {
       content: [{
@@ -477,6 +532,57 @@ class TicketService {
         text: text
       }]
     };
+  }
+
+  /**
+   * Retorna ícone baseado no nome do estágio
+   */
+  _getStageIcon(stageName) {
+    const stageNameLower = stageName.toLowerCase();
+
+    if (stageNameLower.includes('review') || stageNameLower.includes('revisão')) {
+      return '🟡';
+    }
+    if (stageNameLower.includes('dev') || stageNameLower.includes('desenvolvimento')) {
+      return '💻';
+    }
+    if (stageNameLower.includes('test') || stageNameLower.includes('teste')) {
+      return '🧪';
+    }
+    if (stageNameLower.includes('done') || stageNameLower.includes('concluído')) {
+      return '✅';
+    }
+    if (stageNameLower.includes('pending') || stageNameLower.includes('pendente')) {
+      return '⏳';
+    }
+    if (stageNameLower.includes('blocked') || stageNameLower.includes('bloqueado')) {
+      return '🚫';
+    }
+
+    return '';
+  }
+
+  /**
+   * Calcula tempo relativo desde uma data
+   */
+  _getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMinutes < 1) {
+      return 'há menos de 1 minuto';
+    } else if (diffMinutes < 60) {
+      return `há ${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
+    } else if (diffHours < 24) {
+      return `há ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+    } else if (diffDays < 7) {
+      return `há ${diffDays} dia${diffDays > 1 ? 's' : ''}`;
+    } else {
+      return date.toLocaleString('pt-BR');
+    }
   }
 
   /**
