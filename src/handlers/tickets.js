@@ -71,18 +71,154 @@ class TicketHandlers {
         }
       }
 
+      // Formatar informações expandidas
+      let statusInfo = '';
+      if (ticket.status) {
+        statusInfo = `**Status:** ${ticket.status.name || 'N/A'} (ID: ${ticket.status.id || 'N/A'})\n`;
+        statusInfo += `  • Aberto: ${ticket.status.default_open ? 'Sim' : 'Não'}\n`;
+        statusInfo += `  • Fechado: ${ticket.is_closed ? 'Sim' : 'Não'}\n`;
+      }
+
+      let priorityInfo = '';
+      if (ticket.priority) {
+        priorityInfo = `**Prioridade:** ${ticket.priority.name || 'N/A'} (ID: ${ticket.priority.id || 'N/A'})\n`;
+      } else {
+        priorityInfo = `**Prioridade:** Não definida\n`;
+      }
+
+      let deskInfo = '';
+      if (ticket.desk) {
+        deskInfo = `**Mesa:** ${ticket.desk.display_name || ticket.desk.name || 'N/A'} (ID: ${ticket.desk.id || 'N/A'})\n`;
+        deskInfo += `  • Nome interno: ${ticket.desk.name || 'N/A'}\n`;
+        deskInfo += `  • Ativa: ${ticket.desk.active ? 'Sim' : 'Não'}\n`;
+      }
+
+      let stageInfo = '';
+      if (ticket.stage) {
+        stageInfo = `**Estágio:** ${ticket.stage.name || 'N/A'} (ID: ${ticket.stage.id || 'N/A'})\n`;
+        stageInfo += `  • Primeiro estágio: ${ticket.stage.first_stage ? 'Sim' : 'Não'}\n`;
+        stageInfo += `  • Último estágio: ${ticket.stage.last_stage ? 'Sim' : 'Não'}\n`;
+        if (ticket.stage.max_time) {
+          stageInfo += `  • Tempo máximo: ${ticket.stage.max_time}\n`;
+        }
+      }
+
+      let catalogInfo = '';
+      if (ticket.services_catalog) {
+        catalogInfo = `\n**Catálogo de Serviços:**\n`;
+        catalogInfo += `  • Item: ${ticket.services_catalog.item_name || 'N/A'} (ID: ${ticket.services_catalog.id || 'N/A'})\n`;
+        catalogInfo += `  • Área: ${ticket.services_catalog.area_name || 'N/A'}\n`;
+        catalogInfo += `  • Catálogo: ${ticket.services_catalog.catalog_name || 'N/A'}\n`;
+      }
+
+      let responsibleInfo = '';
+      if (ticket.responsible) {
+        responsibleInfo = `**Responsável:** ${ticket.responsible.name || 'N/A'} (ID: ${ticket.responsible.id || 'N/A'})\n`;
+        responsibleInfo += `  • Email: ${ticket.responsible.email || 'N/A'}\n`;
+        responsibleInfo += `  • Tipo: ${ticket.responsible._type || 'N/A'}\n`;
+        responsibleInfo += `  • Ativo: ${ticket.responsible.active ? 'Sim' : 'Não'}\n`;
+        if (ticket.responsible.technical_group_id) {
+          responsibleInfo += `  • Grupo técnico ID: ${ticket.responsible.technical_group_id}\n`;
+        }
+      } else {
+        responsibleInfo = `**Responsável:** Não atribuído\n`;
+      }
+
+      let clientInfo = '';
+      if (ticket.client) {
+        clientInfo = `**Cliente:** ${ticket.client.name || 'N/A'} (ID: ${ticket.client.id || 'N/A'})\n`;
+        if (ticket.client.social) {
+          clientInfo += `  • Razão social: ${ticket.client.social}\n`;
+        }
+        clientInfo += `  • Ativo: ${ticket.client.status ? 'Sim' : 'Não'}\n`;
+      }
+
+      let createdByInfo = '';
+      if (ticket.created_by_id) {
+        createdByInfo = `**Criado por:** ID ${ticket.created_by_id}`;
+        if (ticket.created_by_way_of) {
+          createdByInfo += ` (via ${ticket.created_by_way_of})`;
+        }
+        createdByInfo += `\n`;
+      }
+
+      let updatedByInfo = '';
+      if (ticket.updated_by_id) {
+        updatedByInfo = `**Atualizado por:** ID ${ticket.updated_by_id}\n`;
+      }
+
+      let slaInfo = '';
+      if (ticket.sla_info) {
+        slaInfo = `\n**SLA:**\n`;
+        slaInfo += `  • Parado: ${ticket.sla_info.stopped ? 'Sim' : 'Não'}\n`;
+        if (ticket.sla_info.stage_expiration) {
+          slaInfo += `  • Expiração do estágio: ${ticket.sla_info.stage_expiration}\n`;
+        }
+        if (ticket.sla_info.attend_sla) {
+          slaInfo += `  • SLA de atendimento: ${ticket.sla_info.attend_sla}\n`;
+        }
+        if (ticket.sla_info.attend_expiration) {
+          slaInfo += `  • Expiração atendimento: ${ticket.sla_info.attend_expiration}\n`;
+        }
+        if (ticket.sla_info.solve_expiration) {
+          slaInfo += `  • Expiração resolução: ${ticket.sla_info.solve_expiration}\n`;
+        }
+        if (ticket.sla_info.solved_in_time !== null) {
+          slaInfo += `  • Resolvido no prazo: ${ticket.sla_info.solved_in_time ? 'Sim' : 'Não'}\n`;
+        }
+      }
+
+      let additionalInfo = '';
+      if (ticket.followers) {
+        additionalInfo += `**Seguidores:** ${ticket.followers}\n`;
+      }
+      if (ticket.worked_hours) {
+        additionalInfo += `**Horas trabalhadas:** ${ticket.worked_hours}\n`;
+      }
+      if (ticket.reopen_count > 0) {
+        additionalInfo += `**Reaberturas:** ${ticket.reopen_count}\n`;
+      }
+      if (ticket.last_reopen_date) {
+        additionalInfo += `**Última reabertura:** ${ticket.last_reopen_date}\n`;
+      }
+      if (ticket.is_grouped) {
+        additionalInfo += `**Agrupado:** Sim\n`;
+      }
+      if (ticket.is_revised) {
+        additionalInfo += `**Revisado:** Sim\n`;
+      }
+
+      let urlInfo = '';
+      if (ticket.url_internal_path || ticket.url_external_path) {
+        urlInfo = `\n**URLs:**\n`;
+        if (ticket.url_internal_path) {
+          urlInfo += `  • Interna: ${ticket.url_internal_path}\n`;
+        }
+        if (ticket.url_external_path) {
+          urlInfo += `  • Externa: ${ticket.url_external_path}\n`;
+        }
+      }
+
       return {
         content: [
           {
             type: 'text',
             text: `**Ticket #${ticket_number}**\n\n` +
-                  `**Título:** ${ticket.title || 'N/A'}\n` +
-                  `**Status:** ${ticket.status?.name || ticket.status || 'N/A'}\n` +
-                  `**Prioridade:** ${ticket.priority?.name || ticket.priority || 'N/A'}\n` +
-                  `**Cliente:** ${ticket.client?.name || ticket.client_name || 'N/A'}\n` +
-                  `**Técnico:** ${ticket.responsible?.name || ticket.assigned_to?.name || 'Não atribuído'}\n` +
+                  `**Título:** ${ticket.title || 'N/A'}\n\n` +
+                  `${statusInfo}` +
+                  `${priorityInfo}\n` +
+                  `${deskInfo}\n` +
+                  `${stageInfo}\n` +
+                  `${catalogInfo}\n` +
+                  `${responsibleInfo}\n` +
+                  `${clientInfo}\n` +
+                  `${createdByInfo}` +
                   `**Criado em:** ${ticket.created_at || 'N/A'}\n` +
-                  `**Atualizado em:** ${ticket.updated_at || 'N/A'}\n\n` +
+                  `${updatedByInfo}` +
+                  `**Atualizado em:** ${ticket.updated_at || 'N/A'}\n` +
+                  `${additionalInfo}` +
+                  `${slaInfo}` +
+                  `${urlInfo}\n` +
                   `**Descrição:**\n${ticket.description || 'Sem descrição'}${entitiesText}\n\n` +
                   `*✅ Dados obtidos da API TiFlux em tempo real*`
           }
