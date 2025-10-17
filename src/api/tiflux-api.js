@@ -238,113 +238,136 @@ class TiFluxAPI {
 
   /**
    * Cria uma resposta (comunicação com cliente) em um ticket específico
+   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename })
    */
   async createTicketAnswer(ticketNumber, answerData) {
     try {
-      // Para multipart/form-data, precisamos fazer uma requisição especial
-      const FormData = require('form-data');
-      const form = new FormData();
+      const MAX_FILE_SIZE = 41943040; // 40MB (Ticket Answer limit)
 
-      // Adicionar campo obrigatório
-      if (answerData.name) {
-        form.append('name', answerData.name);
-      } else {
+      if (!answerData.name) {
         return {
           error: 'Campo "name" é obrigatório',
           status: 'VALIDATION_ERROR'
         };
       }
 
-      // Adicionar campo opcional de assinatura
-      if (answerData.with_signature !== undefined) {
-        form.append('with_signature', answerData.with_signature ? 'true' : 'false');
-      }
+      // Processar arquivos se fornecidos
+      const processedFiles = [];
+      if (answerData.files && Array.isArray(answerData.files) && answerData.files.length > 0) {
+        for (let i = 0; i < Math.min(answerData.files.length, 10); i++) {
+          const file = answerData.files[i];
+          let fileContent;
+          let fileName;
 
-      // Adicionar arquivos se fornecidos
-      if (answerData.files && Array.isArray(answerData.files)) {
-        answerData.files.forEach((filePath) => {
-          if (fs.existsSync(filePath)) {
-            form.append('files[]', fs.createReadStream(filePath));
-          }
-        });
-      }
-
-      const url = `${this.baseUrl}/tickets/${ticketNumber}/answers`;
-
-      return new Promise((resolve) => {
-        const parsedUrl = new URL(url);
-
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port || 443,
-          path: parsedUrl.pathname,
-          method: 'POST',
-          headers: {
-            'accept': 'application/json',
-            'authorization': `Bearer ${this.apiKey}`,
-            ...form.getHeaders()
-          }
-        };
-
-        const req = https.request(options, (res) => {
-          let responseData = '';
-
-          res.on('data', (chunk) => {
-            responseData += chunk;
-          });
-
-          res.on('end', () => {
-            try {
-              if (res.statusCode >= 200 && res.statusCode < 300) {
-                const jsonData = JSON.parse(responseData);
-                resolve({ data: jsonData, status: res.statusCode });
-              } else if (res.statusCode === 401) {
-                resolve({
-                  error: 'Token de API inválido ou expirado',
-                  status: res.statusCode
-                });
-              } else if (res.statusCode === 404) {
-                resolve({
-                  error: `Ticket #${ticketNumber} não encontrado`,
-                  status: res.statusCode
-                });
-              } else if (res.statusCode === 422) {
-                resolve({
-                  error: `Erro de validação: ${responseData}`,
-                  status: res.statusCode
-                });
-              } else {
-                resolve({
-                  error: `Erro HTTP ${res.statusCode}: ${responseData}`,
-                  status: res.statusCode
-                });
-              }
-            } catch (parseError) {
-              resolve({
-                error: `Erro ao processar resposta: ${parseError.message}`,
-                status: 'PARSE_ERROR'
-              });
+          // Detectar tipo de arquivo: string (path) ou objeto (base64)
+          if (typeof file === 'string') {
+            // Arquivo local via path
+            if (!fs.existsSync(file)) {
+              return {
+                error: `Arquivo não encontrado: ${file}`,
+                status: 'FILE_NOT_FOUND'
+              };
             }
-          });
-        });
 
-        req.on('error', (error) => {
-          resolve({
-            error: `Erro de conexão: ${error.message}`,
-            status: 'CONNECTION_ERROR'
-          });
-        });
+            const fileStats = fs.statSync(file);
+            if (fileStats.size > MAX_FILE_SIZE) {
+              return {
+                error: `Arquivo muito grande (máx 40MB): ${path.basename(file)}`,
+                status: 'FILE_TOO_LARGE'
+              };
+            }
 
-        req.setTimeout(30000, () => {
-          req.destroy();
-          resolve({
-            error: 'Timeout na requisição (30s)',
-            status: 'TIMEOUT'
-          });
-        });
+            fileContent = fs.readFileSync(file);
+            fileName = path.basename(file);
 
-        form.pipe(req);
-      });
+            console.error(`[TiFlux MCP] Usando arquivo local: ${fileName} (${fileStats.size} bytes)`);
+
+          } else if (typeof file === 'object' && file.content && file.filename) {
+            // Arquivo via base64
+            try {
+              // Decodificar base64 para Buffer
+              fileContent = Buffer.from(file.content, 'base64');
+              fileName = file.filename;
+
+              // Validar tamanho após decodificação
+              if (fileContent.length > MAX_FILE_SIZE) {
+                return {
+                  error: `Arquivo base64 muito grande (máx 40MB): ${fileName} (${Math.round(fileContent.length / 1024 / 1024)}MB)`,
+                  status: 'FILE_TOO_LARGE'
+                };
+              }
+
+              console.error(`[TiFlux MCP] Usando arquivo base64: ${fileName} (${fileContent.length} bytes)`);
+
+            } catch (decodeError) {
+              return {
+                error: `Erro ao decodificar base64 do arquivo "${file.filename}": ${decodeError.message}`,
+                status: 'BASE64_DECODE_ERROR'
+              };
+            }
+          } else {
+            return {
+              error: `Formato de arquivo inválido no índice ${i}. Use string (path) ou { content: "base64...", filename: "nome.ext" }`,
+              status: 'INVALID_FILE_FORMAT'
+            };
+          }
+
+          processedFiles.push({ content: fileContent, filename: fileName });
+        }
+      }
+
+      // Construir multipart/form-data manualmente
+      const boundary = `----formdata-tiflux-${Date.now()}`;
+      const parts = [];
+
+      // Parte do campo "name"
+      let namePart = '';
+      namePart += `--${boundary}\r\n`;
+      namePart += 'Content-Disposition: form-data; name="name"\r\n';
+      namePart += '\r\n';
+      namePart += answerData.name + '\r\n';
+      parts.push(Buffer.from(namePart));
+
+      // Parte do campo "with_signature" (opcional)
+      if (answerData.with_signature !== undefined) {
+        let signaturePart = '';
+        signaturePart += `--${boundary}\r\n`;
+        signaturePart += 'Content-Disposition: form-data; name="with_signature"\r\n';
+        signaturePart += '\r\n';
+        signaturePart += (answerData.with_signature ? 'true' : 'false') + '\r\n';
+        parts.push(Buffer.from(signaturePart));
+      }
+
+      // Partes dos arquivos processados
+      for (const file of processedFiles) {
+        let filePart = '';
+        filePart += `--${boundary}\r\n`;
+        filePart += `Content-Disposition: form-data; name="files[]"; filename="${file.filename}"\r\n`;
+        filePart += 'Content-Type: application/octet-stream\r\n';
+        filePart += '\r\n';
+
+        parts.push(Buffer.from(filePart));
+        parts.push(file.content);
+        parts.push(Buffer.from('\r\n'));
+      }
+
+      // Finalizar boundary
+      parts.push(Buffer.from(`--${boundary}--\r\n`));
+
+      // Combinar todas as partes
+      const formDataBuffer = Buffer.concat(parts);
+
+      const headers = {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': formDataBuffer.length
+      };
+
+      return await this.makeRequestBinary(
+        `/tickets/${ticketNumber}/answers`,
+        'POST',
+        formDataBuffer,
+        headers
+      );
 
     } catch (error) {
       return {
@@ -481,31 +504,77 @@ class TiFluxAPI {
 
   /**
    * Versão completa com arquivos
+   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename })
    */
   async createInternalCommunicationWithFiles(ticketNumber, text, files) {
-    // Validar arquivos
+    const MAX_FILE_SIZE = 26214400; // 25MB (Internal Communication limit)
+    const processedFiles = [];
+
+    // Processar e validar cada arquivo
     for (let i = 0; i < Math.min(files.length, 10); i++) {
-      const filePath = files[i];
-      
-      if (!fs.existsSync(filePath)) {
+      const file = files[i];
+      let fileContent;
+      let fileName;
+
+      // Detectar tipo de arquivo: string (path) ou objeto (base64)
+      if (typeof file === 'string') {
+        // Arquivo local via path
+        if (!fs.existsSync(file)) {
+          return {
+            error: `Arquivo não encontrado: ${file}`,
+            status: 'FILE_NOT_FOUND'
+          };
+        }
+
+        const fileStats = fs.statSync(file);
+        if (fileStats.size > MAX_FILE_SIZE) {
+          return {
+            error: `Arquivo muito grande (máx 25MB): ${path.basename(file)}`,
+            status: 'FILE_TOO_LARGE'
+          };
+        }
+
+        fileContent = fs.readFileSync(file);
+        fileName = path.basename(file);
+
+        console.error(`[TiFlux MCP] Usando arquivo local: ${fileName} (${fileStats.size} bytes)`);
+
+      } else if (typeof file === 'object' && file.content && file.filename) {
+        // Arquivo via base64
+        try {
+          // Decodificar base64 para Buffer
+          fileContent = Buffer.from(file.content, 'base64');
+          fileName = file.filename;
+
+          // Validar tamanho após decodificação
+          if (fileContent.length > MAX_FILE_SIZE) {
+            return {
+              error: `Arquivo base64 muito grande (máx 25MB): ${fileName} (${Math.round(fileContent.length / 1024 / 1024)}MB)`,
+              status: 'FILE_TOO_LARGE'
+            };
+          }
+
+          console.error(`[TiFlux MCP] Usando arquivo base64: ${fileName} (${fileContent.length} bytes)`);
+
+        } catch (decodeError) {
+          return {
+            error: `Erro ao decodificar base64 do arquivo "${file.filename}": ${decodeError.message}`,
+            status: 'BASE64_DECODE_ERROR'
+          };
+        }
+      } else {
         return {
-          error: `Arquivo não encontrado: ${filePath}`,
-          status: 'FILE_NOT_FOUND'
+          error: `Formato de arquivo inválido no índice ${i}. Use string (path) ou { content: "base64...", filename: "nome.ext" }`,
+          status: 'INVALID_FILE_FORMAT'
         };
       }
-      
-      const fileStats = fs.statSync(filePath);
-      if (fileStats.size > 26214400) {
-        return {
-          error: `Arquivo muito grande (máx 25MB): ${path.basename(filePath)}`,
-          status: 'FILE_TOO_LARGE'
-        };
-      }
+
+      processedFiles.push({ content: fileContent, filename: fileName });
     }
 
     const boundary = `----formdata-tiflux-${Date.now()}`;
     const parts = [];
-    
+
     // Parte do texto
     let textPart = '';
     textPart += `--${boundary}\r\n`;
@@ -513,39 +582,35 @@ class TiFluxAPI {
     textPart += '\r\n';
     textPart += text + '\r\n';
     parts.push(Buffer.from(textPart));
-    
-    // Partes dos arquivos
-    for (let i = 0; i < Math.min(files.length, 10); i++) {
-      const filePath = files[i];
-      const fileName = path.basename(filePath);
-      const fileContent = fs.readFileSync(filePath);
-      
+
+    // Partes dos arquivos processados
+    for (const file of processedFiles) {
       let filePart = '';
       filePart += `--${boundary}\r\n`;
-      filePart += `Content-Disposition: form-data; name="files[]"; filename="${fileName}"\r\n`;
+      filePart += `Content-Disposition: form-data; name="files[]"; filename="${file.filename}"\r\n`;
       filePart += 'Content-Type: application/octet-stream\r\n';
       filePart += '\r\n';
-      
+
       parts.push(Buffer.from(filePart));
-      parts.push(fileContent);
+      parts.push(file.content);
       parts.push(Buffer.from('\r\n'));
     }
-    
+
     // Finalizar boundary
     parts.push(Buffer.from(`--${boundary}--\r\n`));
-    
+
     // Combinar todas as partes
     const formDataBuffer = Buffer.concat(parts);
-    
+
     const headers = {
       'Content-Type': `multipart/form-data; boundary=${boundary}`,
       'Content-Length': formDataBuffer.length
     };
-    
+
     return await this.makeRequestBinary(
-      `/tickets/${ticketNumber}/internal_communications`, 
-      'POST', 
-      formDataBuffer, 
+      `/tickets/${ticketNumber}/internal_communications`,
+      'POST',
+      formDataBuffer,
       headers
     );
   }

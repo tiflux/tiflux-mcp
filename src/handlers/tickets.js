@@ -926,7 +926,7 @@ class TicketHandlers {
    * Handler para criar uma resposta (comunicação com cliente) em um ticket
    */
   async handleCreateTicketAnswer(args) {
-    const { ticket_number, text, with_signature, files } = args;
+    const { ticket_number, text, with_signature, files = [], files_base64 = [] } = args;
 
     if (!ticket_number) {
       throw new Error('ticket_number é obrigatório');
@@ -937,6 +937,97 @@ class TicketHandlers {
     }
 
     try {
+      // Combinar arquivos locais e base64
+      const allFiles = [...files, ...files_base64];
+
+      // Validar número total de arquivos
+      if (allFiles.length > 10) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `**⚠️ Muitos arquivos**\n\n` +
+                    `**Ticket:** #${ticket_number}\n` +
+                    `**Arquivos fornecidos:** ${allFiles.length} (${files.length} locais + ${files_base64.length} base64)\n` +
+                    `**Limite:** 10 arquivos por resposta\n\n` +
+                    `*Remova alguns arquivos e tente novamente.*`
+            }
+          ]
+        };
+      }
+
+      // Validar estrutura dos arquivos base64
+      if (files_base64.length > 0) {
+        for (let i = 0; i < files_base64.length; i++) {
+          const file = files_base64[i];
+
+          if (!file || typeof file !== 'object') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
+                        `O arquivo deve ser um objeto com as propriedades "content" e "filename".\n\n` +
+                        `**Exemplo correto:**\n` +
+                        `\`\`\`json\n` +
+                        `{\n` +
+                        `  "content": "base64string...",\n` +
+                        `  "filename": "documento.pdf"\n` +
+                        `}\n` +
+                        `\`\`\`\n\n` +
+                        `*Verifique a estrutura do arquivo e tente novamente.*`
+                }
+              ]
+            };
+          }
+
+          if (!file.content || typeof file.content !== 'string') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
+                        `A propriedade "content" é obrigatória e deve ser uma string em base64.\n\n` +
+                        `*Verifique o conteúdo do arquivo e tente novamente.*`
+                }
+              ]
+            };
+          }
+
+          if (!file.filename || typeof file.filename !== 'string') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
+                        `A propriedade "filename" é obrigatória e deve ser uma string.\n\n` +
+                        `*Exemplo: "documento.pdf", "relatorio.xlsx", "imagem.png"*`
+                }
+              ]
+            };
+          }
+
+          // Validar tamanho do base64 antes de enviar (aproximado)
+          const estimatedSize = Math.ceil((file.content.length * 3) / 4);
+          const maxSize = 41943040; // 40MB
+
+          if (estimatedSize > maxSize) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Arquivo base64 muito grande**\n\n` +
+                        `**Arquivo:** ${file.filename}\n` +
+                        `**Tamanho estimado:** ${Math.round(estimatedSize / 1024 / 1024)}MB\n` +
+                        `**Limite:** 40MB\n\n` +
+                        `*Reduza o tamanho do arquivo ou envie em múltiplas respostas.*`
+                }
+              ]
+            };
+          }
+        }
+      }
+
       // Preparar dados da resposta
       const answerData = {
         name: text, // O campo 'name' na API corresponde ao texto da resposta
@@ -944,51 +1035,8 @@ class TicketHandlers {
       };
 
       // Adicionar arquivos se fornecidos
-      if (files && Array.isArray(files) && files.length > 0) {
-        // Validar arquivos
-        const invalidFiles = files.filter(filePath => !fs.existsSync(filePath));
-        if (invalidFiles.length > 0) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `**❌ Arquivos não encontrados:**\n\n` +
-                      invalidFiles.map(file => `• ${file}`).join('\n') + '\n\n' +
-                      `*Verifique se os caminhos dos arquivos estão corretos.*`
-              }
-            ]
-          };
-        }
-
-        // Validar tamanho dos arquivos (25MB cada)
-        const maxSize = 25 * 1024 * 1024; // 25MB em bytes
-        const oversizedFiles = [];
-
-        files.forEach(filePath => {
-          try {
-            const stats = fs.statSync(filePath);
-            if (stats.size > maxSize) {
-              oversizedFiles.push(`${filePath} (${Math.round(stats.size / 1024 / 1024)}MB)`);
-            }
-          } catch (error) {
-            // Arquivo não encontrado já foi tratado acima
-          }
-        });
-
-        if (oversizedFiles.length > 0) {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `**❌ Arquivos muito grandes (máx. 25MB cada):**\n\n` +
-                      oversizedFiles.map(file => `• ${file}`).join('\n') + '\n\n' +
-                      `*Reduza o tamanho dos arquivos ou envie em respostas separadas.*`
-              }
-            ]
-          };
-        }
-
-        answerData.files = files;
+      if (allFiles.length > 0) {
+        answerData.files = allFiles;
       }
 
       // Criar resposta via API
