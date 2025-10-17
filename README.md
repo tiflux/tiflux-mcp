@@ -57,10 +57,27 @@ TIFLUX_DEFAULT_CATALOG_ITEM_ID=1
 ## Available Tools
 
 ### get_ticket
-Retrieve a specific ticket by ID.
+Retrieve a specific ticket by ID with comprehensive information including status, priority, desk, stage, catalog, responsible, client, audit data, SLA and URLs.
 
 **Parameters:**
-- `ticket_id` (string, required): ID of the ticket to retrieve
+- `ticket_number` (string, required): Number of the ticket to retrieve
+- `show_entities` (boolean, optional): Include ALL custom fields linked to the ticket
+- `include_filled_entity` (boolean, optional): Include only custom fields with filled values
+
+**Returns:**
+Comprehensive ticket information including:
+- Status (ID, name, open/closed flags)
+- Priority (ID, name)
+- Desk (ID, internal name, display name, active status)
+- Stage (ID, name, first/last stage flags, max time)
+- Service Catalog (item ID, item name, area, catalog)
+- Responsible (ID, name, email, type, technical group)
+- Client (ID, name, social reason, active status)
+- Audit (created by ID, origin, created/updated dates)
+- SLA (status, expirations, deadlines)
+- Additional info (followers, worked hours, reopens, internal/external URLs)
+
+**New in v1.4.0:** Expanded fields for complete ticket metadata in a single call.
 
 ### create_ticket
 Create a new ticket in TiFlux.
@@ -200,7 +217,10 @@ Create a new answer (client communication) in a specific ticket.
 - `ticket_number` (string, required): Ticket number where answer will be created
 - `text` (string, required): Answer content that will be sent to the client
 - `with_signature` (boolean, optional): Include user signature in the answer (default: false)
-- `files` (array, optional): Array of file paths to attach (max 10 files, 25MB each)
+- `files` (array, optional): Array of local file paths to attach (max 10 files, 40MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (alternative to files, max 10 files, 40MB each)
+
+**New in v1.3.0:** Support for base64 file upload via `files_base64` parameter.
 
 **Example:**
 ```json
@@ -287,7 +307,10 @@ Create a new internal communication in a ticket.
 **Parameters:**
 - `ticket_number` (string, required): Ticket number where communication will be created
 - `text` (string, required): Communication content
-- `files` (array, optional): Array of file paths to attach (max 10 files, 25MB each)
+- `files` (array, optional): Array of local file paths to attach (max 10 files, 25MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (alternative to files, max 10 files, 25MB each)
+
+**New in v1.3.0:** Support for base64 file upload via `files_base64` parameter.
 
 **Example:**
 ```json
@@ -305,6 +328,26 @@ List internal communications for a ticket.
 - `ticket_number` (string, required): Ticket number to list communications
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Communications per page (default: 20, max: 200)
+
+### get_ticket_files
+Get all files attached to a specific ticket.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number to retrieve files from
+
+**Returns:**
+List of files with details including:
+- File ID, name, content type
+- File size (formatted as KB/MB/GB)
+- URL for download
+- Created date and creator information
+
+**Example:**
+```json
+{
+  "ticket_number": "123"
+}
+```
 
 ### get_internal_communication
 Get a specific internal communication with full content.
@@ -333,6 +376,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
+- `GET /tickets/{ticket_number}/files` - Get ticket attached files
 
 ## Development
 
