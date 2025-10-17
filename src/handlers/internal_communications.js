@@ -13,26 +13,29 @@ class InternalCommunicationsHandlers {
    * Handler para criar uma comunicação interna
    */
   async handleCreateInternalCommunication(args) {
-    const { ticket_number, text, files = [] } = args;
-    
+    const { ticket_number, text, files = [], files_base64 = [] } = args;
+
     if (!ticket_number) {
       throw new Error('ticket_number é obrigatório');
     }
-    
+
     if (!text) {
       throw new Error('text é obrigatório');
     }
 
     try {
-      // Validar arquivos se fornecidos
-      if (files && files.length > 10) {
+      // Combinar arquivos locais e base64
+      const allFiles = [...files, ...files_base64];
+
+      // Validar número total de arquivos
+      if (allFiles.length > 10) {
         return {
           content: [
             {
               type: 'text',
               text: `**⚠️ Muitos arquivos**\n\n` +
                     `**Ticket:** #${ticket_number}\n` +
-                    `**Arquivos fornecidos:** ${files.length}\n` +
+                    `**Arquivos fornecidos:** ${allFiles.length} (${files.length} locais + ${files_base64.length} base64)\n` +
                     `**Limite:** 10 arquivos por comunicação\n\n` +
                     `*Remova alguns arquivos e tente novamente.*`
             }
@@ -40,8 +43,80 @@ class InternalCommunicationsHandlers {
         };
       }
 
+      // Validar estrutura dos arquivos base64
+      if (files_base64.length > 0) {
+        for (let i = 0; i < files_base64.length; i++) {
+          const file = files_base64[i];
+
+          if (!file || typeof file !== 'object') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
+                        `O arquivo deve ser um objeto com as propriedades "content" e "filename".\n\n` +
+                        `**Exemplo correto:**\n` +
+                        `\`\`\`json\n` +
+                        `{\n` +
+                        `  "content": "base64string...",\n` +
+                        `  "filename": "documento.pdf"\n` +
+                        `}\n` +
+                        `\`\`\`\n\n` +
+                        `*Verifique a estrutura do arquivo e tente novamente.*`
+                }
+              ]
+            };
+          }
+
+          if (!file.content || typeof file.content !== 'string') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
+                        `A propriedade "content" é obrigatória e deve ser uma string em base64.\n\n` +
+                        `*Verifique o conteúdo do arquivo e tente novamente.*`
+                }
+              ]
+            };
+          }
+
+          if (!file.filename || typeof file.filename !== 'string') {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
+                        `A propriedade "filename" é obrigatória e deve ser uma string.\n\n` +
+                        `*Exemplo: "documento.pdf", "planilha.csv", "imagem.png"*`
+                }
+              ]
+            };
+          }
+
+          // Validar tamanho do base64 antes de enviar (aproximado)
+          const estimatedSize = Math.ceil((file.content.length * 3) / 4);
+          const maxSize = 26214400; // 25MB
+
+          if (estimatedSize > maxSize) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `**❌ Arquivo base64 muito grande**\n\n` +
+                        `**Arquivo:** ${file.filename}\n` +
+                        `**Tamanho estimado:** ${Math.round(estimatedSize / 1024 / 1024)}MB\n` +
+                        `**Limite:** 25MB\n\n` +
+                        `*Reduza o tamanho do arquivo ou envie em múltiplas comunicações.*`
+                }
+              ]
+            };
+          }
+        }
+      }
+
       // Criar comunicação interna via API
-      const response = await this.api.createInternalCommunication(ticket_number, text, files);
+      const response = await this.api.createInternalCommunication(ticket_number, text, allFiles);
       
       if (response.error) {
         return {

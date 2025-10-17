@@ -22,7 +22,25 @@ const internalCommunicationsSchemas = {
           items: {
             type: 'string'
           },
-          description: 'Lista com os caminhos dos arquivos a serem anexados (opcional, máximo 10 arquivos de 25MB cada)'
+          description: 'Lista com os caminhos dos arquivos locais a serem anexados (opcional, máximo 10 arquivos de 25MB cada)'
+        },
+        files_base64: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              content: {
+                type: 'string',
+                description: 'Conteúdo do arquivo codificado em base64'
+              },
+              filename: {
+                type: 'string',
+                description: 'Nome do arquivo com extensão (ex: "documento.pdf", "planilha.csv")'
+              }
+            },
+            required: ['content', 'filename']
+          },
+          description: 'Lista de arquivos em formato base64 para anexar (alternativa ao parâmetro files, máximo 10 arquivos de 25MB cada)'
         }
       },
       required: ['ticket_number', 'text']
