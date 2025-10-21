@@ -5,7 +5,7 @@
 const ticketSchemas = {
   get_ticket: {
     name: 'get_ticket',
-    description: 'Buscar um ticket específico no TiFlux pelo número',
+    description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), criado por (ID e nome), atualizado por (ID e nome), seguidores, tags, datas (criação, atualização, fechamento), horas trabalhadas, SLA (status detalhado), URLs (interna e externa) e campos personalizados opcionais.',
     inputSchema: {
       type: 'object',
       properties: {
