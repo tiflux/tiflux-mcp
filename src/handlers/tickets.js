@@ -95,7 +95,13 @@ class TicketHandlers {
 
       let stageInfo = '';
       if (ticket.stage) {
-        stageInfo = `**Estágio:** ${ticket.stage.name || 'N/A'} (ID: ${ticket.stage.id || 'N/A'})\n`;
+        // Emoji indicator baseado no tipo de estágio
+        let stageEmoji = '📊';
+        if (ticket.stage.first_stage) stageEmoji = '🟢';
+        else if (ticket.stage.last_stage) stageEmoji = '🏁';
+        else if (ticket.stage.name && ticket.stage.name.toLowerCase().includes('review')) stageEmoji = '🟡';
+
+        stageInfo = `**Estágio:** ${ticket.stage.name || 'N/A'} ${stageEmoji} (ID: ${ticket.stage.id || 'N/A'})\n`;
         stageInfo += `  • Primeiro estágio: ${ticket.stage.first_stage ? 'Sim' : 'Não'}\n`;
         stageInfo += `  • Último estágio: ${ticket.stage.last_stage ? 'Sim' : 'Não'}\n`;
         if (ticket.stage.max_time) {
@@ -107,8 +113,16 @@ class TicketHandlers {
       if (ticket.services_catalog) {
         catalogInfo = `\n**Catálogo de Serviços:**\n`;
         catalogInfo += `  • Item: ${ticket.services_catalog.item_name || 'N/A'} (ID: ${ticket.services_catalog.id || 'N/A'})\n`;
-        catalogInfo += `  • Área: ${ticket.services_catalog.area_name || 'N/A'}\n`;
-        catalogInfo += `  • Catálogo: ${ticket.services_catalog.catalog_name || 'N/A'}\n`;
+        catalogInfo += `  • Área: ${ticket.services_catalog.area_name || 'N/A'}`;
+        if (ticket.services_catalog.area_id) {
+          catalogInfo += ` (ID: ${ticket.services_catalog.area_id})`;
+        }
+        catalogInfo += `\n`;
+        catalogInfo += `  • Catálogo: ${ticket.services_catalog.catalog_name || 'N/A'}`;
+        if (ticket.services_catalog.catalog_id) {
+          catalogInfo += ` (ID: ${ticket.services_catalog.catalog_id})`;
+        }
+        catalogInfo += `\n`;
       }
 
       let responsibleInfo = '';
@@ -135,7 +149,12 @@ class TicketHandlers {
 
       let createdByInfo = '';
       if (ticket.created_by_id) {
-        createdByInfo = `**Criado por:** ID ${ticket.created_by_id}`;
+        createdByInfo = `**Criado por:** `;
+        if (ticket.created_by && ticket.created_by.name) {
+          createdByInfo += `${ticket.created_by.name} (ID: ${ticket.created_by_id})`;
+        } else {
+          createdByInfo += `ID ${ticket.created_by_id}`;
+        }
         if (ticket.created_by_way_of) {
           createdByInfo += ` (via ${ticket.created_by_way_of})`;
         }
@@ -144,7 +163,13 @@ class TicketHandlers {
 
       let updatedByInfo = '';
       if (ticket.updated_by_id) {
-        updatedByInfo = `**Atualizado por:** ID ${ticket.updated_by_id}\n`;
+        updatedByInfo = `**Atualizado por:** `;
+        if (ticket.updated_by && ticket.updated_by.name) {
+          updatedByInfo += `${ticket.updated_by.name} (ID: ${ticket.updated_by_id})`;
+        } else {
+          updatedByInfo += `ID ${ticket.updated_by_id}`;
+        }
+        updatedByInfo += `\n`;
       }
 
       let slaInfo = '';
@@ -172,8 +197,16 @@ class TicketHandlers {
       if (ticket.followers) {
         additionalInfo += `**Seguidores:** ${ticket.followers}\n`;
       }
+      if (ticket.tags && Array.isArray(ticket.tags) && ticket.tags.length > 0) {
+        additionalInfo += `**Tags:** ${ticket.tags.join(', ')}\n`;
+      } else if (ticket.tags && typeof ticket.tags === 'string' && ticket.tags.trim()) {
+        additionalInfo += `**Tags:** ${ticket.tags}\n`;
+      }
       if (ticket.worked_hours) {
         additionalInfo += `**Horas trabalhadas:** ${ticket.worked_hours}\n`;
+      }
+      if (ticket.closed_at) {
+        additionalInfo += `**Fechado em:** ${ticket.closed_at}\n`;
       }
       if (ticket.reopen_count > 0) {
         additionalInfo += `**Reaberturas:** ${ticket.reopen_count}\n`;
