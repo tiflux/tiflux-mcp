@@ -171,6 +171,19 @@ class TicketMapper {
         apiData.followers = updateData.followers === null ? null : this._extractString(updateData.followers);
       }
 
+      // Dados do solicitante (requestor)
+      if (updateData.requestor_name !== undefined) {
+        apiData.requestor_name = this._extractString(updateData.requestor_name);
+      }
+
+      if (updateData.requestor_email !== undefined) {
+        apiData.requestor_email = this._extractString(updateData.requestor_email);
+      }
+
+      if (updateData.requestor_telephone !== undefined) {
+        apiData.requestor_telephone = this._extractString(updateData.requestor_telephone);
+      }
+
       return this._cleanObject(apiData);
 
     } catch (error) {
