@@ -158,6 +158,11 @@ class TicketRepository {
       // Mapeia dados de atualização para formato da API
       const apiData = this._getTicketMapper().mapUpdateToAPI(updateData);
 
+      this.logger.info('Repository: API payload for update', {
+        ticketId,
+        apiData: JSON.stringify(apiData)
+      });
+
       const response = await this.httpClient.put(`/tickets/${ticketId}`, apiData, {
         timeout: 20000,
         maxRetries: 1,
