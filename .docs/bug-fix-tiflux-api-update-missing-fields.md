@@ -123,13 +123,26 @@ Ticket #80850
 ## Versão e Deploy
 
 **Versão**: 1.4.5
-**Commit**: Bug fix - Add missing fields to tiflux-api.js updateTicket
+**Commit**: b5eca5f - Bug fix - Add missing fields to tiflux-api.js updateTicket
+**Data**: 2025-10-22 10:44
+
+### Git
+- ✅ Push realizado para repositório principal
+- ✅ Commit: b5eca5f
 
 ### NPM
-- ✅ Versão 1.4.5 publicada
+- ✅ Versão 1.4.5 publicada com sucesso
+- ✅ Package: @tiflux/mcp@1.4.5
+- ✅ Shasum: 953922940edfe9cb73b4ee8a0e590ad6d60fb216
+- ✅ URL: https://www.npmjs.com/package/@tiflux/mcp
 
 ### Lambda AWS
-- ✅ Deploy realizado em 2025-10-22
+- ✅ Deploy realizado em 2025-10-22 10:44:30
+- ✅ Stack: tiflux-mcp-stack (sa-east-1)
+- ✅ Function: tiflux-mcp-server
+- ✅ ARN: arn:aws:lambda:sa-east-1:121558336278:function:tiflux-mcp-server
+- ✅ URL: https://yvjwf4d5u32bk6rwcxuuvghyom0fbxob.lambda-url.sa-east-1.on.aws/
+- ✅ Status: UPDATE_COMPLETE
 
 ## Arquivos Modificados
 
