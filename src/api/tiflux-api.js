@@ -184,17 +184,26 @@ class TiFluxAPI {
    * Atualiza um ticket existente
    */
   async updateTicket(ticketId, ticketData) {
+
     // Preparar dados no formato JSON conforme a API espera
     const ticketObject = {};
-    
+
     // Adicionar campos editáveis se fornecidos
     if (ticketData.title !== undefined) ticketObject.title = ticketData.title;
     if (ticketData.description !== undefined) ticketObject.description = ticketData.description;
     if (ticketData.client_id !== undefined) ticketObject.client_id = ticketData.client_id;
     if (ticketData.desk_id !== undefined) ticketObject.desk_id = ticketData.desk_id;
+    if (ticketData.priority_id !== undefined) ticketObject.priority_id = ticketData.priority_id;
+    if (ticketData.status_id !== undefined) ticketObject.status_id = ticketData.status_id;
     if (ticketData.stage_id !== undefined) ticketObject.stage_id = ticketData.stage_id;
+    if (ticketData.services_catalogs_item_id !== undefined) ticketObject.services_catalogs_item_id = ticketData.services_catalogs_item_id;
     if (ticketData.followers !== undefined) ticketObject.followers = ticketData.followers;
-    
+
+    // Campos do solicitante
+    if (ticketData.requestor_name !== undefined) ticketObject.requestor_name = ticketData.requestor_name;
+    if (ticketData.requestor_email !== undefined) ticketObject.requestor_email = ticketData.requestor_email;
+    if (ticketData.requestor_telephone !== undefined) ticketObject.requestor_telephone = ticketData.requestor_telephone;
+
     // Tratamento especial para responsible_id (pode ser null)
     if (ticketData.responsible_id !== undefined) {
       ticketObject.responsible_id = ticketData.responsible_id;
