@@ -153,7 +153,7 @@ class TicketMapper {
       // IDs que podem ser atualizados
       const idFields = [
         'client_id', 'desk_id', 'priority_id', 'status_id',
-        'stage_id', 'responsible_id'
+        'stage_id', 'responsible_id', 'services_catalogs_item_id'
       ];
 
       idFields.forEach(field => {
