@@ -148,7 +148,9 @@ class TicketValidator {
     const allowedFields = [
       'title', 'description', 'client_id', 'desk_id', 'priority_id',
       'status_id', 'stage_id', 'responsible_id', 'followers',
-      'client_name', 'desk_name'
+      'client_name', 'desk_name', 'stage_name', 'responsible_name',
+      'services_catalogs_item_id', 'catalog_item_name',
+      'requestor_name', 'requestor_email', 'requestor_telephone'
     ];
 
     const providedFields = Object.keys(updateData).filter(key =>
@@ -191,7 +193,7 @@ class TicketValidator {
     // 3. Validações de IDs numéricos
     const numericFields = [
       'client_id', 'desk_id', 'priority_id', 'status_id',
-      'stage_id', 'responsible_id'
+      'stage_id', 'responsible_id', 'services_catalogs_item_id'
     ];
 
     numericFields.forEach(field => {
