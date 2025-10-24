@@ -163,12 +163,26 @@ class TicketRepository {
         apiData: JSON.stringify(apiData)
       });
 
+      this.logger.info('Repository: Sending HTTP PUT request', {
+        ticketId,
+        url: `/tickets/${ticketId}`,
+        payload: JSON.stringify(apiData),
+        payloadKeys: Object.keys(apiData)
+      });
+
+
       const response = await this.httpClient.put(`/tickets/${ticketId}`, apiData, {
         timeout: 20000,
         maxRetries: 1,
         headers: {
           'Content-Type': 'application/json'
         }
+      });
+
+      this.logger.info('Repository: Received HTTP response', {
+        ticketId,
+        statusCode: response.statusCode,
+        hasError: response.statusCode >= 400
       });
 
       timer();
