@@ -242,11 +242,17 @@ Search for clients by name.
 Search for users by name to use as responsible in tickets.
 
 **Parameters:**
-- `name` (string, required): User name to search (partial match supported)
+- `name` (string, required): User name to search (partial match supported, searches in name and email)
 - `type` (string, optional): User type filter (client, attendant, admin)
 - `active` (boolean, optional): Filter active (true) or inactive (false) users
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 - `offset` (number, optional): Page number (default: 1)
+
+**Implementation Note:**
+The TiFlux API does not support name-based filtering in the `/users` endpoint. This tool fetches up to 200 users from the API and performs client-side filtering by name and email. This approach ensures compatibility with the API while providing the expected search functionality.
+
+**Requirements:**
+The API user must have the `users_manage` permission to access the `/users` endpoint.
 
 **Example:**
 ```json
@@ -369,7 +375,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /tickets/{ticket_number}/answers` - Create ticket answer (client communication)
 - `GET /tickets` - List tickets with filters
 - `GET /clients` - Search clients
-- `GET /users` - Search users by name
+- `GET /users` - List users (name filtering done client-side)
 - `GET /desks` - Search desks
 - `GET /desks/{id}/stages` - Get desk stages
 - `GET /desks/{id}/services-catalogs-items` - Get service catalog items

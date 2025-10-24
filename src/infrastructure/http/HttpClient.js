@@ -203,6 +203,11 @@ class HttpClient {
         Object.assign(requestOptions.headers, processedOptions.data.getHeaders());
       } else if (typeof processedOptions.data === 'object') {
         // JSON
+        this.logger.debug?.('HTTP Client: Preparing JSON body', {
+          requestId,
+          dataKeys: Object.keys(processedOptions.data),
+          dataValues: JSON.stringify(processedOptions.data)
+        });
         requestBody = JSON.stringify(processedOptions.data);
         requestOptions.headers['Content-Type'] = 'application/json';
         requestOptions.headers['Content-Length'] = Buffer.byteLength(requestBody);
