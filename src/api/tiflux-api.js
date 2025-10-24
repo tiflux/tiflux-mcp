@@ -776,20 +776,19 @@ class TiFluxAPI {
   /**
    * Busca usuários por nome com filtros opcionais
    * GET /users
+   *
+   * Nota: A API TiFlux não suporta busca por nome no endpoint /users.
+   * Endpoints disponíveis: GET /users (lista) e GET /users/{id} (por ID).
+   * Implementamos filtro client-side por nome/email após buscar da API.
    */
   async searchUsers(filters = {}) {
     const params = new URLSearchParams();
 
-    // Paginação
+    // Paginação - usar limit máximo (200) para filtrar client-side
     const offset = filters.offset || 1;
-    const limit = Math.min(filters.limit || 20, 200);
+    const limit = 200; // Máximo permitido pela API
     params.append('offset', offset);
     params.append('limit', limit);
-
-    // Filtro de nome (busca parcial)
-    if (filters.name) {
-      params.append('name', filters.name);
-    }
 
     // Filtro de usuários ativos/inativos
     if (filters.active !== undefined) {
@@ -807,7 +806,24 @@ class TiFluxAPI {
     }
 
     const endpoint = `/users?${params.toString()}`;
-    return await this.makeRequest(endpoint);
+    const response = await this.makeRequest(endpoint);
+
+    // Filtrar por nome client-side se fornecido
+    if (response.data && filters.name) {
+      const searchTerm = filters.name.toLowerCase().trim();
+      response.data = response.data.filter(user => {
+        const nameMatch = user.name && user.name.toLowerCase().includes(searchTerm);
+        const emailMatch = user.email && user.email.toLowerCase().includes(searchTerm);
+        return nameMatch || emailMatch;
+      });
+
+      // Limitar resultados ao limit solicitado pelo usuário
+      if (filters.limit && filters.limit < response.data.length) {
+        response.data = response.data.slice(0, filters.limit);
+      }
+    }
+
+    return response;
   }
 
   /**
