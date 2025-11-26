@@ -14,6 +14,14 @@
  * - Function URL habilitado
  */
 
+// Datadog APM - apenas em producao
+if (process.env.NODE_ENV === 'production') {
+  require('dd-trace').init({
+    service: 'tiflux-mcp',
+    env: process.env.DD_ENV || 'production'
+  });
+}
+
 const MCPHandler = require('./src/lambda/handler');
 
 /**

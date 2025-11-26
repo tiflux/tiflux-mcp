@@ -12,6 +12,9 @@ Globals:
     Environment:
       Variables:
         NODE_ENV: production
+        DD_ENV: production
+        DD_SERVICE: tiflux-mcp
+        DD_VERSION: '1.0.0'
 
 Resources:
   TiFluxMCPFunction:
