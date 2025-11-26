@@ -24,6 +24,9 @@ Resources:
       Description: TiFlux MCP Server for Claude Code and AI clients
       Handler: lambda.handler
       CodeUri: .
+      # Datadog Extension Layer para APM
+      Layers:
+        - arn:aws:lambda:sa-east-1:464622532012:layer:Datadog-Extension:65
       # Limitar execuções simultâneas para controlar custos e prevenir abuso
       ReservedConcurrentExecutions: 10
       Policies:
