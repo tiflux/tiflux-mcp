@@ -1,6 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: TiFlux MCP Server - AWS Lambda deployment with Function URL
+Description: TiFlux MCP Server - AWS Lambda deployment with Function URL (v1.4.7)
+
+Parameters:
+  DatadogApiKey:
+    Type: String
+    Description: Datadog API Key para APM (obter em Datadog > Organization Settings > API Keys)
+    NoEcho: true
+    Default: ''
 
 Globals:
   Function:
@@ -15,6 +22,7 @@ Globals:
         DD_ENV: production
         DD_SERVICE: tiflux-mcp
         DD_VERSION: '1.0.0'
+        DD_API_KEY: !Ref DatadogApiKey
 
 Resources:
   TiFluxMCPFunction:
