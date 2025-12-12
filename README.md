@@ -39,6 +39,40 @@ Add to your MCP configuration:
 npx @tiflux/mcp@latest
 ```
 
+### Via URL (HTTP Transport)
+
+**Endpoint:** `https://mcp.tiflux.com/mcp`
+
+```bash
+claude mcp add tiflux-lambda --transport http https://mcp.tiflux.com/mcp --header "x-tiflux-api-key:APIKEY" -s project
+```
+
+#### Manual Configuration
+
+Add to `.claude/settings.json` or `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "tiflux": {
+      "type": "url",
+      "url": "https://mcp.tiflux.com/mcp",
+      "headers": {
+        "x-tiflux-api-key": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+#### Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/mcp` | GET | No | Server info |
+| `/mcp` | POST | Yes | MCP operations |
+| `/health` | GET | No | Health check |
+
 ## Configuration
 
 Create a `.env` file with your TiFlux API credentials:

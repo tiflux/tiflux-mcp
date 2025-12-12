@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: TiFlux MCP Server - AWS Lambda deployment with Function URL (v1.4.7)
+Description: TiFlux MCP Server - AWS Lambda deployment with Function URL (v1.4.9)
 
 Parameters:
   DatadogApiKey:
