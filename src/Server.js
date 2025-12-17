@@ -245,6 +245,9 @@ class TiFluxMCPServer {
                 stage_name: { type: 'string', description: 'Nome do estágio para busca automática' },
                 responsible_ids: { type: 'string', description: 'IDs dos responsáveis separados por vírgula (máximo 15)' },
                 is_closed: { type: 'boolean', description: 'Filtrar tickets fechados (padrão: false - apenas abertos)' },
+                date_type: { type: 'string', enum: ['created_at', 'solved_in_time'], description: 'Tipo de data para filtro: "created_at" (criação, padrão) ou "solved_in_time" (resolução)' },
+                start_datetime: { type: 'string', description: 'Data/hora inicial do filtro ISO 8601 (ex: "2024-05-15T00:00:00Z")' },
+                end_datetime: { type: 'string', description: 'Data/hora final do filtro ISO 8601 (ex: "2024-05-15T23:59:59Z")' },
                 limit: { type: 'number', description: 'Número de tickets por página (padrão: 20, máximo: 200)' },
                 offset: { type: 'number', description: 'Número da página (padrão: 1)' }
               },

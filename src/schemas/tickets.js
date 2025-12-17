@@ -235,6 +235,19 @@ const ticketSchemas = {
         is_closed: {
           type: 'boolean',
           description: 'Filtrar tickets fechados (padrão: false - apenas abertos)'
+        },
+        date_type: {
+          type: 'string',
+          enum: ['created_at', 'solved_in_time'],
+          description: 'Tipo de data para filtro: "created_at" (data de criação, padrão) ou "solved_in_time" (data de resolução/fechamento)'
+        },
+        start_datetime: {
+          type: 'string',
+          description: 'Data/hora inicial do filtro no formato ISO 8601 (ex: "2024-05-15T00:00:00Z"). Filtra tickets com data >= start_datetime'
+        },
+        end_datetime: {
+          type: 'string',
+          description: 'Data/hora final do filtro no formato ISO 8601 (ex: "2024-05-15T23:59:59Z"). Filtra tickets com data <= end_datetime'
         }
       },
       required: []

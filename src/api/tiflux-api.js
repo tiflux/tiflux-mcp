@@ -458,6 +458,19 @@ class TiFluxAPI {
       }
     }
 
+    // Filtros de data
+    if (filters.date_type) {
+      params.append('date_type', filters.date_type);
+    }
+
+    if (filters.start_datetime) {
+      params.append('start_datetime', filters.start_datetime);
+    }
+
+    if (filters.end_datetime) {
+      params.append('end_datetime', filters.end_datetime);
+    }
+
     const endpoint = `/tickets?${params.toString()}`;
     return await this.makeRequest(endpoint);
   }

@@ -219,8 +219,32 @@ List tickets with filtering options.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200)
 - `is_closed` (boolean, optional): Include closed tickets (default: false)
+- `date_type` (string, optional): Date type for filtering: "created_at" (creation date, default) or "solved_in_time" (resolution/closing date)
+- `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
+- `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 
 **Note:** At least one filter (desk_ids/desk_name, client_ids, stage_ids/stage_name, or responsible_ids) is required.
+
+**Date Filtering Examples:**
+```json
+// List tickets created in a specific date range (including closed ones)
+{
+  "desk_name": "Support",
+  "date_type": "created_at",
+  "start_datetime": "2024-01-01T00:00:00Z",
+  "end_datetime": "2024-01-31T23:59:59Z",
+  "is_closed": true
+}
+
+// List tickets resolved in a specific period
+{
+  "desk_name": "Support",
+  "date_type": "solved_in_time",
+  "start_datetime": "2024-01-01T00:00:00Z",
+  "end_datetime": "2024-01-31T23:59:59Z",
+  "is_closed": true
+}
+```
 
 ### close_ticket
 Close a specific ticket in TiFlux.

@@ -1264,16 +1264,19 @@ class TicketHandlers {
    * Handler para listar tickets com filtros
    */
   async handleListTickets(args) {
-    const { 
-      desk_ids, 
+    const {
+      desk_ids,
       desk_name,
-      client_ids, 
-      stage_ids, 
+      client_ids,
+      stage_ids,
       stage_name,
       responsible_ids,
       offset,
       limit,
-      is_closed
+      is_closed,
+      date_type,
+      start_datetime,
+      end_datetime
     } = args;
     
     // Validar se pelo menos um dos filtros obrigatórios foi informado
@@ -1419,6 +1422,9 @@ class TicketHandlers {
       if (offset) filters.offset = parseInt(offset);
       if (limit) filters.limit = parseInt(limit);
       if (is_closed !== undefined) filters.is_closed = is_closed;
+      if (date_type) filters.date_type = date_type;
+      if (start_datetime) filters.start_datetime = start_datetime;
+      if (end_datetime) filters.end_datetime = end_datetime;
 
       // Chamar API para listar tickets
       const response = await this.api.listTickets(filters);
