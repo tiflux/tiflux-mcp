@@ -4,7 +4,7 @@
 
 const searchCatalogItemSchema = {
   name: 'search_catalog_item',
-  description: 'Buscar um item de catálogo de serviços por nome dentro de uma mesa específica. Os itens de catálogo representam os tipos de solicitações que podem ser criadas em uma mesa.',
+  description: 'Buscar itens de catálogo de serviços por nome, área ou catálogo dentro de uma mesa específica. Os itens de catálogo representam os tipos de solicitações que podem ser criadas em uma mesa. Quando catalog_item_name não é fornecido, lista todos os itens da área/catálogo especificado.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -18,15 +18,15 @@ const searchCatalogItemSchema = {
       },
       catalog_item_name: {
         type: 'string',
-        description: 'Nome do item de catálogo a ser buscado (busca parcial case-insensitive)'
+        description: 'Nome do item de catálogo a ser buscado (busca parcial case-insensitive). Opcional quando area_id ou catalog_id são fornecidos.'
       },
       area_id: {
         type: 'number',
-        description: 'ID da área de serviços para filtrar os resultados (opcional)'
+        description: 'ID da área de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name, lista todos os itens da área.'
       },
       catalog_id: {
         type: 'number',
-        description: 'ID do catálogo de serviços para filtrar os resultados (opcional)'
+        description: 'ID do catálogo de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name, lista todos os itens do catálogo.'
       },
       limit: {
         type: 'number',
@@ -39,7 +39,7 @@ const searchCatalogItemSchema = {
         default: 1
       }
     },
-    required: ['catalog_item_name']
+    required: []
   }
 };
 
