@@ -35,7 +35,12 @@ class FeatureFlagChecker {
 
     const result = await this._fetchEnableMcp(apiKey);
 
-    flagCache.set(apiKey, { result, timestamp: Date.now() });
+    // Só cacheia respostas bem-sucedidas (enabled true ou false explícito).
+    // Erros transientes (timeout, 500) NÃO são cacheados para permitir
+    // retry imediato no próximo request.
+    if (!result.reason || result.reason === 'MCP não habilitado para este usuário') {
+      flagCache.set(apiKey, { result, timestamp: Date.now() });
+    }
 
     return result;
   }
