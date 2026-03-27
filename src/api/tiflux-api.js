@@ -840,6 +840,14 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca dados do usuário autenticado incluindo feature flags
+   * GET /users/me
+   */
+  async fetchCurrentUser() {
+    return await this.makeRequest('/users/me');
+  }
+
+  /**
    * Busca itens de catálogo de serviços de uma mesa específica
    * GET /desks/{id}/services-catalogs-items
    */

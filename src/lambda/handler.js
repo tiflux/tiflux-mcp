@@ -16,6 +16,7 @@
 const EventParser = require('./EventParser');
 const ResponseBuilder = require('./ResponseBuilder');
 const ServerFactory = require('./ServerFactory');
+const FeatureFlagChecker = require('./FeatureFlagChecker');
 
 class MCPHandler {
   /**
@@ -74,7 +75,17 @@ class MCPHandler {
         timestamp: new Date().toISOString()
       });
 
-      // 5. Processar operacoes MCP
+      // 5. Verificar feature flag enable_mcp
+      const featureFlag = await FeatureFlagChecker.checkEnableMcp(apiKey);
+      if (!featureFlag.enabled) {
+        console.warn('[MCPHandler] Acesso bloqueado pela feature flag enable_mcp', {
+          sessionId,
+          reason: featureFlag.reason
+        });
+        return ResponseBuilder.forbidden(featureFlag.reason, sessionId);
+      }
+
+      // 6. Processar operacoes MCP
 
       // 4.3. Apenas POST e permitido para operacoes MCP
       if (method !== 'POST') {

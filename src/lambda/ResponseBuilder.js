@@ -54,6 +54,16 @@ class ResponseBuilder {
   }
 
   /**
+   * Cria resposta de erro 403 (Forbidden)
+   * @param {string} message - Mensagem de erro
+   * @param {string} sessionId - Session ID para tracking
+   * @returns {Object} - Resposta Lambda formatada
+   */
+  static forbidden(message = 'Acesso nao autorizado', sessionId = null) {
+    return this.error(403, message, 'FORBIDDEN', sessionId);
+  }
+
+  /**
    * Cria resposta de erro 404 (Not Found)
    * @param {string} message - Mensagem de erro
    * @param {string} sessionId - Session ID para tracking
