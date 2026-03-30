@@ -23,8 +23,35 @@ Globals:
         DD_SERVICE: tiflux-mcp
         DD_VERSION: '1.0.0'
         DD_API_KEY: !Ref DatadogApiKey
+        OAUTH_TABLE_NAME: !Ref OAuthTable
+        OAUTH_ISSUER: 'https://mcp.tiflux.com'
 
 Resources:
+  # Tabela DynamoDB para estado OAuth (clients, codes, tokens)
+  OAuthTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: tiflux-mcp-oauth
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Project
+          Value: TiFlux
+        - Key: Component
+          Value: MCP-OAuth
+
   TiFluxMCPFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -39,6 +66,8 @@ Resources:
       ReservedConcurrentExecutions: 10
       Policies:
         - CloudWatchLogsFullAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OAuthTable
       FunctionUrlConfig:
         AuthType: NONE
         Cors:
@@ -51,6 +80,7 @@ Resources:
             - content-type
             - x-tiflux-api-key
             - mcp-session-id
+            - authorization
           MaxAge: 86400
       Tags:
         Project: TiFlux
@@ -73,3 +103,7 @@ Outputs:
   TiFluxMCPFunctionName:
     Description: Nome da funcao Lambda
     Value: !Ref TiFluxMCPFunction
+
+  OAuthTableName:
+    Description: Nome da tabela DynamoDB OAuth
+    Value: !Ref OAuthTable

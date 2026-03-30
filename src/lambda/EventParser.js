@@ -24,7 +24,7 @@ class EventParser {
    * @returns {Object} - Dados extraidos: { method, path, headers, body, apiKey }
    * @throws {Error} - Se evento invalido ou API key ausente
    */
-  static parse(event) {
+  static async parse(event) {
     if (!event || typeof event !== 'object') {
       throw new Error('Evento Lambda invalido');
     }
@@ -56,10 +56,10 @@ class EventParser {
       }
     }
 
-    // Extrair e validar API key (CRITICO para multi-tenancy)
-    const apiKey = headers['x-tiflux-api-key'];
+    // Extrair API key: header direto OU Bearer token (OAuth)
+    const apiKey = headers['x-tiflux-api-key'] || await this.resolveApiKeyFromBearer(headers);
     if (!apiKey) {
-      throw new Error('Header x-tiflux-api-key obrigatorio');
+      throw new Error('Header x-tiflux-api-key ou Authorization Bearer obrigatorio');
     }
 
     // Extrair session ID (se presente)
@@ -115,6 +115,83 @@ class EventParser {
       typeof body.method === 'string'
       // Nota: id e opcional (notificacoes JSON-RPC nao tem id)
     );
+  }
+
+  /**
+   * Resolve API key a partir de um Bearer token OAuth
+   * @param {Object} headers - Headers normalizados
+   * @returns {string|null} - API key ou null
+   */
+  static async resolveApiKeyFromBearer(headers) {
+    const authHeader = headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return null;
+    }
+
+    const token = authHeader.substring(7); // Remove "Bearer "
+    if (!token) return null;
+
+    try {
+      const DynamoStore = require('../oauth/DynamoStore');
+      const tokenData = await DynamoStore.getAccessToken(token);
+      if (tokenData && tokenData.apiKey) {
+        return tokenData.apiKey;
+      }
+    } catch (error) {
+      console.error('[EventParser] Erro ao resolver Bearer token', { error: error.message });
+    }
+
+    return null;
+  }
+
+  /**
+   * Parse body JSON de um evento Lambda (sem validar API key)
+   * Usado para rotas OAuth que nao precisam de autenticacao
+   * @param {Object} event - Evento Lambda
+   * @returns {Object} - Body parseado
+   */
+  static parseBody(event) {
+    if (!event.body) return {};
+
+    try {
+      const rawBody = event.isBase64Encoded
+        ? Buffer.from(event.body, 'base64').toString('utf-8')
+        : event.body;
+      return JSON.parse(rawBody);
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Parse body form-urlencoded de um evento Lambda
+   * Usado para POST /authorize (form submission)
+   * @param {Object} event - Evento Lambda
+   * @returns {Object} - Dados do formulario
+   */
+  static parseFormBody(event) {
+    if (!event.body) return {};
+
+    try {
+      const rawBody = event.isBase64Encoded
+        ? Buffer.from(event.body, 'base64').toString('utf-8')
+        : event.body;
+
+      // Tentar JSON primeiro (caso o client envie JSON)
+      try {
+        return JSON.parse(rawBody);
+      } catch {
+        // Parse form-urlencoded
+        const params = new URLSearchParams(rawBody);
+        const result = {};
+        for (const [key, value] of params.entries()) {
+          result[key] = value;
+        }
+        return result;
+      }
+    } catch {
+      return {};
+    }
   }
 
   /**

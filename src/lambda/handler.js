@@ -16,6 +16,7 @@
 const EventParser = require('./EventParser');
 const ResponseBuilder = require('./ResponseBuilder');
 const ServerFactory = require('./ServerFactory');
+const OAuthHandler = require('../oauth/OAuthHandler');
 
 class MCPHandler {
   /**
@@ -37,9 +38,12 @@ class MCPHandler {
         return this.handleHealth();
       }
 
+      // 2.1. Rotas OAuth (nao precisam de API key - fazem parte do fluxo de obtencao de token)
+      const oauthResponse = await this.handleOAuthRoutes(path, method, event);
+      if (oauthResponse) return oauthResponse;
+
       // Verificar se path é válido antes de exigir API key
       if (path !== '/mcp' && path !== '/mcp/' && path !== '/') {
-        // Path desconhecido - retornar 404 sem exigir API key
         return ResponseBuilder.notFound(`Path nao encontrado: ${path}`, null);
       }
 
@@ -61,7 +65,7 @@ class MCPHandler {
       }
 
       // 4. Parse completo do evento (valida API key) - apenas para POST
-      parsedEvent = EventParser.parse(event);
+      parsedEvent = await EventParser.parse(event);
       sessionId = parsedEvent.sessionId;
 
       const { apiKey, body } = parsedEvent;
@@ -296,6 +300,50 @@ class MCPHandler {
    */
   static handleHealth() {
     return ResponseBuilder.health();
+  }
+
+  /**
+   * Roteia requisicoes OAuth. Retorna response se matchou, null se nao.
+   * @param {string} path - Path da requisicao
+   * @param {string} method - Metodo HTTP
+   * @param {Object} event - Evento Lambda raw
+   * @returns {Object|null} - Resposta HTTP ou null
+   */
+  static async handleOAuthRoutes(path, method, event) {
+    // Discovery endpoint
+    if (path === '/.well-known/oauth-authorization-server' && method === 'GET') {
+      return OAuthHandler.metadata();
+    }
+
+    // Dynamic Client Registration
+    if ((path === '/register' || path === '/register/') && method === 'POST') {
+      const body = EventParser.parseBody(event);
+      return await OAuthHandler.register(body);
+    }
+
+    // Authorization page
+    if (path === '/authorize' || path === '/authorize/') {
+      if (method === 'OPTIONS') return ResponseBuilder.corsPreFlight();
+      if (method === 'GET') {
+        const queryParams = event.queryStringParameters || {};
+        return OAuthHandler.authorize(queryParams);
+      }
+      if (method === 'POST') {
+        const body = EventParser.parseFormBody(event);
+        return await OAuthHandler.authorizeSubmit(body);
+      }
+    }
+
+    // Token endpoint
+    if (path === '/token' || path === '/token/') {
+      if (method === 'OPTIONS') return ResponseBuilder.corsPreFlight();
+      if (method === 'POST') {
+        const body = EventParser.parseBody(event);
+        return await OAuthHandler.token(body);
+      }
+    }
+
+    return null;
   }
 }
 
