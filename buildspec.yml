@@ -1,0 +1,22 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 18
+    commands:
+      - echo Installing SAM CLI...
+      - pip3 install aws-sam-cli
+  pre_build:
+    commands:
+      - echo Installing dependencies...
+      - npm ci --production
+      - sam --version
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Deploying tiflux-mcp Lambda via SAM...
+      - sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+  post_build:
+    commands:
+      - echo Deploy completed on `date`
