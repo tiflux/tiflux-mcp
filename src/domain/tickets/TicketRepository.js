@@ -493,6 +493,62 @@ class TicketRepository {
   }
 
   /**
+   * Busca o histórico de estágios e SLAs de um ticket
+   */
+  async getStagesSlas(ticketNumber) {
+    const timer = this.logger.startTimer(`repo_get_ticket_stages_slas_${ticketNumber}`);
+
+    try {
+      this.logger.debug('Repository: fetching ticket stages SLAs', { ticketNumber });
+
+      const response = await this.httpClient.get(`/tickets/${ticketNumber}/stages-slas`, {
+        timeout: this.config.get('api.timeout'),
+        maxRetries: this.config.get('api.retries')
+      });
+
+      timer();
+
+      if (response.statusCode === 404) {
+        return null;
+      }
+
+      if (response.statusCode >= 400) {
+        const errorMessage = this._extractAPIErrorMessage(response.data);
+        throw new APIError(
+          `Falha ao buscar estágios e SLAs do ticket #${ticketNumber}: ${errorMessage}`,
+          response.statusCode,
+          response.data
+        );
+      }
+
+      this.logger.debug('Repository: ticket stages SLAs fetched successfully', {
+        ticketNumber,
+        hasData: !!response.data
+      });
+
+      return response.data;
+
+    } catch (error) {
+      timer();
+      this.logger.error('Repository: failed to get ticket stages SLAs', {
+        ticketNumber,
+        error: error.message,
+        statusCode: error.statusCode
+      });
+
+      if (error instanceof APIError) {
+        throw error;
+      }
+
+      throw new APIError(
+        `Falha ao buscar estágios e SLAs do ticket #${ticketNumber}: ${error.message}`,
+        error.statusCode || 500,
+        { originalError: error.message }
+      );
+    }
+  }
+
+  /**
    * Estatísticas do repository
    */
   getStats() {

@@ -233,6 +233,37 @@ class TicketHandler {
   }
 
   /**
+   * Handler para buscar estágios e SLAs de um ticket
+   */
+  async handleGetTicketStagesSlas(args) {
+    const timer = this.logger.startTimer('handle_get_ticket_stages_slas');
+
+    try {
+      this.logger.info('Handling get ticket stages SLAs request', {
+        ticketNumber: args.ticket_number
+      });
+
+      if (!args.ticket_number) {
+        throw new ValidationError('ticket_number é obrigatório');
+      }
+
+      const result = await this.ticketService.getTicketStagesSlas(args.ticket_number);
+
+      timer();
+      return result;
+
+    } catch (error) {
+      timer();
+      this.logger.error('Failed to handle get ticket stages SLAs', {
+        ticketNumber: args.ticket_number,
+        error: error.message
+      });
+
+      return this._formatErrorResponse(error, 'get_ticket_stages_slas');
+    }
+  }
+
+  /**
    * Formata resposta de erro padronizada
    */
   _formatErrorResponse(error, operation) {
@@ -252,7 +283,8 @@ class TicketHandler {
       update_ticket: 'atualizar ticket',
       list_tickets: 'listar tickets',
       close_ticket: 'fechar ticket',
-      get_ticket_files: 'buscar arquivos do ticket'
+      get_ticket_files: 'buscar arquivos do ticket',
+      get_ticket_stages_slas: 'buscar estágios e SLAs do ticket'
     };
 
     let errorMessage = error.message;
@@ -296,7 +328,7 @@ class TicketHandler {
    */
   getStats() {
     return {
-      operations: ['get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket', 'get_ticket_files'],
+      operations: ['get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket', 'get_ticket_files', 'get_ticket_stages_slas'],
       features: {
         domain_service_integration: true,
         orchestrator_support: true,
