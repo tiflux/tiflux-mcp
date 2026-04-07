@@ -181,6 +181,10 @@ class TifluxMCPServerV2 {
             result = await this.ticketHandlers.handleGetTicketFiles(args);
             break;
 
+          case 'get_ticket_stages_slas':
+            result = await this.ticketHandlers.handleGetTicketStagesSlas(args);
+            break;
+
           case 'update_ticket_entities':
             result = await this.ticketHandlers.handleUpdateTicketEntities(args);
             break;
