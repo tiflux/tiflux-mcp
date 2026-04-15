@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+require('dotenv').config();
+
 /**
  * TiFlux MCP Server v2.0 - Nova Arquitetura
  *
