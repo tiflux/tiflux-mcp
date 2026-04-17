@@ -4,6 +4,7 @@
  */
 
 const https = require('https');
+const http = require('http');
 const { URL } = require('url');
 const querystring = require('querystring');
 const fs = require('fs');
@@ -11,7 +12,7 @@ const path = require('path');
 
 class TiFluxAPI {
   constructor(apiKey = null) {
-    this.baseUrl = 'https://api.tiflux.com/api/v2';
+    this.baseUrl = process.env.TIFLUX_API_BASE_URL || 'https://api.tiflux.com/api/v2';
     // Aceita API key via parametro (para Lambda) ou env var (para uso local)
     this.apiKey = apiKey || process.env.TIFLUX_API_KEY;
   }
@@ -42,13 +43,14 @@ class TiFluxAPI {
 
         const options = {
           hostname: parsedUrl.hostname,
-          port: parsedUrl.port || 443,
+          port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
           path: parsedUrl.pathname + parsedUrl.search,
           method: method,
           headers: defaultHeaders
         };
 
-        const req = https.request(options, (res) => {
+        const transport = parsedUrl.protocol === 'https:' ? https : http;
+        const req = transport.request(options, (res) => {
           let responseData = '';
           
           res.on('data', (chunk) => {
@@ -687,13 +689,14 @@ class TiFluxAPI {
 
         const options = {
           hostname: parsedUrl.hostname,
-          port: parsedUrl.port || 443,
+          port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
           path: parsedUrl.pathname + parsedUrl.search,
           method: method,
           headers: defaultHeaders
         };
 
-        const req = https.request(options, (res) => {
+        const transport = parsedUrl.protocol === 'https:' ? https : http;
+        const req = transport.request(options, (res) => {
           let responseData = '';
           
           res.on('data', (chunk) => {

@@ -277,6 +277,17 @@ class TiFluxMCPServer {
             }
           },
           {
+            name: 'get_ticket_stages_slas',
+            description: 'Buscar o histórico de estágios e SLAs de um ticket específico no TiFlux',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                ticket_number: { type: 'string', description: 'Número do ticket para buscar os estágios e SLAs (ex: "123", "456")' }
+              },
+              required: ['ticket_number']
+            }
+          },
+          {
             name: 'create_ticket_answer',
             description: 'Criar uma nova resposta (comunicação com cliente) em um ticket específico',
             inputSchema: {

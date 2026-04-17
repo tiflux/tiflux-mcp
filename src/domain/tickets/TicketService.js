@@ -706,6 +706,71 @@ class TicketService {
   }
 
   /**
+   * Busca o histórico de estágios e SLAs de um ticket
+   */
+  async getTicketStagesSlas(ticketNumber) {
+    const timer = this.logger.startTimer(`get_ticket_stages_slas_${ticketNumber}`);
+
+    try {
+      this.logger.info('Getting ticket stages SLAs', { ticketNumber });
+
+      if (!ticketNumber || ticketNumber.toString().trim() === '') {
+        throw new ValidationError('ticket_number é obrigatório');
+      }
+
+      const normalizedNumber = ticketNumber.toString().trim();
+
+      this.logger.debug('Fetching ticket stages SLAs from repository', { ticketNumber: normalizedNumber });
+      const data = await this._getTicketRepository().getStagesSlas(normalizedNumber);
+
+      timer();
+      this.logger.info('Ticket stages SLAs retrieved successfully', {
+        ticketNumber: normalizedNumber,
+        hasData: !!data
+      });
+
+      return this._formatStagesSlasForResponse(data, normalizedNumber);
+
+    } catch (error) {
+      timer();
+      this.logger.error('Failed to get ticket stages SLAs', {
+        ticketNumber,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Formata dados de estágios e SLAs para resposta MCP
+   */
+  _formatStagesSlasForResponse(data, ticketNumber) {
+    if (!data) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**Estágios e SLAs do Ticket #${ticketNumber}**\n\n` +
+                  `*Nenhum dado de estágios/SLAs disponível para este ticket.*\n\n` +
+                  `*✅ Dados obtidos da API TiFlux em tempo real*`
+          }
+        ]
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `**Estágios e SLAs do Ticket #${ticketNumber}**\n\n` +
+                `\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\`\n\n` +
+                `*✅ Dados obtidos da API TiFlux em tempo real*`
+        }
+      ]
+    };
+  }
+
+  /**
    * Formata tamanho de arquivo em formato legível
    */
   _formatFileSize(bytes) {

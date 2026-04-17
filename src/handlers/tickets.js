@@ -1738,6 +1738,59 @@ class TicketHandlers {
   }
 
   /**
+   * Handler para buscar estágios e SLAs de um ticket
+   */
+  async handleGetTicketStagesSlas(args) {
+    const { ticket_number } = args;
+
+    if (!ticket_number) {
+      throw new Error('ticket_number é obrigatório');
+    }
+
+    const response = await this.api.makeRequest(`/tickets/${ticket_number}/stages-slas`);
+
+    if (response.error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**❌ Erro ao buscar estágios e SLAs do ticket #${ticket_number}**\n\n` +
+                  `**Código:** ${response.status}\n` +
+                  `**Mensagem:** ${response.error}\n\n` +
+                  `*Verifique se o ticket existe e se você tem permissão para acessá-lo.*`
+          }
+        ]
+      };
+    }
+
+    const data = response.data;
+
+    if (!data) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `**Estágios e SLAs do Ticket #${ticket_number}**\n\n` +
+                  `*Nenhum dado disponível para este ticket.*\n\n` +
+                  `*✅ Dados obtidos da API TiFlux em tempo real*`
+          }
+        ]
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `**Estágios e SLAs do Ticket #${ticket_number}**\n\n` +
+                `\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\`\n\n` +
+                `*✅ Dados obtidos da API TiFlux em tempo real*`
+        }
+      ]
+    };
+  }
+
+  /**
    * Formata tamanho de arquivo em formato legível
    */
   formatFileSize(bytes) {

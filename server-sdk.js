@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+require('dotenv').config();
+
 /**
  * TiFlux MCP Server v2.0 - Nova Arquitetura
  *
@@ -179,6 +181,10 @@ class TifluxMCPServerV2 {
 
           case 'get_ticket_files':
             result = await this.ticketHandlers.handleGetTicketFiles(args);
+            break;
+
+          case 'get_ticket_stages_slas':
+            result = await this.ticketHandlers.handleGetTicketStagesSlas(args);
             break;
 
           case 'update_ticket_entities':
