@@ -1,4 +1,5 @@
 const https = require('https');
+const http = require('http');
 const { URL } = require('url');
 const FormData = require('form-data');
 const { APIError, TimeoutError, NetworkError } = require('../../utils/errors');
@@ -26,7 +27,7 @@ class HttpClient {
     };
 
     this.container = container;
-    this.logger = container?.resolve('logger') || console;
+    this.logger = config.logger || container?.resolve('logger') || this._createSilentLogger();
 
     // Interceptors
     this.requestInterceptors = [];
@@ -181,10 +182,12 @@ class HttpClient {
     }
 
     const urlObj = new URL(processedOptions.url);
+    const isHttps = urlObj.protocol === 'https:';
+    const httpModule = isHttps ? https : http;
 
     const requestOptions = {
       hostname: urlObj.hostname,
-      port: urlObj.port,
+      port: urlObj.port || (isHttps ? 443 : 80),
       path: urlObj.pathname + urlObj.search,
       method: processedOptions.method,
       headers: {
@@ -201,6 +204,10 @@ class HttpClient {
         // FormData - multipart
         requestBody = processedOptions.data;
         Object.assign(requestOptions.headers, processedOptions.data.getHeaders());
+      } else if (Buffer.isBuffer(processedOptions.data)) {
+        // Buffer binário (ex: multipart construído manualmente via _buildMultipart)
+        // Content-Type e Content-Length já foram definidos pelo caller nos headers
+        requestBody = processedOptions.data;
       } else if (typeof processedOptions.data === 'object') {
         // JSON
         this.logger.debug?.('HTTP Client: Preparing JSON body', {
@@ -212,14 +219,14 @@ class HttpClient {
         requestOptions.headers['Content-Type'] = 'application/json';
         requestOptions.headers['Content-Length'] = Buffer.byteLength(requestBody);
       } else {
-        // String/Buffer
+        // String
         requestBody = processedOptions.data;
         requestOptions.headers['Content-Length'] = Buffer.byteLength(requestBody);
       }
     }
 
     return new Promise((resolve, reject) => {
-      const request = https.request(requestOptions, async (response) => {
+      const request = httpModule.request(requestOptions, async (response) => {
         try {
           const responseData = await this._collectResponseData(response);
 
@@ -393,6 +400,11 @@ class HttpClient {
   updateConfig(newConfig) {
     this.config = { ...this.config, ...newConfig };
     return this;
+  }
+
+  _createSilentLogger() {
+    const noop = () => {};
+    return { error: noop, warn: noop, info: noop, debug: noop };
   }
 }
 

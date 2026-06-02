@@ -1,21 +1,17 @@
 #!/usr/bin/env node
 /**
- * TiFlux MCP Server - Versão Final com Arquitetura Limpa
+ * TiFlux MCP Server — modo Server (Clean Architecture residual)
  *
- * Servidor MCP completo com 4 camadas bem definidas:
- * - Core Layer: Container DI, Config, Logger, Error handling
- * - Infrastructure Layer: HTTP Client, Cache, Retry policies
- * - Domain Layer: Services, Repositories, Validators, Mappers
- * - Presentation Layer: Handlers, Middleware pipeline, Response formatters
+ * Pós vertical-slice migration (2026-04-17), o servidor consome o HandlerRegistry
+ * central (src/registry/) em cima dos slices em src/tools/. Apenas 2 camadas
+ * compartilhadas permanecem no container DI:
+ *   - Infrastructure: HttpClient, Cache, RetryPolicy, Logger estruturado
+ *   - Presentation: middleware pipeline + responseFormatter + presentationOrchestrator
+ *     (resolve handler via container.resolve('registry') em runtime)
  *
- * Características:
- * - Clean Architecture com separação clara de responsabilidades
- * - Container DI para todas as dependências
- * - Pipeline de middleware robusto
- * - Formatação consistente de respostas
- * - Health checks e métricas completas
- * - 100% de compatibilidade com MCP Protocol
- * - Configuração específica por ambiente
+ * A ex-Domain Layer (TicketService/Repository/Validator/Mapper, Clean Arch para
+ * clients/communications) foi removida: o projeto é adaptador de protocolo, não
+ * domínio rico. Ver .docs/specs/2026-04-16-handler-consolidation-clean-arch/.
  */
 
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
@@ -34,8 +30,10 @@ const Logger = require('./core/Logger');
 
 // Bootstrap imports
 const InfrastructureBootstrap = require('./infrastructure/InfrastructureBootstrap');
-const DomainBootstrap = require('./domain/DomainBootstrap');
 const PresentationBootstrap = require('./presentation/PresentationBootstrap');
+
+// Registry central — schemas e listagem de operacoes
+const { createRegistry } = require('./registry');
 
 class TiFluxMCPServer {
   constructor() {
@@ -55,6 +53,7 @@ class TiFluxMCPServer {
     this.logger = null;
     this.presentationOrchestrator = null;
     this.healthChecker = null;
+    this.registry = null;
     this.isInitialized = false;
   }
 
@@ -85,14 +84,14 @@ class TiFluxMCPServer {
         node_version: process.version
       });
 
-      // 4. Bootstrap das camadas
+      // 4. Registry central — schemas e roteamento self-describing
+      this.registry = createRegistry();
+      this.container.registerInstance('registry', this.registry);
+
+      // 5. Bootstrap das camadas
       this.logger.info('Bootstrapping infrastructure layer...');
       InfrastructureBootstrap.register(this.container);
       InfrastructureBootstrap.registerEnvironmentConfig(this.container);
-
-      this.logger.info('Bootstrapping domain layer...');
-      DomainBootstrap.register(this.container);
-      DomainBootstrap.registerEnvironmentConfig(this.container);
 
       this.logger.info('Bootstrapping presentation layer...');
       PresentationBootstrap.register(this.container);
@@ -118,14 +117,6 @@ class TiFluxMCPServer {
             results.layers.infrastructure = { status: 'error', error: error.message };
           }
 
-          // Domain health
-          try {
-            const domainHealthChecker = self.container.resolve('domainHealthChecker');
-            results.layers.domain = await domainHealthChecker.checkHealth();
-          } catch (error) {
-            results.layers.domain = { status: 'error', error: error.message };
-          }
-
           // Presentation health
           try {
             const presentationHealthChecker = self.container.resolve('presentationHealthChecker');
@@ -147,7 +138,7 @@ class TiFluxMCPServer {
       this.isInitialized = true;
       this.logger.info('TiFlux MCP Server initialized successfully', {
         total_services: this.container.list().length,
-        layers: ['core', 'infrastructure', 'domain', 'presentation'],
+        layers: ['core', 'infrastructure', 'presentation'],
         operations: await this._getAvailableOperations()
       });
 
@@ -174,196 +165,10 @@ class TiFluxMCPServer {
    * Registra handlers MCP padrão
    */
   _registerMCPHandlers() {
-    // List tools handler
+    // List tools handler — schemas vem do registry (self-describing handlers)
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       try {
-        const tools = [
-          // Ticket operations
-          {
-            name: 'get_ticket',
-            description: 'Buscar um ticket específico no TiFlux pelo ID',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket a ser buscado' }
-              },
-              required: ['ticket_number']
-            }
-          },
-          {
-            name: 'create_ticket',
-            description: 'Criar um novo ticket no TiFlux',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                title: { type: 'string', description: 'Título do ticket' },
-                description: { type: 'string', description: 'Descrição do ticket' },
-                client_id: { type: 'number', description: 'ID do cliente (opcional se client_name fornecido)' },
-                client_name: { type: 'string', description: 'Nome do cliente para busca automática' },
-                desk_id: { type: 'number', description: 'ID da mesa (opcional)' },
-                desk_name: { type: 'string', description: 'Nome da mesa para busca automática' },
-                priority_id: { type: 'number', description: 'ID da prioridade (opcional)' },
-                services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo (opcional)' },
-                responsible_id: { type: 'number', description: 'ID do responsável (opcional)' },
-                status_id: { type: 'number', description: 'ID do status (opcional)' },
-                requestor_name: { type: 'string', description: 'Nome do solicitante (opcional)' },
-                requestor_email: { type: 'string', description: 'Email do solicitante (opcional)' },
-                requestor_telephone: { type: 'string', description: 'Telefone do solicitante (opcional)' },
-                followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' }
-              },
-              required: ['title', 'description']
-            }
-          },
-          {
-            name: 'update_ticket',
-            description: 'Atualizar um ticket existente no TiFlux',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket a ser atualizado' },
-                title: { type: 'string', description: 'Novo título do ticket (opcional)' },
-                description: { type: 'string', description: 'Nova descrição do ticket (opcional)' },
-                client_id: { type: 'number', description: 'Novo ID do cliente (opcional)' },
-                desk_id: { type: 'number', description: 'Novo ID da mesa (opcional)' },
-                responsible_id: { type: 'number', description: 'ID do responsável (opcional)' },
-                stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
-                followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' }
-              },
-              required: ['ticket_number']
-            }
-          },
-          {
-            name: 'list_tickets',
-            description: 'Listar tickets do TiFlux com filtros',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                desk_ids: { type: 'string', description: 'IDs das mesas separados por vírgula (máximo 15)' },
-                desk_name: { type: 'string', description: 'Nome da mesa para busca automática' },
-                client_ids: { type: 'string', description: 'IDs dos clientes separados por vírgula (máximo 15)' },
-                stage_ids: { type: 'string', description: 'IDs dos estágios separados por vírgula (máximo 15)' },
-                stage_name: { type: 'string', description: 'Nome do estágio para busca automática' },
-                responsible_ids: { type: 'string', description: 'IDs dos responsáveis separados por vírgula (máximo 15)' },
-                is_closed: { type: 'boolean', description: 'Filtrar tickets fechados (padrão: false - apenas abertos)' },
-                date_type: { type: 'string', enum: ['created_at', 'solved_in_time'], description: 'Tipo de data para filtro: "created_at" (criação, padrão) ou "solved_in_time" (resolução)' },
-                start_datetime: { type: 'string', description: 'Data/hora inicial do filtro ISO 8601 (ex: "2024-05-15T00:00:00Z")' },
-                end_datetime: { type: 'string', description: 'Data/hora final do filtro ISO 8601 (ex: "2024-05-15T23:59:59Z")' },
-                limit: { type: 'number', description: 'Número de tickets por página (padrão: 20, máximo: 200)' },
-                offset: { type: 'number', description: 'Número da página (padrão: 1)' }
-              },
-              required: []
-            }
-          },
-          {
-            name: 'close_ticket',
-            description: 'Fechar um ticket específico no TiFlux',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket a ser fechado (ex: "37", "123")' }
-              },
-              required: ['ticket_number']
-            }
-          },
-          {
-            name: 'get_ticket_files',
-            description: 'Buscar os arquivos anexados a um ticket específico no TiFlux',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket para buscar os arquivos (ex: "85218")' }
-              },
-              required: ['ticket_number']
-            }
-          },
-          {
-            name: 'get_ticket_stages_slas',
-            description: 'Buscar o histórico de estágios e SLAs de um ticket específico no TiFlux',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket para buscar os estágios e SLAs (ex: "123", "456")' }
-              },
-              required: ['ticket_number']
-            }
-          },
-          {
-            name: 'create_ticket_answer',
-            description: 'Criar uma nova resposta (comunicação com cliente) em um ticket específico',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket onde será criada a resposta' },
-                text: { type: 'string', description: 'Conteúdo da resposta que será enviada ao cliente' },
-                with_signature: { type: 'boolean', description: 'Incluir assinatura do usuário na resposta (padrão: false)' },
-                files: {
-                  type: 'array',
-                  description: 'Lista com os caminhos dos arquivos a serem anexados (opcional, máximo 10 arquivos de 25MB cada)',
-                  items: { type: 'string' }
-                }
-              },
-              required: ['ticket_number', 'text']
-            }
-          },
-
-          // Client operations
-          {
-            name: 'search_client',
-            description: 'Buscar clientes no TiFlux por nome',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                client_name: { type: 'string', description: 'Nome do cliente a ser buscado (busca parcial)' }
-              },
-              required: ['client_name']
-            }
-          },
-
-          // Communication operations
-          {
-            name: 'create_internal_communication',
-            description: 'Criar uma nova comunicação interna em um ticket específico',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket onde será criada a comunicação interna' },
-                text: { type: 'string', description: 'Conteúdo da comunicação interna' },
-                files: {
-                  type: 'array',
-                  description: 'Lista com os caminhos dos arquivos a serem anexados (opcional, máximo 10 arquivos de 25MB cada)',
-                  items: { type: 'string' }
-                }
-              },
-              required: ['ticket_number', 'text']
-            }
-          },
-          {
-            name: 'list_internal_communications',
-            description: 'Listar comunicações internas existentes em um ticket específico',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket para listar as comunicações internas' },
-                limit: { type: 'number', description: 'Número de comunicações por página (padrão: 20, máximo: 200)' },
-                offset: { type: 'number', description: 'Número da página a ser retornada (padrão: 1)' }
-              },
-              required: ['ticket_number']
-            }
-          },
-          {
-            name: 'get_internal_communication',
-            description: 'Obter uma comunicação interna específica com texto completo',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                ticket_number: { type: 'string', description: 'Número do ticket da comunicação interna' },
-                communication_id: { type: 'string', description: 'ID da comunicação interna a ser obtida' }
-              },
-              required: ['ticket_number', 'communication_id']
-            }
-          }
-        ];
-
+        const tools = this.registry.getTools();
         this.logger.debug('Listed MCP tools', { toolCount: tools.length });
         return { tools };
 
@@ -431,24 +236,25 @@ class TiFluxMCPServer {
   }
 
   /**
-   * Realiza teste básico de inicialização
+   * Realiza teste básico de inicialização.
+   *
+   * Apenas 2 camadas compartilhadas permanecem no container: Infrastructure
+   * e Presentation (Clean Arch removida em 2026-04-17).
    */
   async _performInitializationTest() {
     this.logger.info('Performing initialization test...');
 
     try {
-      // Testa health checks
       const health = await this.healthChecker.checkHealth();
 
       const healthyLayers = Object.values(health.layers).filter(layer =>
         !layer.error && !layer.status !== 'error'
       ).length;
 
-      if (healthyLayers < 3) {
-        throw new Error(`Only ${healthyLayers}/3 layers are healthy`);
+      if (healthyLayers < 2) {
+        throw new Error(`Only ${healthyLayers}/2 layers are healthy`);
       }
 
-      // Testa presentation orchestrator
       const stats = await this.presentationOrchestrator.getStats();
       if (!stats.handlers || Object.keys(stats.handlers).length < 3) {
         throw new Error('Insufficient handlers registered');
@@ -535,20 +341,10 @@ class TiFluxMCPServer {
   }
 
   /**
-   * Obtém operações disponíveis
+   * Operacoes disponiveis — fonte unica de verdade e o registry.
    */
   async _getAvailableOperations() {
-    try {
-      const stats = await this.presentationOrchestrator.getStats();
-      return stats.operations || [];
-    } catch (error) {
-      this.logger.warn('Failed to get available operations', { error: error.message });
-      return [
-        'get_ticket', 'create_ticket', 'update_ticket', 'list_tickets', 'close_ticket', 'get_ticket_files', 'create_ticket_answer',
-        'search_client', 'create_internal_communication',
-        'list_internal_communications', 'get_internal_communication'
-      ];
-    }
+    return this.registry.listOperations();
   }
 
   /**

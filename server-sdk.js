@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-require('dotenv').config();
-
 /**
  * TiFlux MCP Server v2.0 - Nova Arquitetura
  *
@@ -28,14 +26,8 @@ const Logger = require('./src/core/Logger');
 // Infrastructure
 const InfrastructureBootstrap = require('./src/infrastructure/InfrastructureBootstrap');
 
-// Handlers (ainda serão refatorados nas próximas fases)
-const schemas = require('./src/schemas');
-const TicketHandlers = require('./src/handlers/tickets');
-const ClientHandlers = require('./src/handlers/clients');
-const UserHandlers = require('./src/handlers/users');
-const StageHandlers = require('./src/handlers/stages');
-const CatalogItemHandlers = require('./src/handlers/catalog_items');
-const InternalCommunicationsHandlers = require('./src/handlers/internal_communications');
+// Registry central de tools — schemas + roteamento self-describing por handler
+const { createRegistry } = require('./src/registry');
 
 class TifluxMCPServerV2 {
   constructor() {
@@ -43,15 +35,7 @@ class TifluxMCPServerV2 {
     this.server = null;
     this.logger = null;
     this.config = null;
-
-    // Handlers (serão substituídos por services na Fase 3)
-    this.ticketHandlers = null;
-    this.clientHandlers = null;
-    this.userHandlers = null;
-    this.stageHandlers = null;
-    this.catalogItemHandlers = null;
-    this.internalCommunicationsHandlers = null;
-
+    this.registry = null;
     this.isInitialized = false;
   }
 
@@ -90,13 +74,8 @@ class TifluxMCPServerV2 {
         }
       );
 
-      // 6. Initialize handlers (temporário até Fase 3)
-      this.ticketHandlers = new TicketHandlers();
-      this.clientHandlers = new ClientHandlers();
-      this.userHandlers = new UserHandlers();
-      this.stageHandlers = new StageHandlers();
-      this.catalogItemHandlers = new CatalogItemHandlers();
-      this.internalCommunicationsHandlers = new InternalCommunicationsHandlers();
+      // 6. Criar registry central (instancia handlers + agrega schemas)
+      this.registry = createRegistry();
 
       // 7. Setup handlers
       this.setupHandlers();
@@ -123,16 +102,14 @@ class TifluxMCPServerV2 {
   }
 
   /**
-   * Setup dos handlers MCP
+   * Setup dos handlers MCP — delega schemas e roteamento ao registry.
    */
   setupHandlers() {
-    // Handler para listar tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       this.logger.debug('Listing available tools');
-      return { tools: schemas.all };
+      return { tools: this.registry.getTools() };
     });
 
-    // Handler para executar tools com logging e error handling
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       const requestId = Math.random().toString(36).substring(7);
@@ -146,87 +123,7 @@ class TifluxMCPServerV2 {
       });
 
       try {
-        let result;
-
-        // Roteamento por área do sistema (será refatorado na Fase 4)
-        switch (name) {
-          // Tools de tickets
-          case 'get_ticket':
-            result = await this.ticketHandlers.handleGetTicket(args);
-            break;
-
-          case 'create_ticket':
-            result = await this.ticketHandlers.handleCreateTicket(args);
-            break;
-
-          case 'update_ticket':
-            result = await this.ticketHandlers.handleUpdateTicket(args);
-            break;
-
-          case 'list_tickets':
-            result = await this.ticketHandlers.handleListTickets(args);
-            break;
-
-          case 'cancel_ticket':
-            result = await this.ticketHandlers.handleCancelTicket(args);
-            break;
-
-          case 'close_ticket':
-            result = await this.ticketHandlers.handleCloseTicket(args);
-            break;
-
-          case 'create_ticket_answer':
-            result = await this.ticketHandlers.handleCreateTicketAnswer(args);
-            break;
-
-          case 'get_ticket_files':
-            result = await this.ticketHandlers.handleGetTicketFiles(args);
-            break;
-
-          case 'get_ticket_stages_slas':
-            result = await this.ticketHandlers.handleGetTicketStagesSlas(args);
-            break;
-
-          case 'update_ticket_entities':
-            result = await this.ticketHandlers.handleUpdateTicketEntities(args);
-            break;
-
-          // Tools de clientes
-          case 'search_client':
-            result = await this.clientHandlers.handleSearchClient(args);
-            break;
-
-          // Tools de usuários
-          case 'search_user':
-            result = await this.userHandlers.handleSearchUser(args);
-            break;
-
-          // Tools de estágios
-          case 'search_stage':
-            result = await this.stageHandlers.handleSearchStage(args);
-            break;
-
-          // Tools de itens de catálogo
-          case 'search_catalog_item':
-            result = await this.catalogItemHandlers.handleSearchCatalogItem(args);
-            break;
-
-          // Tools de comunicações internas
-          case 'create_internal_communication':
-            result = await this.internalCommunicationsHandlers.handleCreateInternalCommunication(args);
-            break;
-
-          case 'list_internal_communications':
-            result = await this.internalCommunicationsHandlers.handleListInternalCommunications(args);
-            break;
-
-          case 'get_internal_communication':
-            result = await this.internalCommunicationsHandlers.handleGetInternalCommunication(args);
-            break;
-
-          default:
-            throw new Error(`Unknown tool: ${name}`);
-        }
+        const result = await this.registry.execute(name, args);
 
         timer();
 
@@ -248,7 +145,6 @@ class TifluxMCPServerV2 {
           stack: error.stack
         });
 
-        // Re-throw para MCP SDK handle
         throw error;
       }
     });

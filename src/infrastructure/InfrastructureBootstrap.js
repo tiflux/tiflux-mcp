@@ -74,6 +74,32 @@ class InfrastructureBootstrap {
       return client;
     });
 
+    // ============ TIFLUX API ============
+
+    // TiFluxAPI com injecao de httpClient compartilhado + logger estruturado.
+    // A apiKey nao e injetada aqui — o consumidor resolve e opcionalmente
+    // sobrescreve (ex: HandlerRegistry.setApiKey para multi-tenancy Lambda).
+    container.registerFactory('tifluxApi', () => {
+      const TiFluxAPI = require('../api/tiflux-api');
+      return new TiFluxAPI(config.get('api.key'), {
+        httpClient: container.resolve('tifluxHttpClient'),
+        logger
+      });
+    });
+
+    // Factory que aceita apiKey como argumento. Usada por caminhos que precisam
+    // de uma instancia nova por request (multi-tenancy Lambda), preservando
+    // o mesmo httpClient + logger compartilhados.
+    container.registerFactory('tifluxApiFactory', () => {
+      return (apiKey) => {
+        const TiFluxAPI = require('../api/tiflux-api');
+        return new TiFluxAPI(apiKey, {
+          httpClient: container.resolve('tifluxHttpClient'),
+          logger
+        });
+      };
+    });
+
     // ============ CACHE MANAGERS ============
 
     // Cache manager para respostas da API
@@ -193,6 +219,8 @@ class InfrastructureBootstrap {
       services: [
         'httpClient',
         'tifluxHttpClient',
+        'tifluxApi',
+        'tifluxApiFactory',
         'apiCacheManager',
         'metadataCacheManager',
         'cacheStrategy',

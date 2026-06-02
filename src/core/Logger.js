@@ -161,12 +161,8 @@ class Logger {
 
       const output = `${color}[${logEntry.timestamp}] ${logEntry.level}${reset} ${logEntry.message}${metaStr ? ` ${metaStr}` : ''}`;
 
-      // Usar stderr para logs de erro/warn, stdout para outros
-      if (level === 'error' || level === 'warn') {
-        console.error(output);
-      } else {
-        console.log(output);
-      }
+      // Sempre stderr — stdout é reservado para o protocolo MCP (JSON) em modo stdio
+      console.error(output);
     }
   }
 

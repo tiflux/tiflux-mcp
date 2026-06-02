@@ -184,6 +184,30 @@ class APIError extends TiFluxError {
 }
 
 /**
+ * Erro de timeout de requisição HTTP
+ */
+class TimeoutError extends TiFluxError {
+  constructor(message = 'Request timeout') {
+    super(message, 'TIMEOUT_ERROR', 504);
+  }
+}
+
+/**
+ * Erro de rede (DNS, ECONNREFUSED, ECONNRESET, etc.)
+ */
+class NetworkError extends TiFluxError {
+  constructor(message, originalError = null) {
+    super(message, 'NETWORK_ERROR', 503, {
+      originalError: originalError?.message,
+      originalCode: originalError?.code
+    });
+    if (originalError?.code) {
+      this.code = originalError.code;
+    }
+  }
+}
+
+/**
  * Erro de timeout ou conexão
  */
 class ConnectionError extends TiFluxError {
@@ -334,6 +358,8 @@ module.exports = {
   ValidationError,
   ConfigError,
   APIError,
+  TimeoutError,
+  NetworkError,
   ConnectionError,
   RateLimitError,
   AuthenticationError,

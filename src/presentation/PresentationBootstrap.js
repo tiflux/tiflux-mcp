@@ -12,26 +12,6 @@ class PresentationBootstrap {
   static register(container) {
     const logger = container.resolve('logger');
 
-    // ============ HANDLERS ============
-
-    // TicketHandler - Handler limpo para operações de ticket
-    container.registerFactory('ticketHandler', () => {
-      const TicketHandler = require('./handlers/TicketHandler');
-      return new TicketHandler(container);
-    });
-
-    // ClientHandler - Handler limpo para operações de cliente
-    container.registerFactory('clientHandler', () => {
-      const ClientHandler = require('./handlers/ClientHandler');
-      return new ClientHandler(container);
-    });
-
-    // CommunicationHandler - Handler limpo para comunicações internas
-    container.registerFactory('communicationHandler', () => {
-      const CommunicationHandler = require('./handlers/CommunicationHandler');
-      return new CommunicationHandler(container);
-    });
-
     // ============ MIDDLEWARE ============
 
     // MiddlewarePipeline - Pipeline de execução de middlewares
@@ -108,11 +88,16 @@ class PresentationBootstrap {
               return errorResponse;
             }
 
-            // 4. Resolve e executa handler apropriado
-            const handler = this._resolveHandler(operation, container);
-            const handlerMethod = this._resolveHandlerMethod(operation);
+            // 4. Resolve handler + metodo via registry (self-describing)
+            const registry = container.resolve('registry');
+            const entry = registry.handlers[operation];
+            if (!entry) {
+              throw new Error(`No handler found for operation: ${operation}`);
+            }
+            const handler = entry.instance;
+            const handlerMethod = entry.method;
 
-            if (!handler || !handler[handlerMethod]) {
+            if (!handler || typeof handler[handlerMethod] !== 'function') {
               throw new Error(`Handler method ${handlerMethod} not found for operation ${operation}`);
             }
 
@@ -172,78 +157,6 @@ class PresentationBootstrap {
         },
 
         /**
-         * Resolve handler apropriado para operação
-         */
-        _resolveHandler(operation, container) {
-          // Mapeamento de operações para handlers
-          const handlerMap = {
-            // Ticket operations
-            get_ticket: 'ticketHandler',
-            create_ticket: 'ticketHandler',
-            update_ticket: 'ticketHandler',
-            update_ticket_entities: 'ticketHandler',
-            list_tickets: 'ticketHandler',
-            close_ticket: 'ticketHandler',
-            get_ticket_files: 'ticketHandler',
-            get_ticket_stages_slas: 'ticketHandler',
-            create_ticket_answer: 'ticketHandler',
-
-            // Client operations
-            search_client: 'clientHandler',
-            get_client: 'clientHandler',
-            resolve_client_name: 'clientHandler',
-
-            // Communication operations
-            create_internal_communication: 'communicationHandler',
-            list_internal_communications: 'communicationHandler',
-            get_internal_communication: 'communicationHandler'
-          };
-
-          const handlerName = handlerMap[operation];
-          if (!handlerName) {
-            throw new Error(`No handler found for operation: ${operation}`);
-          }
-
-          return container.resolve(handlerName);
-        },
-
-        /**
-         * Resolve método do handler para operação
-         */
-        _resolveHandlerMethod(operation) {
-          // Mapeamento de operações para métodos
-          const methodMap = {
-            // Ticket operations
-            get_ticket: 'handleGetTicket',
-            create_ticket: 'handleCreateTicket',
-            update_ticket: 'handleUpdateTicket',
-            update_ticket_entities: 'handleUpdateTicketEntities',
-            list_tickets: 'handleListTickets',
-            close_ticket: 'handleCloseTicket',
-            get_ticket_files: 'handleGetTicketFiles',
-            get_ticket_stages_slas: 'handleGetTicketStagesSlas',
-            create_ticket_answer: 'handleCreateTicketAnswer',
-
-            // Client operations
-            search_client: 'handleSearchClient',
-            get_client: 'handleGetClient',
-            resolve_client_name: 'handleResolveClientName',
-
-            // Communication operations
-            create_internal_communication: 'handleCreateInternalCommunication',
-            list_internal_communications: 'handleListInternalCommunications',
-            get_internal_communication: 'handleGetInternalCommunication'
-          };
-
-          const method = methodMap[operation];
-          if (!method) {
-            throw new Error(`No handler method found for operation: ${operation}`);
-          }
-
-          return method;
-        },
-
-        /**
          * Gera ID único para request
          */
         _generateRequestId() {
@@ -251,11 +164,10 @@ class PresentationBootstrap {
         },
 
         /**
-         * Obtém estatísticas da camada de apresentação
+         * Estatisticas da camada de apresentacao — operacoes vem do registry.
          */
         async getStats() {
           try {
-            const handlers = ['ticketHandler', 'clientHandler', 'communicationHandler'];
             const stats = {
               handlers: {},
               middleware: {},
@@ -263,22 +175,26 @@ class PresentationBootstrap {
               operations: []
             };
 
-            // Estatísticas dos handlers
-            for (const handlerName of handlers) {
-              try {
-                const handler = container.resolve(handlerName);
-                if (handler.getStats) {
-                  stats.handlers[handlerName] = handler.getStats();
-                  if (stats.handlers[handlerName].operations) {
-                    stats.operations.push(...stats.handlers[handlerName].operations);
-                  }
+            // Operacoes e handlers vem do registry
+            try {
+              const registry = container.resolve('registry');
+              stats.operations = registry.listOperations();
+              const seen = new Set();
+              for (const op of stats.operations) {
+                const entry = registry.handlers[op];
+                const className = entry && entry.instance && entry.instance.constructor
+                  ? entry.instance.constructor.name
+                  : 'UnknownHandler';
+                if (!seen.has(className)) {
+                  seen.add(className);
+                  stats.handlers[className] = { operations: [] };
                 }
-              } catch (error) {
-                stats.handlers[handlerName] = { error: error.message };
+                stats.handlers[className].operations.push(op);
               }
+            } catch (error) {
+              stats.handlers = { error: error.message };
             }
 
-            // Estatísticas do middleware
             try {
               const middlewarePipeline = container.resolve('middlewarePipeline');
               stats.middleware = middlewarePipeline.getStats();
@@ -286,7 +202,6 @@ class PresentationBootstrap {
               stats.middleware = { error: error.message };
             }
 
-            // Estatísticas dos formatters
             try {
               const responseFormatter = container.resolve('responseFormatter');
               stats.formatters = {
@@ -299,9 +214,6 @@ class PresentationBootstrap {
             } catch (error) {
               stats.formatters = { error: error.message };
             }
-
-            // Remove duplicatas das operações
-            stats.operations = [...new Set(stats.operations)];
 
             return stats;
           } catch (error) {
@@ -319,11 +231,7 @@ class PresentationBootstrap {
       return {
         async checkHealth() {
           const results = {
-            handlers: {
-              ticketHandler: container.has('ticketHandler'),
-              clientHandler: container.has('clientHandler'),
-              communicationHandler: container.has('communicationHandler')
-            },
+            registry: { available: container.has('registry'), operations: 0 },
             middleware: {
               pipeline: container.has('middlewarePipeline'),
               defaultMiddlewares: container.has('defaultMiddlewares')
@@ -337,7 +245,13 @@ class PresentationBootstrap {
             timestamp: new Date().toISOString()
           };
 
-          // Testa funcionalidade básica dos componentes
+          try {
+            const registry = container.resolve('registry');
+            results.registry.operations = registry.listOperations().length;
+          } catch (error) {
+            results.registry.error = error.message;
+          }
+
           try {
             const middlewarePipeline = container.resolve('middlewarePipeline');
             results.middleware.pipelineStats = middlewarePipeline.getStats();
@@ -357,7 +271,6 @@ class PresentationBootstrap {
     });
 
     logger.info('Presentation layer registered successfully', {
-      handlers: ['ticketHandler', 'clientHandler', 'communicationHandler'],
       middleware: ['middlewarePipeline', 'defaultMiddlewares'],
       formatters: ['responseFormatter'],
       utilities: ['presentationOrchestrator', 'presentationHealthChecker']

@@ -1,125 +1,151 @@
 /**
  * TiFlux API Client
- * Centraliza todas as chamadas para a API do TiFlux
+ *
+ * Fachada HTTP para a API v2 publica do TiFlux.
+ * Consome a infraestrutura compartilhada HttpClient + RetryPolicy + Logger
+ * (mesma base dos domain repositories Clean Arch).
+ *
+ * Contrato externo preservado: retorna `{ data, status }` em sucesso e
+ * `{ error, status }` em falha — handlers MCP nao precisam mudar.
  */
 
-const https = require('https');
-const http = require('http');
-const { URL } = require('url');
 const querystring = require('querystring');
 const fs = require('fs');
 const path = require('path');
 
+const HttpClient = require('../infrastructure/http/HttpClient');
+const { APIError, TimeoutError, NetworkError } = require('../utils/errors');
+
+const DEFAULT_TIMEOUT_MS = 15000;
+
 class TiFluxAPI {
-  constructor(apiKey = null) {
+  /**
+   * @param {string|null} apiKey - API key (ou via TIFLUX_API_KEY env)
+   * @param {object} [options]
+   * @param {HttpClient} [options.httpClient] - cliente HTTP injetado (DI)
+   * @param {object} [options.logger] - logger estruturado (usa stub silencioso por default)
+   */
+  constructor(apiKey = null, options = {}) {
     this.baseUrl = process.env.TIFLUX_API_BASE_URL || 'https://api.tiflux.com/api/v2';
-    // Aceita API key via parametro (para Lambda) ou env var (para uso local)
     this.apiKey = apiKey || process.env.TIFLUX_API_KEY;
+    this.logger = options.logger || this._createSilentLogger();
+    this.httpClient = options.httpClient || this._createDefaultHttpClient();
+  }
+
+  _createSilentLogger() {
+    const noop = () => {};
+    const timer = () => noop;
+    return {
+      error: noop, warn: noop, info: noop, debug: noop,
+      startTimer: timer
+    };
+  }
+
+  _createDefaultHttpClient() {
+    return new HttpClient({
+      timeout: DEFAULT_TIMEOUT_MS,
+      maxRetries: 3,
+      retryDelay: 1000,
+      retryMultiplier: 2,
+      logger: this.logger
+    });
   }
 
   /**
-   * Faz uma requisição HTTP para a API do TiFlux
+   * Constroi retryCondition baseado no metodo HTTP.
+   *
+   * Regra (Decisao 3c): GETs sao idempotentes → retenta em 429+5xx;
+   * writes (POST/PUT/DELETE) so retentam em 429 e erros de rede/timeout,
+   * nunca em 5xx — evita criar duplicatas se o server persistiu antes
+   * do response falhar.
+   */
+  _retryConditionForMethod(method) {
+    const isRead = method === 'GET';
+    return (error, attempt) => {
+      if (error instanceof TimeoutError || error instanceof NetworkError) return true;
+      if (error && error.statusCode === 429) return true;
+      if (isRead && error && error.statusCode >= 500 && attempt < 2) return true;
+      return false;
+    };
+  }
+
+  /**
+   * Converte excecoes do HttpClient para o shape `{ error, status }` que
+   * os handlers MCP consomem. Preserva semantica do codigo antigo.
+   */
+  _convertErrorToResponse(error, endpoint, method) {
+    if (error instanceof TimeoutError) {
+      this.logger.error('TiFlux API request timeout', {
+        endpoint, method, timeoutMs: DEFAULT_TIMEOUT_MS, error: error.message
+      });
+      return { error: `Timeout na requisição (${DEFAULT_TIMEOUT_MS / 1000}s)`, status: 'TIMEOUT' };
+    }
+
+    if (error instanceof NetworkError) {
+      this.logger.error('TiFlux API network error', {
+        endpoint, method, error: error.message, code: error.code
+      });
+      return { error: `Erro de conexão: ${error.message}`, status: 'CONNECTION_ERROR' };
+    }
+
+    if (error instanceof APIError) {
+      const status = error.statusCode;
+      const rawBody = this._extractErrorBody(error);
+
+      this.logger.error('TiFlux API HTTP error', {
+        endpoint, method, statusCode: status, body: rawBody?.slice?.(0, 500)
+      });
+
+      if (status === 401) return { error: 'Token de API inválido ou expirado', status };
+      if (status === 404) return { error: 'Recurso não encontrado', status };
+      if (status === 415) return { error: 'Tipo de mídia não suportado (verifique arquivos anexados)', status };
+      if (status === 422) return { error: `Erro de validação: ${rawBody}`, status };
+      return { error: `Erro HTTP ${status}: ${rawBody}`, status };
+    }
+
+    this.logger.error('TiFlux API unexpected error', {
+      endpoint, method, error: error?.message, stack: error?.stack
+    });
+    return { error: `Erro interno: ${error?.message || 'desconhecido'}`, status: 'INTERNAL_ERROR' };
+  }
+
+  _extractErrorBody(apiError) {
+    const response = apiError.response || {};
+    if (response.rawData != null) return String(response.rawData);
+    if (response.data != null) {
+      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    }
+    return '';
+  }
+
+  /**
+   * Requisicao HTTP base para endpoints JSON da API v2.
    */
   async makeRequest(endpoint, method = 'GET', data = null, headers = {}) {
     if (!this.apiKey) {
-      return {
-        error: 'TIFLUX_API_KEY não configurada',
-        status: 'CONFIG_ERROR'
-      };
+      return { error: 'TIFLUX_API_KEY não configurada', status: 'CONFIG_ERROR' };
     }
 
+    const url = `${this.baseUrl}${endpoint}`;
+    const requestHeaders = {
+      'accept': 'application/json',
+      'authorization': `Bearer ${this.apiKey}`,
+      ...headers
+    };
+
     try {
-      const url = `${this.baseUrl}${endpoint}`;
-      
-      return new Promise((resolve) => {
-        const parsedUrl = new URL(url);
-        
-        // Headers padrão
-        const defaultHeaders = {
-          'accept': 'application/json',
-          'authorization': `Bearer ${this.apiKey}`,
-          ...headers
-        };
-
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-          path: parsedUrl.pathname + parsedUrl.search,
-          method: method,
-          headers: defaultHeaders
-        };
-
-        const transport = parsedUrl.protocol === 'https:' ? https : http;
-        const req = transport.request(options, (res) => {
-          let responseData = '';
-          
-          res.on('data', (chunk) => {
-            responseData += chunk;
-          });
-          
-          res.on('end', () => {
-            try {
-              if (res.statusCode >= 200 && res.statusCode < 300) {
-                const jsonData = JSON.parse(responseData);
-                resolve({ data: jsonData, status: res.statusCode });
-              } else if (res.statusCode === 401) {
-                resolve({ 
-                  error: 'Token de API inválido ou expirado', 
-                  status: res.statusCode 
-                });
-              } else if (res.statusCode === 404) {
-                resolve({ 
-                  error: `Recurso não encontrado`, 
-                  status: res.statusCode 
-                });
-              } else if (res.statusCode === 422) {
-                resolve({ 
-                  error: `Erro de validação: ${responseData}`, 
-                  status: res.statusCode 
-                });
-              } else {
-                resolve({ 
-                  error: `Erro HTTP ${res.statusCode}: ${responseData}`, 
-                  status: res.statusCode 
-                });
-              }
-            } catch (parseError) {
-              resolve({ 
-                error: `Erro ao processar resposta: ${parseError.message}`, 
-                status: 'PARSE_ERROR' 
-              });
-            }
-          });
-        });
-
-        req.on('error', (error) => {
-          resolve({ 
-            error: `Erro de conexão: ${error.message}`, 
-            status: 'CONNECTION_ERROR' 
-          });
-        });
-
-        req.setTimeout(15000, () => {
-          req.destroy();
-          resolve({ 
-            error: 'Timeout na requisição (15s)', 
-            status: 'TIMEOUT' 
-          });
-        });
-
-        // Enviar dados se for POST ou PUT
-        if (data && (method === 'POST' || method === 'PUT')) {
-          req.write(data);
-        }
-        
-        req.end();
+      const response = await this.httpClient.request({
+        method,
+        url,
+        headers: requestHeaders,
+        data,
+        timeout: DEFAULT_TIMEOUT_MS,
+        retryCondition: this._retryConditionForMethod(method)
       });
-      
+
+      return { data: response.data, status: response.statusCode };
     } catch (error) {
-      return {
-        error: `Erro interno: ${error.message}`,
-        status: 'INTERNAL_ERROR'
-      };
+      return this._convertErrorToResponse(error, endpoint, method);
     }
   }
 
@@ -129,13 +155,8 @@ class TiFluxAPI {
   async fetchTicket(ticketId, options = {}) {
     const queryParams = [];
 
-    // Adicionar parâmetros para incluir campos personalizados
-    if (options.show_entities) {
-      queryParams.push('show_entities=true');
-    }
-    if (options.include_filled_entity) {
-      queryParams.push('include_filled_entity=true');
-    }
+    if (options.show_entities) queryParams.push('show_entities=true');
+    if (options.include_filled_entity) queryParams.push('include_filled_entity=true');
 
     const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
     return await this.makeRequest(`/tickets/${ticketId}${queryString}`);
@@ -146,24 +167,19 @@ class TiFluxAPI {
    */
   async searchClients(clientName = '') {
     const nameParam = clientName ? `&name=${encodeURIComponent(clientName)}` : '';
-    const endpoint = `/clients?active=true${nameParam}`;
-    return await this.makeRequest(endpoint);
+    return await this.makeRequest(`/clients?active=true${nameParam}`);
   }
 
   /**
    * Cria um novo ticket
    */
   async createTicket(ticketData) {
-    // Preparar dados para form-urlencoded
     const formData = {};
-    
-    // Adicionar campos obrigatórios
+
     if (ticketData.title) formData.title = ticketData.title;
     if (ticketData.description) formData.description = ticketData.description;
     if (ticketData.client_id) formData.client_id = ticketData.client_id;
     if (ticketData.desk_id) formData.desk_id = ticketData.desk_id;
-    
-    // Adicionar campos opcionais se fornecidos
     if (ticketData.priority_id) formData.priority_id = ticketData.priority_id;
     if (ticketData.services_catalogs_item_id) formData.services_catalogs_item_id = ticketData.services_catalogs_item_id;
     if (ticketData.status_id) formData.status_id = ticketData.status_id;
@@ -172,6 +188,7 @@ class TiFluxAPI {
     if (ticketData.requestor_telephone) formData.requestor_telephone = ticketData.requestor_telephone;
     if (ticketData.responsible_id) formData.responsible_id = ticketData.responsible_id;
     if (ticketData.followers) formData.followers = ticketData.followers;
+    if (ticketData.parent_ticket_number) formData.ticket_reference_number = ticketData.parent_ticket_number;
 
     const postData = querystring.stringify(formData);
     const headers = {
@@ -186,11 +203,8 @@ class TiFluxAPI {
    * Atualiza um ticket existente
    */
   async updateTicket(ticketId, ticketData) {
-
-    // Preparar dados no formato JSON conforme a API espera
     const ticketObject = {};
 
-    // Adicionar campos editáveis se fornecidos
     if (ticketData.title !== undefined) ticketObject.title = ticketData.title;
     if (ticketData.description !== undefined) ticketObject.description = ticketData.description;
     if (ticketData.client_id !== undefined) ticketObject.client_id = ticketData.client_id;
@@ -201,12 +215,6 @@ class TiFluxAPI {
     if (ticketData.services_catalogs_item_id !== undefined) ticketObject.services_catalogs_item_id = ticketData.services_catalogs_item_id;
     if (ticketData.followers !== undefined) ticketObject.followers = ticketData.followers;
 
-    // Campos do solicitante
-    if (ticketData.requestor_name !== undefined) ticketObject.requestor_name = ticketData.requestor_name;
-    if (ticketData.requestor_email !== undefined) ticketObject.requestor_email = ticketData.requestor_email;
-    if (ticketData.requestor_telephone !== undefined) ticketObject.requestor_telephone = ticketData.requestor_telephone;
-
-    // Tratamento especial para responsible_id (pode ser null)
     if (ticketData.responsible_id !== undefined) {
       ticketObject.responsible_id = ticketData.responsible_id;
     }
@@ -248,144 +256,49 @@ class TiFluxAPI {
   }
 
   /**
-   * Cria uma resposta (comunicação com cliente) em um ticket específico
-   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename })
+   * Cria uma resposta (comunicacao com cliente) em um ticket especifico.
+   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename }).
    */
   async createTicketAnswer(ticketNumber, answerData) {
     try {
       const MAX_FILE_SIZE = 41943040; // 40MB (Ticket Answer limit)
 
       if (!answerData.name) {
-        return {
-          error: 'Campo "name" é obrigatório',
-          status: 'VALIDATION_ERROR'
-        };
+        return { error: 'Campo "name" é obrigatório', status: 'VALIDATION_ERROR' };
       }
 
-      // Processar arquivos se fornecidos
       const processedFiles = [];
       if (answerData.files && Array.isArray(answerData.files) && answerData.files.length > 0) {
         for (let i = 0; i < Math.min(answerData.files.length, 10); i++) {
-          const file = answerData.files[i];
-          let fileContent;
-          let fileName;
-
-          // Detectar tipo de arquivo: string (path) ou objeto (base64)
-          if (typeof file === 'string') {
-            // Arquivo local via path
-            if (!fs.existsSync(file)) {
-              return {
-                error: `Arquivo não encontrado: ${file}`,
-                status: 'FILE_NOT_FOUND'
-              };
-            }
-
-            const fileStats = fs.statSync(file);
-            if (fileStats.size > MAX_FILE_SIZE) {
-              return {
-                error: `Arquivo muito grande (máx 40MB): ${path.basename(file)}`,
-                status: 'FILE_TOO_LARGE'
-              };
-            }
-
-            fileContent = fs.readFileSync(file);
-            fileName = path.basename(file);
-
-            console.error(`[TiFlux MCP] Usando arquivo local: ${fileName} (${fileStats.size} bytes)`);
-
-          } else if (typeof file === 'object' && file.content && file.filename) {
-            // Arquivo via base64
-            try {
-              // Decodificar base64 para Buffer
-              fileContent = Buffer.from(file.content, 'base64');
-              fileName = file.filename;
-
-              // Validar tamanho após decodificação
-              if (fileContent.length > MAX_FILE_SIZE) {
-                return {
-                  error: `Arquivo base64 muito grande (máx 40MB): ${fileName} (${Math.round(fileContent.length / 1024 / 1024)}MB)`,
-                  status: 'FILE_TOO_LARGE'
-                };
-              }
-
-              console.error(`[TiFlux MCP] Usando arquivo base64: ${fileName} (${fileContent.length} bytes)`);
-
-            } catch (decodeError) {
-              return {
-                error: `Erro ao decodificar base64 do arquivo "${file.filename}": ${decodeError.message}`,
-                status: 'BASE64_DECODE_ERROR'
-              };
-            }
-          } else {
-            return {
-              error: `Formato de arquivo inválido no índice ${i}. Use string (path) ou { content: "base64...", filename: "nome.ext" }`,
-              status: 'INVALID_FILE_FORMAT'
-            };
-          }
-
-          processedFiles.push({ content: fileContent, filename: fileName });
+          const result = this._processAttachment(answerData.files[i], i, MAX_FILE_SIZE, '40MB');
+          if (result.error) return result;
+          processedFiles.push(result);
         }
       }
 
-      // Construir multipart/form-data manualmente
-      const boundary = `----formdata-tiflux-${Date.now()}`;
-      const parts = [];
-
-      // Parte do campo "name"
-      let namePart = '';
-      namePart += `--${boundary}\r\n`;
-      namePart += 'Content-Disposition: form-data; name="name"\r\n';
-      namePart += '\r\n';
-      namePart += answerData.name + '\r\n';
-      parts.push(Buffer.from(namePart));
-
-      // Parte do campo "with_signature" (opcional)
-      if (answerData.with_signature !== undefined) {
-        let signaturePart = '';
-        signaturePart += `--${boundary}\r\n`;
-        signaturePart += 'Content-Disposition: form-data; name="with_signature"\r\n';
-        signaturePart += '\r\n';
-        signaturePart += (answerData.with_signature ? 'true' : 'false') + '\r\n';
-        parts.push(Buffer.from(signaturePart));
-      }
-
-      // Partes dos arquivos processados
-      for (const file of processedFiles) {
-        let filePart = '';
-        filePart += `--${boundary}\r\n`;
-        filePart += `Content-Disposition: form-data; name="files[]"; filename="${file.filename}"\r\n`;
-        filePart += 'Content-Type: application/octet-stream\r\n';
-        filePart += '\r\n';
-
-        parts.push(Buffer.from(filePart));
-        parts.push(file.content);
-        parts.push(Buffer.from('\r\n'));
-      }
-
-      // Finalizar boundary
-      parts.push(Buffer.from(`--${boundary}--\r\n`));
-
-      // Combinar todas as partes
-      const formDataBuffer = Buffer.concat(parts);
-
-      const headers = {
-        'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        'Content-Length': formDataBuffer.length
-      };
+      const { buffer, headers } = this._buildMultipart({
+        fields: this._ticketAnswerFields(answerData),
+        files: processedFiles
+      });
 
       return await this.makeRequestBinary(
         `/tickets/${ticketNumber}/answers`,
         'POST',
-        formDataBuffer,
+        buffer,
         headers
       );
 
     } catch (error) {
-      return {
-        error: `Erro interno: ${error.message}`,
-        status: 'INTERNAL_ERROR'
-      };
+      return { error: `Erro interno: ${error.message}`, status: 'INTERNAL_ERROR' };
     }
+  }
+
+  _ticketAnswerFields(answerData) {
+    const fields = [{ name: 'name', value: answerData.name }];
+    if (answerData.with_signature !== undefined) {
+      fields.push({ name: 'with_signature', value: answerData.with_signature ? 'true' : 'false' });
+    }
+    return fields;
   }
 
   /**
@@ -393,103 +306,168 @@ class TiFluxAPI {
    */
   async searchDesks(deskName = '') {
     const nameParam = deskName ? `&name=${encodeURIComponent(deskName)}` : '';
-    const endpoint = `/desks?active=true${nameParam}`;
-    return await this.makeRequest(endpoint);
+    return await this.makeRequest(`/desks?active=true${nameParam}`);
   }
 
   /**
-   * Busca estágios de uma mesa específica com paginação
+   * Busca mesas por nome com fallback fuzzy.
+   *
+   * 1. Tenta busca direta: GET /desks?active=true&name={deskName}
+   * 2. Se retornar erro ou pelo menos 1 resultado → devolve como esta.
+   * 3. Senao, busca todas as mesas ativas (searchDesks('')) e aplica
+   *    fuzzyMatchItems contra `name` + `display_name` de cada mesa.
+   * 4. Se fuzzy encontrou matches → retorna { data: items, status: 200 }.
+   *    Senao → devolve o resultado vazio original da busca direta.
    */
-  async searchStages(deskId, filters = {}) {
+  async smartSearchDesks(deskName) {
+    const { fuzzyMatchItems } = require('../tools/_shared/fuzzyMatch');
+
+    const directResult = await this.searchDesks(deskName);
+
+    // Propaga erro ou retorna direto se ha resultados
+    if (directResult.error) return directResult;
+    if (directResult.data && directResult.data.length > 0) return directResult;
+
+    // Fallback: buscar todas as mesas ativas e aplicar fuzzy matching
+    const allDesksResult = await this.searchDesks('');
+
+    if (allDesksResult.error) return directResult; // se falhou, devolve o vazio original
+    if (!allDesksResult.data || allDesksResult.data.length === 0) return directResult;
+
+    const { matches } = fuzzyMatchItems(
+      deskName,
+      allDesksResult.data,
+      (desk) => `${desk.name || ''} ${desk.display_name || ''}`.trim()
+    );
+
+    if (matches.length === 0) return directResult;
+
+    return { data: matches.map(m => m.item), status: 200 };
+  }
+
+  /**
+   * Lista mesas disponiveis com filtros opcionais.
+   *
+   * @param {object} filters - { active (boolean, default true), name (string), limit (int, default 20, max 200), offset (int, default 1) }
+   */
+  async listDesks(filters = {}) {
     const params = new URLSearchParams();
 
-    // Paginação
+    const active = filters.active !== undefined ? filters.active : true;
+    const limit = Math.min(filters.limit || 20, 200);
+    const offset = filters.offset || 1;
+
+    params.append('active', active);
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.name) {
+      params.append('name', filters.name);
+    }
+
+    return await this.makeRequest(`/desks?${params.toString()}`);
+  }
+
+  /**
+   * Retorna dados completos de uma mesa por ID.
+   *
+   * @param {number} deskId - ID da mesa
+   */
+  async getDesk(deskId) {
+    return await this.makeRequest(`/desks/${deskId}`);
+  }
+
+  /**
+   * Lista prioridades de uma mesa especifica com paginacao.
+   *
+   * @param {number} deskId - ID da mesa
+   * @param {object} filters - { offset (int, default 1), limit (int, default 20, max 200) }
+   */
+  async listDeskPriorities(deskId, filters = {}) {
+    const params = new URLSearchParams();
+
     const offset = filters.offset || 1;
     const limit = Math.min(filters.limit || 20, 200);
     params.append('offset', offset);
     params.append('limit', limit);
 
-    const endpoint = `/desks/${deskId}/stages?${params.toString()}`;
-    return await this.makeRequest(endpoint);
+    return await this.makeRequest(`/desks/${deskId}/priorities?${params.toString()}`);
+  }
+
+  /**
+   * Lista catalogos de servicos de uma mesa especifica com paginacao.
+   *
+   * @param {number} deskId - ID da mesa
+   * @param {object} filters - { offset (int, default 1), limit (int, default 20, max 200) }
+   */
+  async listDeskServicesCatalogs(deskId, filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = filters.offset || 1;
+    const limit = Math.min(filters.limit || 20, 200);
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    return await this.makeRequest(`/desks/${deskId}/services-catalogs?${params.toString()}`);
+  }
+
+  /**
+   * Busca estagios de uma mesa especifica com paginacao
+   */
+  async searchStages(deskId, filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = filters.offset || 1;
+    const limit = Math.min(filters.limit || 20, 200);
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    return await this.makeRequest(`/desks/${deskId}/stages?${params.toString()}`);
   }
 
   /**
    * Lista tickets com filtros aplicados
    */
   async listTickets(filters = {}) {
-    // Construir parâmetros de query
     const params = new URLSearchParams();
 
-    // Paginação
     const offset = filters.offset || 1;
-    const limit = Math.min(filters.limit || 20, 200); // Máximo 200 conforme API
+    const limit = Math.min(filters.limit || 20, 200);
     params.append('offset', offset);
     params.append('limit', limit);
 
-    // Filtro padrão: apenas tickets abertos
     const isClosed = filters.is_closed !== undefined ? filters.is_closed : false;
     params.append('is_closed', isClosed);
 
-    // Filtros de IDs (arrays separados por vírgula)
-    if (filters.desk_ids) {
-      // Validar e limitar a 15 IDs
-      const deskIds = filters.desk_ids.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
-      if (deskIds.length > 0) {
-        params.append('desk_ids', deskIds.join(','));
-      }
-    }
+    const appendCsvIds = (key, value) => {
+      if (!value) return;
+      const ids = value.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
+      if (ids.length > 0) params.append(key, ids.join(','));
+    };
 
-    if (filters.client_ids) {
-      const clientIds = filters.client_ids.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
-      if (clientIds.length > 0) {
-        params.append('client_ids', clientIds.join(','));
-      }
-    }
+    appendCsvIds('desk_ids', filters.desk_ids);
+    appendCsvIds('client_ids', filters.client_ids);
+    appendCsvIds('stage_ids', filters.stage_ids);
+    appendCsvIds('responsible_ids', filters.responsible_ids);
 
-    if (filters.stage_ids) {
-      const stageIds = filters.stage_ids.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
-      if (stageIds.length > 0) {
-        params.append('stage_ids', stageIds.join(','));
-      }
-    }
+    if (filters.date_type) params.append('date_type', filters.date_type);
+    if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
+    if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);
 
-    if (filters.responsible_ids) {
-      const responsibleIds = filters.responsible_ids.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
-      if (responsibleIds.length > 0) {
-        params.append('responsible_ids', responsibleIds.join(','));
-      }
-    }
-
-    // Filtros de data
-    if (filters.date_type) {
-      params.append('date_type', filters.date_type);
-    }
-
-    if (filters.start_datetime) {
-      params.append('start_datetime', filters.start_datetime);
-    }
-
-    if (filters.end_datetime) {
-      params.append('end_datetime', filters.end_datetime);
-    }
-
-    const endpoint = `/tickets?${params.toString()}`;
-    return await this.makeRequest(endpoint);
+    return await this.makeRequest(`/tickets?${params.toString()}`);
   }
 
   /**
-   * Cria uma comunicação interna em um ticket usando multipart/form-data
+   * Cria uma comunicacao interna em um ticket usando multipart/form-data
    */
   async createInternalCommunication(ticketNumber, text, files = []) {
     try {
-      // Para apenas texto, usar abordagem mais simples
       if (!files || files.length === 0) {
         return await this.createInternalCommunicationTextOnly(ticketNumber, text);
       }
-      
-      // Para arquivos, usar multipart/form-data completo
+
       return await this.createInternalCommunicationWithFiles(ticketNumber, text, files);
-      
+
     } catch (error) {
       return {
         error: `Erro ao preparar comunicação interna: ${error.message}`,
@@ -499,332 +477,288 @@ class TiFluxAPI {
   }
 
   /**
-   * Versão simplificada para texto apenas
+   * Versao simplificada para texto apenas
    */
   async createInternalCommunicationTextOnly(ticketNumber, text) {
-    const boundary = `----formdata-tiflux-${Date.now()}`;
-    let formData = '';
-    
-    formData += `--${boundary}\r\n`;
-    formData += 'Content-Disposition: form-data; name="text"\r\n';
-    formData += '\r\n';
-    formData += text + '\r\n';
-    formData += `--${boundary}--\r\n`;
-    
-    const formDataBuffer = Buffer.from(formData);
-    
-    const headers = {
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      'Content-Length': formDataBuffer.length
-    };
-    
+    const { buffer, headers } = this._buildMultipart({
+      fields: [{ name: 'text', value: text }],
+      files: []
+    });
+
     return await this.makeRequestBinary(
-      `/tickets/${ticketNumber}/internal_communications`, 
-      'POST', 
-      formDataBuffer, 
+      `/tickets/${ticketNumber}/internal_communications`,
+      'POST',
+      buffer,
       headers
     );
   }
 
   /**
-   * Versão completa com arquivos
-   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename })
+   * Versao completa com arquivos.
+   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename }).
    */
   async createInternalCommunicationWithFiles(ticketNumber, text, files) {
     const MAX_FILE_SIZE = 26214400; // 25MB (Internal Communication limit)
     const processedFiles = [];
 
-    // Processar e validar cada arquivo
     for (let i = 0; i < Math.min(files.length, 10); i++) {
-      const file = files[i];
-      let fileContent;
-      let fileName;
-
-      // Detectar tipo de arquivo: string (path) ou objeto (base64)
-      if (typeof file === 'string') {
-        // Arquivo local via path
-        if (!fs.existsSync(file)) {
-          return {
-            error: `Arquivo não encontrado: ${file}`,
-            status: 'FILE_NOT_FOUND'
-          };
-        }
-
-        const fileStats = fs.statSync(file);
-        if (fileStats.size > MAX_FILE_SIZE) {
-          return {
-            error: `Arquivo muito grande (máx 25MB): ${path.basename(file)}`,
-            status: 'FILE_TOO_LARGE'
-          };
-        }
-
-        fileContent = fs.readFileSync(file);
-        fileName = path.basename(file);
-
-        console.error(`[TiFlux MCP] Usando arquivo local: ${fileName} (${fileStats.size} bytes)`);
-
-      } else if (typeof file === 'object' && file.content && file.filename) {
-        // Arquivo via base64
-        try {
-          // Decodificar base64 para Buffer
-          fileContent = Buffer.from(file.content, 'base64');
-          fileName = file.filename;
-
-          // Validar tamanho após decodificação
-          if (fileContent.length > MAX_FILE_SIZE) {
-            return {
-              error: `Arquivo base64 muito grande (máx 25MB): ${fileName} (${Math.round(fileContent.length / 1024 / 1024)}MB)`,
-              status: 'FILE_TOO_LARGE'
-            };
-          }
-
-          console.error(`[TiFlux MCP] Usando arquivo base64: ${fileName} (${fileContent.length} bytes)`);
-
-        } catch (decodeError) {
-          return {
-            error: `Erro ao decodificar base64 do arquivo "${file.filename}": ${decodeError.message}`,
-            status: 'BASE64_DECODE_ERROR'
-          };
-        }
-      } else {
-        return {
-          error: `Formato de arquivo inválido no índice ${i}. Use string (path) ou { content: "base64...", filename: "nome.ext" }`,
-          status: 'INVALID_FILE_FORMAT'
-        };
-      }
-
-      processedFiles.push({ content: fileContent, filename: fileName });
+      const result = this._processAttachment(files[i], i, MAX_FILE_SIZE, '25MB');
+      if (result.error) return result;
+      processedFiles.push(result);
     }
 
-    const boundary = `----formdata-tiflux-${Date.now()}`;
-    const parts = [];
-
-    // Parte do texto
-    let textPart = '';
-    textPart += `--${boundary}\r\n`;
-    textPart += 'Content-Disposition: form-data; name="text"\r\n';
-    textPart += '\r\n';
-    textPart += text + '\r\n';
-    parts.push(Buffer.from(textPart));
-
-    // Partes dos arquivos processados
-    for (const file of processedFiles) {
-      let filePart = '';
-      filePart += `--${boundary}\r\n`;
-      filePart += `Content-Disposition: form-data; name="files[]"; filename="${file.filename}"\r\n`;
-      filePart += 'Content-Type: application/octet-stream\r\n';
-      filePart += '\r\n';
-
-      parts.push(Buffer.from(filePart));
-      parts.push(file.content);
-      parts.push(Buffer.from('\r\n'));
-    }
-
-    // Finalizar boundary
-    parts.push(Buffer.from(`--${boundary}--\r\n`));
-
-    // Combinar todas as partes
-    const formDataBuffer = Buffer.concat(parts);
-
-    const headers = {
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      'Content-Length': formDataBuffer.length
-    };
+    const { buffer, headers } = this._buildMultipart({
+      fields: [{ name: 'text', value: text }],
+      files: processedFiles
+    });
 
     return await this.makeRequestBinary(
       `/tickets/${ticketNumber}/internal_communications`,
       'POST',
-      formDataBuffer,
+      buffer,
       headers
     );
   }
 
   /**
-   * Lista comunicações internas de um ticket com paginação
+   * Processa um anexo (string=path local ou objeto base64) validando tamanho.
+   * Retorna `{ content, filename }` em sucesso ou `{ error, status }` em falha.
+   */
+  _processAttachment(file, index, maxSize, maxSizeLabel) {
+    if (typeof file === 'string') {
+      if (!fs.existsSync(file)) {
+        return { error: `Arquivo não encontrado: ${file}`, status: 'FILE_NOT_FOUND' };
+      }
+
+      const fileStats = fs.statSync(file);
+      if (fileStats.size > maxSize) {
+        return { error: `Arquivo muito grande (máx ${maxSizeLabel}): ${path.basename(file)}`, status: 'FILE_TOO_LARGE' };
+      }
+
+      const content = fs.readFileSync(file);
+      const filename = path.basename(file);
+
+      this.logger.info('TiFlux API file attachment (local)', {
+        filename, sizeBytes: fileStats.size, source: 'path'
+      });
+
+      return { content, filename };
+    }
+
+    if (typeof file === 'object' && file && file.content && file.filename) {
+      try {
+        const content = Buffer.from(file.content, 'base64');
+        const filename = file.filename;
+
+        if (content.length > maxSize) {
+          return {
+            error: `Arquivo base64 muito grande (máx ${maxSizeLabel}): ${filename} (${Math.round(content.length / 1024 / 1024)}MB)`,
+            status: 'FILE_TOO_LARGE'
+          };
+        }
+
+        this.logger.info('TiFlux API file attachment (base64)', {
+          filename, sizeBytes: content.length, source: 'base64'
+        });
+
+        return { content, filename };
+      } catch (decodeError) {
+        return {
+          error: `Erro ao decodificar base64 do arquivo "${file.filename}": ${decodeError.message}`,
+          status: 'BASE64_DECODE_ERROR'
+        };
+      }
+    }
+
+    return {
+      error: `Formato de arquivo inválido no índice ${index}. Use string (path) ou { content: "base64...", filename: "nome.ext" }`,
+      status: 'INVALID_FILE_FORMAT'
+    };
+  }
+
+  /**
+   * Constroi body multipart/form-data com campos texto e arquivos.
+   * Retorna `{ buffer, headers }` pronto para makeRequestBinary.
+   */
+  _buildMultipart({ fields = [], files = [] }) {
+    const boundary = `----formdata-tiflux-${Date.now()}`;
+    const parts = [];
+
+    for (const { name, value } of fields) {
+      let fieldPart = '';
+      fieldPart += `--${boundary}\r\n`;
+      fieldPart += `Content-Disposition: form-data; name="${name}"\r\n`;
+      fieldPart += '\r\n';
+      fieldPart += value + '\r\n';
+      parts.push(Buffer.from(fieldPart));
+    }
+
+    for (const file of files) {
+      let header = '';
+      header += `--${boundary}\r\n`;
+      header += `Content-Disposition: form-data; name="files[]"; filename="${file.filename}"\r\n`;
+      header += 'Content-Type: application/octet-stream\r\n';
+      header += '\r\n';
+      parts.push(Buffer.from(header));
+      parts.push(file.content);
+      parts.push(Buffer.from('\r\n'));
+    }
+
+    parts.push(Buffer.from(`--${boundary}--\r\n`));
+    const buffer = Buffer.concat(parts);
+
+    return {
+      buffer,
+      headers: {
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+        'Content-Length': buffer.length
+      }
+    };
+  }
+
+  /**
+   * Lista comunicacoes internas de um ticket com paginacao
    */
   async listInternalCommunications(ticketNumber, offset = 1, limit = 20) {
-    // Validar e limitar parâmetros
     const validOffset = Math.max(1, parseInt(offset) || 1);
     const validLimit = Math.min(200, Math.max(1, parseInt(limit) || 20));
-    
+
     const params = new URLSearchParams();
     params.append('offset', validOffset);
     params.append('limit', validLimit);
-    
-    const endpoint = `/tickets/${ticketNumber}/internal_communications?${params.toString()}`;
-    return await this.makeRequest(endpoint);
+
+    return await this.makeRequest(`/tickets/${ticketNumber}/internal_communications?${params.toString()}`);
   }
 
   /**
-   * Busca uma comunicação interna específica de um ticket
+   * Busca uma comunicacao interna especifica de um ticket
    */
   async getInternalCommunication(ticketNumber, communicationId) {
-    const endpoint = `/tickets/${ticketNumber}/internal_communications/${communicationId}`;
-    return await this.makeRequest(endpoint);
+    return await this.makeRequest(`/tickets/${ticketNumber}/internal_communications/${communicationId}`);
   }
 
   /**
-   * Versão especial do makeRequest para dados binários (arquivos)
+   * Versao do makeRequest para bodies binarios (multipart/form-data).
+   * Delega ao HttpClient, preservando headers do caller (incluindo boundary).
    */
   async makeRequestBinary(endpoint, method = 'GET', data = null, headers = {}) {
     if (!this.apiKey) {
-      return {
-        error: 'TIFLUX_API_KEY não configurada',
-        status: 'CONFIG_ERROR'
-      };
+      return { error: 'TIFLUX_API_KEY não configurada', status: 'CONFIG_ERROR' };
     }
 
+    const url = `${this.baseUrl}${endpoint}`;
+    const requestHeaders = {
+      'accept': 'application/json',
+      'authorization': `Bearer ${this.apiKey}`,
+      ...headers
+    };
+
     try {
-      const url = `${this.baseUrl}${endpoint}`;
-      
-      return new Promise((resolve) => {
-        const parsedUrl = new URL(url);
-        
-        // Headers padrão
-        const defaultHeaders = {
-          'accept': 'application/json',
-          'authorization': `Bearer ${this.apiKey}`,
-          ...headers
-        };
-
-        const options = {
-          hostname: parsedUrl.hostname,
-          port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-          path: parsedUrl.pathname + parsedUrl.search,
-          method: method,
-          headers: defaultHeaders
-        };
-
-        const transport = parsedUrl.protocol === 'https:' ? https : http;
-        const req = transport.request(options, (res) => {
-          let responseData = '';
-          
-          res.on('data', (chunk) => {
-            responseData += chunk;
-          });
-          
-          res.on('end', () => {
-            try {
-              if (res.statusCode >= 200 && res.statusCode < 300) {
-                const jsonData = JSON.parse(responseData);
-                resolve({ data: jsonData, status: res.statusCode });
-              } else if (res.statusCode === 401) {
-                resolve({ 
-                  error: 'Token de API inválido ou expirado', 
-                  status: res.statusCode 
-                });
-              } else if (res.statusCode === 404) {
-                resolve({ 
-                  error: `Recurso não encontrado`, 
-                  status: res.statusCode 
-                });
-              } else if (res.statusCode === 415) {
-                resolve({ 
-                  error: `Tipo de mídia não suportado (verifique arquivos anexados)`, 
-                  status: res.statusCode 
-                });
-              } else if (res.statusCode === 422) {
-                resolve({ 
-                  error: `Erro de validação: ${responseData}`, 
-                  status: res.statusCode 
-                });
-              } else {
-                resolve({ 
-                  error: `Erro HTTP ${res.statusCode}: ${responseData}`, 
-                  status: res.statusCode 
-                });
-              }
-            } catch (parseError) {
-              resolve({ 
-                error: `Erro ao processar resposta: ${parseError.message}`, 
-                status: 'PARSE_ERROR' 
-              });
-            }
-          });
-        });
-
-        req.on('error', (error) => {
-          resolve({ 
-            error: `Erro de conexão: ${error.message}`, 
-            status: 'CONNECTION_ERROR' 
-          });
-        });
-
-        req.setTimeout(15000, () => {
-          req.destroy();
-          resolve({ 
-            error: 'Timeout na requisição (15s)', 
-            status: 'TIMEOUT' 
-          });
-        });
-
-        // Enviar dados binários
-        if (data && method === 'POST') {
-          req.write(data);
-        }
-        
-        req.end();
+      const response = await this.httpClient.request({
+        method,
+        url,
+        headers: requestHeaders,
+        data,
+        timeout: DEFAULT_TIMEOUT_MS,
+        retryCondition: this._retryConditionForMethod(method)
       });
-      
+
+      return { data: response.data, status: response.statusCode };
     } catch (error) {
-      return {
-        error: `Erro interno: ${error.message}`,
-        status: 'INTERNAL_ERROR'
-      };
+      return this._convertErrorToResponse(error, endpoint, method);
     }
   }
 
   /**
-   * Busca os arquivos anexados a um ticket específico
+   * Cria um apontamento em um ticket especifico
+   * POST /tickets/{ticket_number}/appointments
+   */
+  async createAppointment(ticketNumber, appointmentData) {
+    const jsonData = JSON.stringify({
+      date: appointmentData.date,
+      init_time: appointmentData.init_time,
+      end_time: appointmentData.end_time,
+      description: appointmentData.description
+    });
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest(`/tickets/${ticketNumber}/appointments`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Lista apontamentos de um ticket com paginacao e filtros
+   * GET /tickets/{ticket_number}/appointments
+   */
+  async listAppointments(ticketNumber, filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.user_id) params.append('user_id', filters.user_id);
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+
+    return await this.makeRequest(`/tickets/${ticketNumber}/appointments?${params.toString()}`);
+  }
+
+  /**
+   * Busca o historico de estagios e SLAs de um ticket
+   * GET /tickets/{ticket_number}/stages-slas
+   */
+  async fetchTicketStagesSlas(ticketNumber, filters = {}) {
+    if (!ticketNumber) {
+      return { error: 'ticket_number é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    return await this.makeRequest(`/tickets/${ticketNumber}/stages-slas?${params.toString()}`);
+  }
+
+  /**
+   * Busca os arquivos anexados a um ticket especifico
    * GET /tickets/{ticket_number}/files
    */
   async fetchTicketFiles(ticketNumber) {
     if (!ticketNumber) {
-      return {
-        error: 'ticket_number é obrigatório',
-        status: 'VALIDATION_ERROR'
-      };
+      return { error: 'ticket_number é obrigatório', status: 'VALIDATION_ERROR' };
     }
 
     return await this.makeRequest(`/tickets/${ticketNumber}/files`);
   }
 
   /**
-   * Busca usuários por nome com filtros opcionais
+   * Busca usuarios por nome com filtros opcionais
    * GET /users
    *
-   * Nota: A API TiFlux não suporta busca por nome no endpoint /users.
-   * Endpoints disponíveis: GET /users (lista) e GET /users/{id} (por ID).
-   * Implementamos filtro client-side por nome/email após buscar da API.
+   * Nota: A API TiFlux nao suporta busca por nome no endpoint /users.
+   * Implementamos filtro client-side por nome/email apos buscar da API.
    */
   async searchUsers(filters = {}) {
     const params = new URLSearchParams();
 
-    // Paginação - usar limit máximo (200) para filtrar client-side
     const offset = filters.offset || 1;
-    const limit = 200; // Máximo permitido pela API
+    const limit = 200;
     params.append('offset', offset);
     params.append('limit', limit);
 
-    // Filtro de usuários ativos/inativos
-    if (filters.active !== undefined) {
-      params.append('active', filters.active);
-    }
+    if (filters.active !== undefined) params.append('active', filters.active);
+    if (filters.type) params.append('type', filters.type);
+    if (filters.gauth_enabled !== undefined) params.append('gauth_enabled', filters.gauth_enabled);
 
-    // Filtro por tipo de usuário (client, attendant, admin)
-    if (filters.type) {
-      params.append('type', filters.type);
-    }
+    const response = await this.makeRequest(`/users?${params.toString()}`);
 
-    // Filtro por autenticação de 2 fatores
-    if (filters.gauth_enabled !== undefined) {
-      params.append('gauth_enabled', filters.gauth_enabled);
-    }
-
-    const endpoint = `/users?${params.toString()}`;
-    const response = await this.makeRequest(endpoint);
-
-    // Filtrar por nome client-side se fornecido
     if (response.data && filters.name) {
       const searchTerm = filters.name.toLowerCase().trim();
       response.data = response.data.filter(user => {
@@ -833,7 +767,6 @@ class TiFluxAPI {
         return nameMatch || emailMatch;
       });
 
-      // Limitar resultados ao limit solicitado pelo usuário
       if (filters.limit && filters.limit < response.data.length) {
         response.data = response.data.slice(0, filters.limit);
       }
@@ -843,7 +776,7 @@ class TiFluxAPI {
   }
 
   /**
-   * Busca dados do usuário autenticado incluindo feature flags
+   * Busca dados do usuario autenticado incluindo feature flags
    * GET /users/me
    */
   async fetchCurrentUser() {
@@ -851,29 +784,183 @@ class TiFluxAPI {
   }
 
   /**
-   * Busca itens de catálogo de serviços de uma mesa específica
+   * Busca um chat específico pelo ID
+   * GET /chats/{id}
+   */
+  async getChat(id) {
+    if (!id) {
+      return { error: 'id é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+    return await this.makeRequest(`/chats/${id}`);
+  }
+
+  /**
+   * Lista chats da caixa de entrada (não assumidos)
+   * GET /chats/inbox
+   */
+  async listInboxChats(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) >= 0 ? parseInt(filters.offset) : 1);
+    const limit = Math.min(200, Math.max(1, filters.limit != null ? parseInt(filters.limit) : 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.department_id != null) params.append('department_id', filters.department_id);
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.requestor_id != null) params.append('requestor_id', filters.requestor_id);
+    if (filters.number != null) params.append('number', filters.number);
+    if (filters.origins != null) params.append('origins', filters.origins);
+    if (filters.started_by != null) params.append('started_by', filters.started_by);
+
+    return await this.makeRequest(`/chats/inbox?${params.toString()}`);
+  }
+
+  /**
+   * Lista chats assumidos pelo usuário da API key
+   * GET /chats/mine
+   */
+  async listMyChats(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) >= 0 ? parseInt(filters.offset) : 1);
+    const limit = Math.min(200, Math.max(1, filters.limit != null ? parseInt(filters.limit) : 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.department_id != null) params.append('department_id', filters.department_id);
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.requestor_id != null) params.append('requestor_id', filters.requestor_id);
+    if (filters.number != null) params.append('number', filters.number);
+    if (filters.origins != null) params.append('origins', filters.origins);
+    if (filters.started_by != null) params.append('started_by', filters.started_by);
+
+    return await this.makeRequest(`/chats/mine?${params.toString()}`);
+  }
+
+  /**
+   * Lista todos os chats em atendimento da organização
+   * GET /chats/in_attendance
+   */
+  async listInAttendanceChats(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) >= 0 ? parseInt(filters.offset) : 1);
+    const limit = Math.min(200, Math.max(1, filters.limit != null ? parseInt(filters.limit) : 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.department_id != null) params.append('department_id', filters.department_id);
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.requestor_id != null) params.append('requestor_id', filters.requestor_id);
+    if (filters.number != null) params.append('number', filters.number);
+    if (filters.origins != null) params.append('origins', filters.origins);
+    if (filters.started_by != null) params.append('started_by', filters.started_by);
+    if (filters.user_id != null) params.append('user_id', filters.user_id);
+    if (filters.status != null) params.append('status', filters.status);
+
+    return await this.makeRequest(`/chats/in_attendance?${params.toString()}`);
+  }
+
+  /**
+   * Lista chats arquivados (finalizados ou cancelados)
+   * GET /chats/archived
+   */
+  async listArchivedChats(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) >= 0 ? parseInt(filters.offset) : 1);
+    const limit = Math.min(200, Math.max(1, filters.limit != null ? parseInt(filters.limit) : 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.department_id != null) params.append('department_id', filters.department_id);
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.requestor_id != null) params.append('requestor_id', filters.requestor_id);
+    if (filters.number != null) params.append('number', filters.number);
+    if (filters.origins != null) params.append('origins', filters.origins);
+    if (filters.started_by != null) params.append('started_by', filters.started_by);
+    if (filters.canceled != null) params.append('canceled', filters.canceled ? 'true' : 'false');
+
+    return await this.makeRequest(`/chats/archived?${params.toString()}`);
+  }
+
+  /**
+   * Lista campos personalizados (entities) disponiveis na organizacao.
+   *
+   * @param {object} filters - { active (boolean), applied_in (string), name (string), limit (int, default 20, max 200), offset (int, default 1) }
+   */
+  async listEntities(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.active !== undefined) params.append('active', filters.active);
+    if (filters.applied_in) params.append('applied_in', filters.applied_in);
+    if (filters.name) params.append('name', filters.name);
+
+    return await this.makeRequest(`/entities?${params.toString()}`);
+  }
+
+  /**
+   * Lista subcampos (entity_fields) de um campo personalizado especifico.
+   *
+   * @param {number} entityId - ID do campo personalizado
+   * @param {object} filters - { field_type (string), required (boolean), name (string), limit (int, default 20, max 200), offset (int, default 1) }
+   */
+  async listEntityFields(entityId, filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.field_type) params.append('field_type', filters.field_type);
+    if (filters.required !== undefined) params.append('required', filters.required);
+    if (filters.name) params.append('name', filters.name);
+
+    return await this.makeRequest(`/entities/${entityId}/fields?${params.toString()}`);
+  }
+
+  /**
+   * Lista opcoes (entity_field_options) de um subcampo do tipo single_select ou checkbox.
+   *
+   * @param {number} entityFieldId - ID do subcampo
+   * @param {object} filters - { value (string), limit (int, default 20, max 200), offset (int, default 1) }
+   */
+  async listEntityFieldOptions(entityFieldId, filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.value) params.append('value', filters.value);
+
+    return await this.makeRequest(`/entity_fields/${entityFieldId}/options?${params.toString()}`);
+  }
+
+  /**
+   * Busca itens de catalogo de servicos de uma mesa especifica
    * GET /desks/{id}/services-catalogs-items
    */
   async searchCatalogItems(deskId, filters = {}) {
     const params = new URLSearchParams();
 
-    // Paginação
     const offset = filters.offset || 1;
     const limit = Math.min(filters.limit || 20, 200);
     params.append('offset', offset);
     params.append('limit', limit);
 
-    // Filtros opcionais
-    if (filters.area_id) {
-      params.append('area_id', filters.area_id);
-    }
+    if (filters.area_id) params.append('area_id', filters.area_id);
+    if (filters.catalog_id) params.append('catalog_id', filters.catalog_id);
 
-    if (filters.catalog_id) {
-      params.append('catalog_id', filters.catalog_id);
-    }
-
-    const endpoint = `/desks/${deskId}/services-catalogs-items?${params.toString()}`;
-    return await this.makeRequest(endpoint);
+    return await this.makeRequest(`/desks/${deskId}/services-catalogs-items?${params.toString()}`);
   }
 }
 
