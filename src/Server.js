@@ -34,13 +34,14 @@ const PresentationBootstrap = require('./presentation/PresentationBootstrap');
 
 // Registry central — schemas e listagem de operacoes
 const { createRegistry } = require('./registry');
+const { version } = require('../package.json');
 
 class TiFluxMCPServer {
   constructor() {
     this.server = new Server(
       {
         name: 'tiflux-mcp',
-        version: '1.0.0'
+        version
       },
       {
         capabilities: {
@@ -79,7 +80,7 @@ class TiFluxMCPServer {
       this.container.registerInstance('logger', logger);
       this.logger = logger;
       this.logger.info('TiFlux MCP Server starting', {
-        version: '1.0.0',
+        version,
         environment: config.get('environment', 'development'),
         node_version: process.version
       });

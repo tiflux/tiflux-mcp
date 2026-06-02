@@ -29,6 +29,8 @@ const InfrastructureBootstrap = require('./src/infrastructure/InfrastructureBoot
 // Registry central de tools — schemas + roteamento self-describing por handler
 const { createRegistry } = require('./src/registry');
 
+const { version } = require('./package.json');
+
 class TifluxMCPServerV2 {
   constructor() {
     this.container = null;
@@ -64,7 +66,7 @@ class TifluxMCPServerV2 {
       this.server = new Server(
         {
           name: 'tiflux-mcp',
-          version: '2.0.0',
+          version,
           vendor: 'TiFlux'
         },
         {
@@ -84,8 +86,8 @@ class TifluxMCPServerV2 {
       const healthChecker = this.container.resolve('infrastructureHealthChecker');
       const health = await healthChecker.checkHealth();
 
-      this.logger.info('TiFlux MCP Server v2.0 initialized successfully', {
-        version: '2.0.0',
+      this.logger.info('TiFlux MCP Server initialized successfully', {
+        version,
         environment: this.config.get('environment'),
         infrastructure: health,
         container: {
@@ -231,7 +233,7 @@ class TifluxMCPServerV2 {
 
     return {
       initialized: true,
-      version: '2.0.0',
+      version,
       uptime: process.uptime(),
       memory: process.memoryUsage(),
       infrastructure: await healthChecker.checkHealth(),

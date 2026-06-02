@@ -78,23 +78,39 @@ Add to `.claude/settings.json` or `~/.claude.json`:
 | `/mcp` | POST | Yes | MCP operations |
 | `/health` | GET | No | Health check |
 
-### Via Web (OAuth 2.0)
+### Via Web (OAuth 2.0) — Claude web & ChatGPT connectors
 
-Connect through any AI platform that supports the MCP OAuth 2.0 server connector (Claude.ai, ChatGPT, and any MCP-compatible client with OAuth 2.0 support).
+Use TiFlux as a **connector** in any AI platform that supports MCP over OAuth 2.0 — such as
+**Claude (claude.ai / desktop)** and **ChatGPT** — with no local install. You just add a
+custom connector pointing to the TiFlux MCP server URL.
 
-**MCP Server URL:** `https://mcp.tiflux.com`
+**MCP Server URL (paste this in the connector):**
 
-**How it works:**
+```
+https://mcp.tiflux.com
+```
 
-1. Add TiFlux as a connector in your AI platform using the URL above
-2. The platform opens the TiFlux authorization page automatically
-3. The page displays a step-by-step guide to generate your TiFlux API Key:
+**Add the connector:**
+
+- **Claude (claude.ai / desktop):** Settings → **Connectors** → **Add custom connector** →
+  paste `https://mcp.tiflux.com` → Connect.
+- **ChatGPT:** Settings → **Connectors** (or when building a GPT, **Add** a connector) →
+  paste `https://mcp.tiflux.com` → Connect.
+
+**How the authorization works:**
+
+1. After adding the connector, the platform opens the TiFlux authorization page automatically.
+2. The page shows a step-by-step guide to generate your TiFlux API Key:
    - Log in at [app.tiflux.com](https://app.tiflux.com/)
    - Click your profile photo → **Minha conta**
    - Open the **Sessões** tab
    - Under **Sessões API**, click **"Gerar novo token de sessão"**
    - Copy the generated key and paste it into the authorization form
-4. After authorizing, the platform receives a Bearer token and uses it for all subsequent MCP requests
+3. After authorizing, the platform receives a Bearer token and uses it for all subsequent
+   MCP requests — no need to handle the key again.
+
+> For Claude Code or local/script usage with a direct API key header, see
+> [Via URL (HTTP Transport)](#via-url-http-transport) above.
 
 **Authentication methods supported:**
 
