@@ -2,26 +2,48 @@
  * Slice: list_tickets — lista tickets com filtros.
  *
  * Endpoint: GET /tickets (via api.listTickets).
- * Requer ao menos um filtro obrigatorio (desk_ids, desk_name, client_ids,
- * stage_ids, stage_name, responsible_ids) para evitar retorno massivo.
- * Resolve desk_name -> desk_id via searchDesks; stage_name -> stage_id via searchStages.
+ * Requer ao menos um filtro obrigatorio (desk_ids, desk_name, client_ids, client_name,
+ * stage_ids, stage_name, responsible_ids, requestor_ids, requestor_email)
+ * para evitar retorno massivo.
+ * Resolve desk_name -> desk_id via smartSearchDesks; stage_name -> stage_id via searchStages.
+ * Resolve client_name -> client_id via resolveClientName.
+ * Repassa requestor_ids e requestor_email diretamente para a API.
+ *
+ * Heuristica mesa-first: quando o usuario referencia um nome sem qualificar a entidade,
+ * use desk_name. So use client_name quando o usuario disser explicitamente "cliente" ou
+ * "empresa". Para pessoas que abriram tickets, use requestor_email ou requestor_ids.
  */
 
 const { textResponse } = require('../_shared/response');
 const { resolveDeskName } = require('../_shared/deskResolver');
+const { resolveClientName } = require('../_shared/clientResolver');
 
 const schema = {
   name: 'list_tickets',
-  description: 'Listar tickets do TiFlux com filtros (pelo menos um filtro obrigatório: desk_ids/desk_name, client_ids, stage_ids/stage_name ou responsible_ids)',
+  description: `Lista tickets do TiFlux com filtros. Requer pelo menos um filtro obrigatorio.
+
+**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids (resolva o ID via search_user). Para o atendente atribuido, use responsible_ids (busque o ID via search_user). Em duvida, pergunte ao usuario.
+
+| Entrada do usuario | Filtro a usar |
+|---|---|
+| "tickets do tuitui" (nome sem qualificar) | desk_name="tuitui" |
+| "tickets da mesa X" ou "equipe Y" | desk_name |
+| "tickets do cliente Z" ou "empresa ACME" | client_name |
+| "tickets do Joao" (nome de pessoa) | requestor_email ou requestor_ids |
+| "tickets atribuidos ao Joao" | responsible_ids (via search_user) |
+| "tickets aberto por joao@empresa.com" | requestor_email |`,
   inputSchema: {
     type: 'object',
     properties: {
       desk_ids: { type: 'string', description: 'IDs das mesas separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
-      desk_name: { type: 'string', description: 'Nome da mesa para busca automática (alternativa ao desk_ids). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").' },
-      client_ids: { type: 'string', description: 'IDs dos clientes separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_ids). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
+      client_ids: { type: 'string', description: 'IDs dos clientes (empresas) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar pela empresa contratante, nao pela pessoa que abriu o ticket.' },
+      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_ids). Use **apenas** quando o usuario disser explicitamente "cliente", "empresa" ou der um nome corporativo conhecido. Para pessoa fisica, prefira requestor_email.' },
       stage_ids: { type: 'string', description: 'IDs dos estágios separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática (deve ser usado junto com desk_name)' },
-      responsible_ids: { type: 'string', description: 'IDs dos responsáveis separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
+      responsible_ids: { type: 'string', description: 'IDs dos responsáveis (atendentes atribuidos) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use quando o usuario disser "atribuido a", "responsavel", "atendente".' },
+      requestor_ids: { type: 'string', description: 'IDs dos solicitantes (pessoa fisica que abriu o ticket) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar por **pessoa** (nao empresa). Resolva o ID via search_user(type="client").' },
+      requestor_email: { type: 'string', description: 'Email do solicitante (pessoa que abriu o ticket). Use quando o usuario referencia uma **pessoa fisica** ou der um email diretamente. Evita round-trip de resolucao de ID.' },
       offset: { type: 'number', description: 'Número da página (padrão: 1)' },
       limit: { type: 'number', description: 'Número de tickets por página (padrão: 20, máximo: 200)' },
       is_closed: { type: 'boolean', description: 'Filtrar tickets fechados (padrão: false - apenas abertos)' },
@@ -42,9 +64,12 @@ async function execute(args, { api }) {
     desk_ids,
     desk_name,
     client_ids,
+    client_name,
     stage_ids,
     stage_name,
     responsible_ids,
+    requestor_ids,
+    requestor_email,
     offset,
     limit,
     is_closed,
@@ -54,22 +79,26 @@ async function execute(args, { api }) {
   } = args;
 
   // Validar se pelo menos um dos filtros obrigatorios foi informado
-  if (!desk_ids && !desk_name && !client_ids && !stage_ids && !stage_name && !responsible_ids) {
+  if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !requestor_ids && !requestor_email) {
     return textResponse(
       `**⚠️ Filtro obrigatório não informado**\n\n` +
       `Você deve informar pelo menos um dos seguintes filtros:\n` +
       `• **desk_ids** - IDs das mesas (ex: "1,2,3")\n` +
-      `• **desk_name** - Nome da mesa (ex: "cansados")\n` +
-      `• **client_ids** - IDs dos clientes (ex: "1,2,3")\n` +
+      `• **desk_name** - Nome da mesa/equipe (ex: "tuitui") — **use quando o usuario der um nome sem qualificar**\n` +
+      `• **client_ids** - IDs dos clientes/empresas (ex: "1,2,3")\n` +
+      `• **client_name** - Nome do cliente/empresa (ex: "ACME")\n` +
       `• **stage_ids** - IDs dos estágios (ex: "1,2,3")\n` +
       `• **stage_name** - Nome do estágio (deve usar junto com desk_name, ex: "to do")\n` +
-      `• **responsible_ids** - IDs dos responsáveis (ex: "1,2,3")\n\n` +
+      `• **responsible_ids** - IDs dos responsáveis (ex: "1,2,3")\n` +
+      `• **requestor_ids** - IDs dos solicitantes/pessoas (ex: "1,2,3")\n` +
+      `• **requestor_email** - Email do solicitante (ex: "joao@empresa.com")\n\n` +
       `*Esta validação evita retornar uma quantidade excessiva de tickets.*`
     );
   }
 
   try {
     let finalDeskIds = desk_ids;
+    let finalClientIds = client_ids;
     let finalStageIds = stage_ids;
 
     // Resolver nome da mesa em ID se fornecido
@@ -121,13 +150,22 @@ async function execute(args, { api }) {
       }
     }
 
+    // Resolver nome do cliente em ID se fornecido
+    if (client_name && !client_ids) {
+      const resolved = await resolveClientName(api, client_name);
+      if (resolved.error) return resolved.response;
+      finalClientIds = String(resolved.clientId);
+    }
+
     // Preparar filtros para a API
     const filters = {};
 
     if (finalDeskIds) filters.desk_ids = finalDeskIds;
-    if (client_ids) filters.client_ids = client_ids;
+    if (finalClientIds) filters.client_ids = finalClientIds;
     if (finalStageIds) filters.stage_ids = finalStageIds;
     if (responsible_ids) filters.responsible_ids = responsible_ids;
+    if (requestor_ids) filters.requestor_ids = requestor_ids;
+    if (requestor_email) filters.requestor_email = requestor_email;
     if (offset) filters.offset = parseInt(offset);
     if (limit) filters.limit = parseInt(limit);
     if (is_closed !== undefined) filters.is_closed = is_closed;
@@ -155,9 +193,11 @@ async function execute(args, { api }) {
         `Não foram encontrados tickets com os filtros aplicados.\n\n` +
         `**Filtros utilizados:**\n` +
         (finalDeskIds ? `• Mesas: ${finalDeskIds}${desk_name ? ` (${desk_name})` : ''}\n` : '') +
-        (client_ids ? `• Clientes: ${client_ids}\n` : '') +
+        (finalClientIds ? `• Clientes: ${finalClientIds}${client_name ? ` (${client_name})` : ''}\n` : '') +
         (finalStageIds ? `• Estágios: ${finalStageIds}${stage_name ? ` (${stage_name})` : ''}\n` : '') +
         (responsible_ids ? `• Responsáveis: ${responsible_ids}\n` : '') +
+        (requestor_ids ? `• Solicitantes: ${requestor_ids}\n` : '') +
+        (requestor_email ? `• Email solicitante: ${requestor_email}\n` : '') +
         `• Status: ${is_closed ? 'Fechados' : 'Abertos'}\n\n` +
         `*Tente ajustar os filtros para encontrar tickets.*`
       );

@@ -15,16 +15,20 @@ const { markdownToHtml } = require('../_shared/markdownToHtml');
 
 const schema = {
   name: 'update_ticket',
-  description: 'Atualizar um ticket existente no TiFlux',
+  description: `Atualizar um ticket existente no TiFlux.
+
+**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_id se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa, use responsible_name/responsible_id para atendente atribuido.
+
+**Nota:** A API v2 nao permite alterar o solicitante (requestor) em um ticket existente via update. Para vincular solicitante, use create_ticket.`,
   inputSchema: {
     type: 'object',
     properties: {
       ticket_number: { type: 'string', description: 'Número do ticket a ser atualizado (ex: "123", "456")' },
       title: { type: 'string', description: 'Novo título do ticket (opcional)' },
       description: { type: 'string', description: 'Nova descrição do ticket (opcional). Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
-      client_id: { type: 'number', description: 'Novo ID do cliente (opcional)' },
+      client_id: { type: 'number', description: 'Novo ID do cliente/empresa (opcional). Use quando o usuario disser explicitamente "cliente" ou "empresa".' },
       desk_id: { type: 'number', description: 'Novo ID da mesa (opcional - LIMITAÇÃO: API não suporta transferência de mesa via update)' },
-      desk_name: { type: 'string', description: 'Nome da mesa para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
       stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática (alternativa ao stage_id, requer desk_id ou desk_name)' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional - use null ou omita para remover responsável)' },

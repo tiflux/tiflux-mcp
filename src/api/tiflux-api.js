@@ -183,6 +183,7 @@ class TiFluxAPI {
     if (ticketData.priority_id) formData.priority_id = ticketData.priority_id;
     if (ticketData.services_catalogs_item_id) formData.services_catalogs_item_id = ticketData.services_catalogs_item_id;
     if (ticketData.status_id) formData.status_id = ticketData.status_id;
+    if (ticketData.requestor_id) formData.requestor_id = ticketData.requestor_id;
     if (ticketData.requestor_name) formData.requestor_name = ticketData.requestor_name;
     if (ticketData.requestor_email) formData.requestor_email = ticketData.requestor_email;
     if (ticketData.requestor_telephone) formData.requestor_telephone = ticketData.requestor_telephone;
@@ -449,7 +450,9 @@ class TiFluxAPI {
     appendCsvIds('client_ids', filters.client_ids);
     appendCsvIds('stage_ids', filters.stage_ids);
     appendCsvIds('responsible_ids', filters.responsible_ids);
+    appendCsvIds('requestor_ids', filters.requestor_ids);
 
+    if (filters.requestor_email) params.append('requestor_email', filters.requestor_email);
     if (filters.date_type) params.append('date_type', filters.date_type);
     if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
     if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);

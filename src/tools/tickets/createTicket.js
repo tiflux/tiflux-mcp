@@ -2,36 +2,50 @@
  * Slice: create_ticket — cria um novo ticket.
  *
  * Endpoint: POST /tickets (via api.createTicket).
- * Resolve client_name -> client_id (api.searchClients),
+ * Resolve client_name -> client_id (via resolveClientName helper),
  * desk_name -> desk_id (api.searchDesks),
- * responsible_name -> responsible_id (api.searchUsers),
+ * responsible_name -> responsible_id (api.searchUsers type=attendant),
+ * requestor_name -> requestor_id (api.searchUsers type=client, se sem requestor_id/email),
  * catalog_item_name -> services_catalogs_item_id (api.searchCatalogItems).
  * Falls back para TIFLUX_DEFAULT_{CLIENT,DESK,PRIORITY,CATALOG_ITEM}_ID do env
  * quando IDs nao informados.
+ *
+ * Auto-resolve de solicitante: quando requestor_name e passado sem requestor_id e sem
+ * requestor_email, tenta resolver para requestor_id via search_user(type=client).
+ * Se encontrar 1 match, envia requestor_id e suprime requestor_name (evita solicitante fantasma).
+ * Se 0 matches, mantém comportamento anterior (envia requestor_name cru).
+ * Se N matches, retorna lista para desambiguacao.
  */
 
 const { textResponse } = require('../_shared/response');
 const { resolveDeskName } = require('../_shared/deskResolver');
+const { resolveClientName } = require('../_shared/clientResolver');
+const { resolveRequestorName } = require('../_shared/requestorResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 
 const schema = {
   name: 'create_ticket',
-  description: 'Criar um novo ticket no TiFlux',
+  description: `Criar um novo ticket no TiFlux.
+
+**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_name se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa que vai abrir o ticket, use requestor_name ou requestor_email.
+
+**Auto-resolve de solicitante:** Se requestor_name for fornecido sem requestor_id e sem requestor_email, o MCP tenta encontrar o solicitante ja existente no tenant automaticamente (evita criar solicitante fantasma). Se encontrar mais de um match, retorna lista para escolha. Se nao encontrar, cria com o nome informado.`,
   inputSchema: {
     type: 'object',
     properties: {
       title: { type: 'string', description: 'Título do ticket' },
       description: { type: 'string', description: 'Descrição do ticket. Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
-      client_id: { type: 'number', description: 'ID do cliente (opcional - usa TIFLUX_DEFAULT_CLIENT_ID se não informado)' },
-      client_name: { type: 'string', description: 'Nome do cliente para busca automática (alternativa ao client_id)' },
+      client_id: { type: 'number', description: 'ID do cliente/empresa (opcional - usa TIFLUX_DEFAULT_CLIENT_ID se não informado)' },
+      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_id). Use **apenas** quando o usuario disser explicitamente "cliente" ou "empresa". Para pessoa fisica, use requestor_name.' },
       desk_id: { type: 'number', description: 'ID da mesa (opcional - usa TIFLUX_DEFAULT_DESK_ID se não informado)' },
-      desk_name: { type: 'string', description: 'Nome da mesa para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
       priority_id: { type: 'number', description: 'ID da prioridade (opcional - usa TIFLUX_DEFAULT_PRIORITY_ID se não informado)' },
       services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo (opcional - usa TIFLUX_DEFAULT_CATALOG_ITEM_ID se não informado)' },
       catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)' },
       status_id: { type: 'number', description: 'ID do status (opcional)' },
-      requestor_name: { type: 'string', description: 'Nome do solicitante (opcional)' },
-      requestor_email: { type: 'string', description: 'Email do solicitante (opcional)' },
+      requestor_id: { type: 'number', description: 'ID do solicitante (pessoa fisica que abre o ticket). Use quando ja tem o ID do solicitante existente no tenant. O solicitante deve pertencer ao cliente selecionado.' },
+      requestor_name: { type: 'string', description: 'Nome do solicitante (pessoa fisica). O MCP tenta resolver automaticamente para requestor_id se o solicitante ja existir no tenant (evita criar solicitante fantasma). Se preferir nao resolver automaticamente, passe requestor_id diretamente.' },
+      requestor_email: { type: 'string', description: 'Email do solicitante. Use quando voce ja tem o email exato — o MCP nao tentara resolver para requestor_id (o email e identificador suficiente).' },
       requestor_telephone: { type: 'string', description: 'Telefone do solicitante (opcional)' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
@@ -54,6 +68,7 @@ async function execute(args, { api }) {
     services_catalogs_item_id,
     catalog_item_name,
     status_id,
+    requestor_id,
     requestor_name,
     requestor_email,
     requestor_telephone,
@@ -78,40 +93,11 @@ async function execute(args, { api }) {
 
     let finalClientId = client_id;
 
-    // Se client_name foi fornecido, buscar o ID do cliente
+    // Se client_name foi fornecido, buscar o ID do cliente via helper compartilhado
     if (client_name && !client_id) {
-      const clientSearchResponse = await api.searchClients(client_name);
-
-      if (clientSearchResponse.error) {
-        return textResponse(
-          `**❌ Erro ao buscar cliente "${client_name}"**\n\n` +
-          `**Erro:** ${clientSearchResponse.error}\n\n` +
-          `*Verifique se o nome do cliente está correto ou use client_id diretamente.*`
-        );
-      }
-
-      const clients = clientSearchResponse.data || [];
-      if (clients.length === 0) {
-        return textResponse(
-          `**❌ Cliente "${client_name}" não encontrado**\n\n` +
-          `*Verifique se o nome está correto ou use client_id diretamente.*`
-        );
-      }
-
-      if (clients.length > 1) {
-        let clientsList = '**Clientes encontrados:**\n';
-        clients.forEach((client, index) => {
-          clientsList += `${index + 1}. **ID:** ${client.id} | **Nome:** ${client.name}\n`;
-        });
-
-        return textResponse(
-          `**⚠️ Múltiplos clientes encontrados para "${client_name}"**\n\n` +
-          `${clientsList}\n` +
-          `*Use client_id específico ou seja mais específico no client_name.*`
-        );
-      }
-
-      finalClientId = clients[0].id;
+      const resolved = await resolveClientName(api, client_name);
+      if (resolved.error) return resolved.response;
+      finalClientId = resolved.clientId;
     }
 
     let finalDeskId = desk_id;
@@ -164,6 +150,26 @@ async function execute(args, { api }) {
       }
 
       finalResponsibleId = users[0].id;
+    }
+
+    // Auto-resolver requestor_name -> requestor_id se sem requestor_id e sem requestor_email
+    let finalRequestorId = requestor_id;
+    let finalRequestorName = requestor_name;
+    let finalRequestorTelephone = requestor_telephone;
+
+    if (requestor_name && !requestor_id && !requestor_email) {
+      const resolved = await resolveRequestorName(api, requestor_name);
+      if (resolved.error) return resolved.response;
+
+      if (resolved.requestorId !== null) {
+        // Solicitante encontrado: usar ID e suprimir os campos individuais
+        // (requestor_id substitui name/telephone — evita campos orfaos no payload e
+        // duplicata fantasma). requestor_email ja e ausente nesta branch.
+        finalRequestorId = resolved.requestorId;
+        finalRequestorName = undefined;
+        finalRequestorTelephone = undefined;
+      }
+      // Se requestorId === null (0 matches): manter requestor_name cru (comportamento anterior)
     }
 
     // Usar valores padrao das variaveis de ambiente se nao informados
@@ -234,9 +240,10 @@ async function execute(args, { api }) {
       priority_id: finalPriorityId ? parseInt(finalPriorityId) : undefined,
       services_catalogs_item_id: finalCatalogItemId ? parseInt(finalCatalogItemId) : undefined,
       status_id: status_id ? parseInt(status_id) : undefined,
-      requestor_name,
+      requestor_id: finalRequestorId ? parseInt(finalRequestorId) : undefined,
+      requestor_name: finalRequestorName,
       requestor_email,
-      requestor_telephone,
+      requestor_telephone: finalRequestorTelephone,
       responsible_id: finalResponsibleId ? parseInt(finalResponsibleId) : undefined,
       followers,
       parent_ticket_number: parsedParentTicketNumber

@@ -175,16 +175,17 @@ Create a new ticket in TiFlux.
 **Parameters:**
 - `title` (string, required): Ticket title
 - `description` (string, required): Ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
-- `client_id` (number, optional): Client ID
-- `client_name` (string, optional): Client name for automatic search (alternative to client_id)
+- `client_id` (number, optional): Client (company) ID
+- `client_name` (string, optional): Client (company) name for automatic search (alternative to client_id). Use only when the user says "client" or "company" explicitly.
 - `desk_id` (number, optional): Desk ID
-- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution)
+- `desk_name` (string, optional): Desk/team name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
 - `priority_id` (number, optional): Priority ID
 - `services_catalogs_item_id` (number, optional): Service catalog item ID
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 - `status_id` (number, optional): Status ID
-- `requestor_name` (string, optional): Requestor name
-- `requestor_email` (string, optional): Requestor email
+- `requestor_id` (number, optional): Requestor ID (person who opens the ticket, must belong to the selected client). Pass this directly if you already know the ID — skips the auto-resolve lookup.
+- `requestor_name` (string, optional): Requestor name. If provided without `requestor_id` and without `requestor_email`, the MCP automatically attempts to resolve this to an existing `requestor_id` (avoids creating a "ghost" requestor). If multiple matches are found, returns a list to disambiguate. If no match, falls back to the previous behavior (sends name as-is).
+- `requestor_email` (string, optional): Requestor email. When provided, the MCP does **not** attempt to auto-resolve the name to an ID — the email is an exact enough identifier.
 - `requestor_telephone` (string, optional): Requestor phone
 - `responsible_id` (number, optional): Responsible user ID
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
@@ -281,11 +282,14 @@ List tickets with filtering options.
 
 **Parameters:**
 - `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3")
-- `desk_name` (string, optional): Desk name for automatic ID resolution. Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution)
-- `client_ids` (string, optional): Comma-separated client IDs (e.g., "1,2,3")
+- `desk_name` (string, optional): Desk/team name for automatic ID resolution. Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this field when the user references a name without qualifying the entity.**
+- `client_ids` (string, optional): Comma-separated client (company) IDs (e.g., "1,2,3")
+- `client_name` (string, optional): Client (company) name for automatic search. Use **only** when the user explicitly says "client", "company", or gives a known corporate name. For a person, prefer `requestor_email`.
 - `stage_ids` (string, optional): Comma-separated stage IDs (e.g., "1,2,3")
 - `stage_name` (string, optional): Stage name (must be used with desk_name)
-- `responsible_ids` (string, optional): Comma-separated responsible user IDs
+- `responsible_ids` (string, optional): Comma-separated responsible (assigned attendant) user IDs
+- `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_user(type="client")`.
+- `requestor_email` (string, optional): Email of the requestor (person who opened the ticket). Use when the user references a **person** or provides an email directly. Avoids a round-trip to resolve the ID.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200)
 - `is_closed` (boolean, optional): Include closed tickets (default: false)
@@ -293,7 +297,15 @@ List tickets with filtering options.
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 
-**Note:** At least one filter (desk_ids/desk_name, client_ids, stage_ids/stage_name, or responsible_ids) is required.
+**Note:** At least one filter (desk_ids/desk_name, client_ids/client_name, stage_ids/stage_name, responsible_ids, requestor_ids, or requestor_email) is required.
+
+**Example — filter by requestor email:**
+```json
+{
+  "requestor_email": "joao@empresa.com",
+  "is_closed": false
+}
+```
 
 **Date Filtering Examples:**
 ```json
@@ -905,6 +917,23 @@ List options of a custom subfield (entity_field) of type `single_select` or `che
 | 14 | (nenhuma) | Sim |
 ```
 
+## Search Heuristics — Mesa-First
+
+When a user references a name without explicitly qualifying the entity type, the following priority applies:
+
+| User input | Filter to use | Reason |
+|---|---|---|
+| "tickets do tuitui" (unqualified name) | `desk_name="tuitui"` | Unqualified term = desk/team in most cases |
+| "tickets da mesa X" / "equipe Y" | `desk_name` | "mesa" / "equipe" = desk |
+| "tickets do cliente Z" / "empresa ACME" | `client_name` | "cliente" / "empresa" = company |
+| "tickets do João" (person name) | `requestor_email` or `requestor_ids` | Person = requestor |
+| "tickets atribuídos ao João" | `responsible_ids` (resolve via `search_user`) | "atribuído a" = responsible |
+| "tickets aberto por joao@empresa.com" | `requestor_email` | Email = requestor |
+| Ambiguous / uncertain | Ask the user | Visible failure > filtering by wrong entity |
+| (create_ticket) "solicitante Fulano" | `requestor_name="Fulano"` — MCP auto-resolves to `requestor_id` | Avoids ghost requestor duplicate |
+
+This heuristic is embedded in the `description` fields of `list_tickets`, `create_ticket`, and `update_ticket` schemas. The LLM reads these on every tool call decision.
+
 ## Smart Name Resolution
 
 When using `desk_name` in any tool, the MCP server performs a two-step lookup:
@@ -927,15 +956,15 @@ This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage
 The MCP server integrates with the following TiFlux API v2 endpoints:
 
 - `GET /tickets/{id}` - Retrieve ticket details
-- `POST /tickets` - Create new tickets
+- `POST /tickets` - Create new tickets (supports `requestor_id` body field to link existing requestor)
 - `PUT /tickets/{id}` - Update existing tickets
 - `PUT /tickets/{id}/entities` - Update ticket custom fields
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
 - `PUT /tickets/{ticket_number}/close` - Close specific ticket
 - `POST /tickets/{ticket_number}/answers` - Create ticket answer (client communication)
-- `GET /tickets` - List tickets with filters
-- `GET /clients` - Search clients
-- `GET /users` - List users (name filtering done client-side)
+- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email` query params)
+- `GET /clients` - Search clients (used by `client_name` auto-resolve in `list_tickets` and `create_ticket`)
+- `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and `requestor_name` auto-resolve in `create_ticket`)
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
 - `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`)
