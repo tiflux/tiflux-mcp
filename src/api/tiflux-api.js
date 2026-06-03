@@ -962,6 +962,7 @@ class TiFluxAPI {
 
     if (filters.area_id) params.append('area_id', filters.area_id);
     if (filters.catalog_id) params.append('catalog_id', filters.catalog_id);
+    if (filters.name) params.append('name', filters.name);
 
     return await this.makeRequest(`/desks/${deskId}/services-catalogs-items?${params.toString()}`);
   }

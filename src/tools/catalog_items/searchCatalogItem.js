@@ -4,9 +4,11 @@
  * Endpoints: GET /desks (resolver desk_name) + GET /desks/{id}/services-catalogs-items.
  * Regras:
  *   - desk_id OU desk_name obrigatorio
- *   - catalog_item_name OU area_id OU catalog_id obrigatorio
- *   - catalog_item_name filtra por nome (case-insensitive, partial)
- *   - 1 match exato de nome -> detalhado; multiplos -> erro com lista; listagem -> formato resumido
+ *   - search OU catalog_item_name OU area_id OU catalog_id obrigatorio
+ *   - search filtra server-side por nome do catalogo, area ou item (parcial, case-insensitive)
+ *   - search presente -> retorna listagem com hierarquia (nunca colapsa)
+ *   - catalog_item_name filtra client-side por nome do item (case-insensitive, partial)
+ *   - 1 match exato de nome (catalog_item_name) -> detalhado; multiplos -> erro com lista; listagem -> formato resumido
  *
  * Preserva contrato do handler legado: em erro/multiplas, resposta tem isError: true.
  */
@@ -15,7 +17,7 @@ const { resolveDeskName } = require('../_shared/deskResolver');
 
 const schema = {
   name: 'search_catalog_item',
-  description: 'Buscar itens de catálogo de serviços por nome, área ou catálogo dentro de uma mesa específica. Os itens de catálogo representam os tipos de solicitações que podem ser criadas em uma mesa. Quando catalog_item_name não é fornecido, lista todos os itens da área/catálogo especificado.',
+  description: 'Buscar itens de catálogo de serviços por termo livre (catálogo, área ou item) ou por nome/filtro dentro de uma mesa específica. Use o parâmetro `search` para busca server-side por termo aproximado em nome de catálogo, área ou item — retorna listagem com hierarquia completa. Use `catalog_item_name` para localizar um item específico por nome (busca client-side, colapsa para detalhe único quando há 1 match). Os itens de catálogo representam os tipos de solicitações que podem ser criadas em uma mesa.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -27,17 +29,21 @@ const schema = {
         type: 'string',
         description: 'Nome da mesa para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").'
       },
+      search: {
+        type: 'string',
+        description: 'Termo livre para busca server-side por nome de catálogo, área ou item de serviço. Busca parcial, sem distinção de maiúsculas/minúsculas e ignora acentos. Retorna listagem com hierarquia completa (catálogo → área → item). Combine com area_id ou catalog_id para restringir o escopo.'
+      },
       catalog_item_name: {
         type: 'string',
-        description: 'Nome do item de catálogo a ser buscado (busca parcial case-insensitive). Opcional quando area_id ou catalog_id são fornecidos.'
+        description: 'Nome do item de catálogo a ser buscado (busca client-side, parcial, case-insensitive, somente por nome do item). 1 match → detalhe; múltiplos → erro com lista. Opcional quando search, area_id ou catalog_id são fornecidos.'
       },
       area_id: {
         type: 'number',
-        description: 'ID da área de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name, lista todos os itens da área.'
+        description: 'ID da área de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name ou search, lista todos os itens da área.'
       },
       catalog_id: {
         type: 'number',
-        description: 'ID do catálogo de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name, lista todos os itens do catálogo.'
+        description: 'ID do catálogo de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name ou search, lista todos os itens do catálogo.'
       },
       limit: {
         type: 'number',
@@ -65,6 +71,7 @@ async function execute(args, { api }) {
   const {
     desk_id,
     desk_name,
+    search,
     catalog_item_name,
     area_id,
     catalog_id,
@@ -77,8 +84,8 @@ async function execute(args, { api }) {
       throw new Error('desk_id ou desk_name e obrigatorio para buscar itens de catalogo');
     }
 
-    if (!catalog_item_name && !area_id && !catalog_id) {
-      throw new Error('Forneça catalog_item_name para busca por nome, ou area_id/catalog_id para listar todos os itens de uma área/catálogo');
+    if (!search && !catalog_item_name && !area_id && !catalog_id) {
+      throw new Error('Forneça search para busca por termo livre, catalog_item_name para busca por nome do item, ou area_id/catalog_id para listar todos os itens de uma área/catálogo');
     }
 
     let finalDeskId = desk_id;
@@ -91,6 +98,7 @@ async function execute(args, { api }) {
     const filters = { limit, offset };
     if (area_id) filters.area_id = area_id;
     if (catalog_id) filters.catalog_id = catalog_id;
+    if (search) filters.name = search;
 
     const response = await api.searchCatalogItems(finalDeskId, filters);
 
@@ -99,11 +107,34 @@ async function execute(args, { api }) {
     }
 
     if (!response.data || response.data.length === 0) {
+      if (search) {
+        throw new Error(`Nenhum item de catalogo encontrado com o termo: "${search}"`);
+      }
       const filterInfo = [];
       if (area_id) filterInfo.push(`area_id=${area_id}`);
       if (catalog_id) filterInfo.push(`catalog_id=${catalog_id}`);
       const filterStr = filterInfo.length > 0 ? ` com filtros: ${filterInfo.join(', ')}` : '';
       throw new Error(`Nenhum item de catalogo encontrado na mesa ${finalDeskId}${filterStr}`);
+    }
+
+    // search present: always return listing with hierarchy (never collapse to single detail)
+    if (search) {
+      const itemsList = response.data.map(item =>
+        `- ${item.name} (ID: ${item.id})\n  Área: ${item.area.name} (ID: ${item.area.id})\n  Catálogo: ${item.catalog.name} (ID: ${item.catalog.id})`
+      ).join('\n\n');
+
+      const filterInfo = [];
+      filterInfo.push(`termo: "${search}"`);
+      if (area_id) filterInfo.push(`Area ID: ${area_id}`);
+      if (catalog_id) filterInfo.push(`Catálogo ID: ${catalog_id}`);
+      const headerInfo = `\nFiltros: ${filterInfo.join(', ')}`;
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Itens de catálogo encontrados (${response.data.length}):${headerInfo}\n\n${itemsList}`
+        }]
+      };
     }
 
     let matchingItems = response.data;

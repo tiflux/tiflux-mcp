@@ -423,20 +423,30 @@ Search for stages of a specific desk to use in ticket updates.
 ```
 
 ### search_catalog_item
-Search for service catalog items by name within a specific desk.
+Search for service catalog items by free-text term or by name/filter within a specific desk. Use `search` to explore items by keyword (server-side, matches catalog name, area name, or item name). Use `catalog_item_name` to locate a specific item by name (client-side, collapses to single detail when exactly 1 match).
 
 **Parameters:**
 - `desk_id` (number, optional): Desk ID to search catalog items
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution)
-- `catalog_item_name` (string, required): Catalog item name to search (partial match supported)
+- `search` (string, optional): Free-text term for server-side search across catalog name, area name, and item name. Partial match, case-insensitive, accent-insensitive. Returns a listing with full hierarchy (catalog → area → item). Combinable with `area_id`/`catalog_id` to narrow scope.
+- `catalog_item_name` (string, optional): Catalog item name to search (client-side partial match on item name only). 1 match → detailed view; multiple → error with list. Use `search` for broader exploration.
 - `area_id` (number, optional): Service area ID to filter results
 - `catalog_id` (number, optional): Service catalog ID to filter results
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 - `offset` (number, optional): Page number (default: 1)
 
-**Note:** At least one parameter (desk_id or desk_name) must be provided along with catalog_item_name.
+**Note:** At least one of `desk_id` or `desk_name` must be provided, along with at least one of `search`, `catalog_item_name`, `area_id`, or `catalog_id`.
 
-**Example:**
+**Example — free-text search (recommended for exploration):**
+```json
+{
+  "desk_name": "Support",
+  "search": "infra",
+  "limit": 10
+}
+```
+
+**Example — locate a specific item by name:**
 ```json
 {
   "desk_name": "Support",
@@ -970,7 +980,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`)
 - `GET /desks/{id}/services-catalogs` - Get desk service catalogs (`list_desk_services_catalogs`)
 - `GET /desks/{id}/stages` - Get desk stages
-- `GET /desks/{id}/services-catalogs-items` - Get service catalog items
+- `GET /desks/{id}/services-catalogs-items` - Get service catalog items (supports `?name` for server-side search by catalog/area/item name)
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
