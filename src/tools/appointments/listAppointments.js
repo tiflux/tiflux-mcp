@@ -8,9 +8,32 @@
 const { textResponse } = require('../_shared/response');
 const { requireField } = require('../_shared/validators');
 
+/**
+ * Formata um valor monetário string (ex: "170.05") como "R$ 170,05".
+ * Para ausente/null/vazio, retorna "N/A".
+ * Para string não-numérica, retorna a própria string (passthrough — preserva o dado original).
+ */
+function formatBRL(valueStr) {
+  if (valueStr === null || valueStr === undefined || valueStr === '') return 'N/A';
+  const num = Number(valueStr);
+  if (!Number.isFinite(num)) return valueStr;
+  return `R$ ${num.toFixed(2).replace('.', ',')}`;
+}
+
+const ATTENDANCE_LABELS = {
+  External: 'Externo',
+  Remote: 'Remoto',
+  Internal: 'Interno'
+};
+
+const ATTENDANCE_KIND_LABELS = {
+  Contract: 'Contrato',
+  Loose: 'Avulso'
+};
+
 const schema = {
   name: 'list_appointments',
-  description: 'Listar apontamentos (registros de horas trabalhadas) de um ticket específico com filtros opcionais',
+  description: 'Listar apontamentos (registros de horas trabalhadas) de um ticket específico com filtros opcionais. Quando disponível, inclui informações de valorização (tipo de atendimento, contrato ou serviço avulso, deslocamento, valor cobrado) e geolocalização.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -68,7 +91,47 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit) {
       text += `   🏢 **Cliente:** ${clientName}\n`;
     }
 
-    text += `   💬 **Descrição:** ${desc}\n\n`;
+    text += `   💬 **Descrição:** ${desc}\n`;
+
+    // Bloco de valorização — só renderiza quando valorization é objeto não-nulo
+    const val = appt.valorization;
+    if (val !== null && val !== undefined && typeof val === 'object') {
+      const attendanceLabel = ATTENDANCE_LABELS[val.attendance] || val.attendance || 'N/A';
+      const isContract = val.attendance_kind === 'Contract';
+      // Sem default silencioso: tipo desconhecido mostra o valor cru da API, nunca "Avulso" indevido
+      const kindLabel = ATTENDANCE_KIND_LABELS[val.attendance_kind] || val.attendance_kind || 'N/A';
+      const kindName = isContract
+        ? (val.contract?.name || '')
+        : (val.loose_service?.name || '');
+      const kindDisplay = kindName ? `${kindLabel} — ${kindName}` : kindLabel;
+
+      text += `   💰 **Valorização:**\n`;
+      text += `      • Atendimento: ${attendanceLabel}\n`;
+      text += `      • Tipo: ${kindDisplay}\n`;
+
+      if (val.shift) {
+        text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${formatBRL(val.shift.value)})\n`;
+      }
+      if (val.guarantee === true) {
+        text += `      • 🛡️ Garantia\n`;
+      }
+      if (val.manual_value === true) {
+        text += `      • ✋ Valor manual\n`;
+      }
+      text += `      • 💵 Valor: ${formatBRL(val.value)}\n`;
+    }
+
+    // Localizações — uma linha por entrada, só se array não-vazio
+    const locations = appt.locations;
+    if (Array.isArray(locations) && locations.length > 0) {
+      locations.forEach(loc => {
+        const lat = loc.latitude ?? 'N/A';
+        const lon = loc.longitude ?? 'N/A';
+        text += `   📍 **Localização:** ${lat}, ${lon}\n`;
+      });
+    }
+
+    text += '\n';
   });
 
   const currentOffset = parseInt(offset) || 1;

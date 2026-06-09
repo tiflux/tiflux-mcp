@@ -542,7 +542,7 @@ Get a specific internal communication with full content.
 
 ## Appointments (Time Tracking)
 
-> **Disclaimer:** Only non-valued appointments are supported for now. Tickets on desks configured with valued appointments (with hourly rate) are not yet accepted.
+> **Disclaimer:** Creating appointments (`create_appointment`) is only supported for tickets on desks configured with non-valued appointments. Listing appointments (`list_appointments`) works for any desk and renders valorization details when available.
 
 ### create_appointment
 Create a new appointment (work-hour record) on a specific ticket. Only works on tickets from desks configured with non-valued appointments.
@@ -566,7 +566,7 @@ Create a new appointment (work-hour record) on a specific ticket. Only works on 
 ```
 
 ### list_appointments
-List appointments (work-hour records) of a specific ticket with optional filters.
+List appointments (work-hour records) of a specific ticket with optional filters. When available, each appointment card includes valorization details (attendance type, contract or loose service, travel shift, value) and geolocation entries.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number to list appointments from
@@ -575,6 +575,18 @@ List appointments (work-hour records) of a specific ticket with optional filters
 - `end_date` (string, optional): Return appointments up to this date (`YYYY-MM-DD`)
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Appointments per page (default: 20, max: 200)
+
+**Returns:**
+Each appointment card shows date, time range, attendant, client (when available), and description. When the desk has valorization enabled, the card also includes:
+- Attendance type: External (Externo), Remote (Remoto), or Internal (Interno)
+- Service type: Loose (Avulso) with loose service name, or Contract with contract name
+- Travel shift name and value (when applicable)
+- Guarantee and manual-value flags (shown only when `true`)
+- Monetary value formatted as `R$ X,XX`
+
+When `valorization` is `null` (desks configured without valorization), none of the above fields are shown.
+
+Geolocation lines (`📍 Localização: lat, lon`) are rendered when the API returns `locations` for the appointment.
 
 **Example:**
 ```json
