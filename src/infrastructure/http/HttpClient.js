@@ -33,9 +33,13 @@ class HttpClient {
     this.requestInterceptors = [];
     this.responseInterceptors = [];
 
-    // Default headers
+    // Default headers — o User-Agent NAO e definido aqui de proposito. O ponto
+    // canonico e TiFluxAPI.makeRequest/makeRequestBinary: todo trafego para a
+    // API v2 passa por la e injeta o header por-request, que vence o merge com
+    // defaultHeaders. Centralizar num so lugar evita divergencia silenciosa.
+    // Ver spec 2026-04-24-telemetria-user-agent-dinamico. Callers que precisem
+    // de um User-Agent proprio ainda podem fornece-lo via config.defaultHeaders.
     this.defaultHeaders = {
-      'User-Agent': 'TiFlux-MCP-Client/2.0',
       'Accept': 'application/json',
       ...config.defaultHeaders
     };

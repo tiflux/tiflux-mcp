@@ -15,6 +15,7 @@ const path = require('path');
 
 const HttpClient = require('../infrastructure/http/HttpClient');
 const { APIError, TimeoutError, NetworkError } = require('../utils/errors');
+const ClientFingerprint = require('../telemetry/ClientFingerprint');
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -130,7 +131,10 @@ class TiFluxAPI {
     const requestHeaders = {
       'accept': 'application/json',
       'authorization': `Bearer ${this.apiKey}`,
-      ...headers
+      ...headers,
+      // User-Agent e o ponto canonico de telemetria — definido por ULTIMO de
+      // proposito para que nenhum caller sobrescreva o valor do ClientFingerprint.
+      'User-Agent': ClientFingerprint.userAgent()
     };
 
     try {
@@ -653,7 +657,10 @@ class TiFluxAPI {
     const requestHeaders = {
       'accept': 'application/json',
       'authorization': `Bearer ${this.apiKey}`,
-      ...headers
+      ...headers,
+      // User-Agent e o ponto canonico de telemetria — definido por ULTIMO de
+      // proposito para que nenhum caller sobrescreva o valor do ClientFingerprint.
+      'User-Agent': ClientFingerprint.userAgent()
     };
 
     try {

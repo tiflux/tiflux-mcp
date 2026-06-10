@@ -1009,6 +1009,21 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
 
+## Telemetry
+
+Every request sent to the TiFlux API v2 includes a `User-Agent` header with basic technical metadata:
+
+```
+TiFlux-MCP-sdk/2.3.0                     # local / npx mode
+TiFlux-MCP-server/2.3.0 (node/v20.11.0)  # Lambda / hosted mode
+```
+
+**What is collected:** mode (`sdk` or `server`) and package version. The Node.js version is **only** sent in `server` mode (TiFlux-hosted infrastructure) — in local `sdk` mode it is intentionally omitted, so no detail about your local environment is collected.
+
+**What is NOT collected:** tool names, arguments, responses, user data, or any personally identifiable information.
+
+This telemetry is always enabled and requires no configuration. It is used exclusively to understand which package versions are in use. No separate telemetry endpoint is used — the data is carried as a standard HTTP header on every API v2 request.
+
 ## Requirements
 
 - Node.js >= 16.0.0

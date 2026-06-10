@@ -25,8 +25,8 @@ class InfrastructureBootstrap {
         defaultHeaders: {
           'Authorization': `Bearer ${config.get('api.key')}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'TiFlux-MCP-Client/2.0'
+          'Accept': 'application/json'
+          // User-Agent: injetado por TiFluxAPI.makeRequest (ponto canonico)
         }
       }, container);
     });
@@ -47,8 +47,8 @@ class InfrastructureBootstrap {
         defaultHeaders: {
           'Authorization': `Bearer ${config.get('api.key')}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'TiFlux-MCP-Client/2.0'
+          'Accept': 'application/json'
+          // User-Agent: injetado por TiFluxAPI.makeRequest (ponto canonico)
         }
       }, container);
 
