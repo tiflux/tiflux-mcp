@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 
 const schema = {
@@ -78,7 +79,7 @@ async function execute(args, { api }) {
     const response = await api.searchStages(finalDeskId, filters);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao buscar estagios da mesa ID ${finalDeskId}**\n\n` +
         `**Codigo:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -98,7 +99,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatStagesList(finalDeskId, stages));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao buscar estagios**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexao e configuracoes da API.*`

@@ -8,6 +8,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 
 const schema = {
@@ -111,7 +112,7 @@ async function execute(args, { api }) {
   const { desk_id, desk_name } = args;
 
   if (!desk_id && !desk_name) {
-    return textResponse(
+    return errorResponse(
       '**Erro de validacao**\n\n' +
       '`desk_id` ou `desk_name` e obrigatorio.\n\n' +
       '*Informe o ID numerico da mesa (`desk_id`) ou um nome parcial/exato (`desk_name`).*'
@@ -130,7 +131,7 @@ async function execute(args, { api }) {
     const response = await api.getDesk(finalDeskId);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao buscar mesa ID ${finalDeskId}**\n\n` +
         `**Codigo:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -141,7 +142,7 @@ async function execute(args, { api }) {
     const desk = response.data || response;
     return textResponse(formatDesk(desk));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao buscar mesa**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexao e configuracoes da API.*`

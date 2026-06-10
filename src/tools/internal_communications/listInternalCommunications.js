@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -91,7 +92,7 @@ async function execute(args, { api }) {
     const response = await api.listInternalCommunications(ticket_number, offset, limit);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao listar comunicações internas**\n\n` +
         `**Ticket:** #${ticket_number}\n` +
         `**Código:** ${response.status}\n` +
@@ -113,7 +114,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatCommunicationsList(ticket_number, communications, offset, limit));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao listar comunicações internas**\n\n` +
       `**Ticket:** #${ticket_number}\n` +
       `**Erro:** ${error.message}\n\n` +

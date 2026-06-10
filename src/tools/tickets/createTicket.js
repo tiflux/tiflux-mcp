@@ -18,6 +18,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveRequestorName } = require('../_shared/requestorResolver');
@@ -84,7 +85,7 @@ async function execute(args, { api }) {
 
   const parsedParentTicketNumber = parent_ticket_number == null ? undefined : Number.parseInt(parent_ticket_number, 10);
   if (parsedParentTicketNumber !== undefined && (Number.isNaN(parsedParentTicketNumber) || parsedParentTicketNumber <= 0)) {
-    return textResponse('**❌ parent_ticket_number inválido:** deve ser um número inteiro positivo.');
+    return errorResponse('**❌ parent_ticket_number inválido:** deve ser um número inteiro positivo.');
   }
 
   try {
@@ -121,7 +122,7 @@ async function execute(args, { api }) {
       });
 
       if (userSearchResponse.error) {
-        return textResponse(
+        return errorResponse(
           `**Erro ao buscar usuario "${responsible_name}"**\n\n` +
           `**Erro:** ${userSearchResponse.error}\n\n` +
           `*Verifique se o nome do usuario esta correto ou use responsible_id diretamente.*`
@@ -130,7 +131,7 @@ async function execute(args, { api }) {
 
       const users = userSearchResponse.data || [];
       if (users.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Usuario "${responsible_name}" nao encontrado**\n\n` +
           `*Verifique se o nome esta correto ou use responsible_id diretamente.*`
         );
@@ -142,7 +143,7 @@ async function execute(args, { api }) {
           usersList += `${index + 1}. **ID:** ${user.id} | **Nome:** ${user.name} | **Email:** ${user.email}\n`;
         });
 
-        return textResponse(
+        return errorResponse(
           `**Multiplos usuarios encontrados para "${responsible_name}"**\n\n` +
           `${usersList}\n` +
           `*Use responsible_id especifico ou seja mais especifico no responsible_name.*`
@@ -183,7 +184,7 @@ async function execute(args, { api }) {
       const catalogSearchResponse = await api.searchCatalogItems(finalDeskId, { limit: 200 });
 
       if (catalogSearchResponse.error) {
-        return textResponse(
+        return errorResponse(
           `**Erro ao buscar item de catalogo "${catalog_item_name}"**\n\n` +
           `**Erro:** ${catalogSearchResponse.error}\n\n` +
           `*Verifique se o nome do item esta correto ou use services_catalogs_item_id diretamente.*`
@@ -192,7 +193,7 @@ async function execute(args, { api }) {
 
       const catalogItems = catalogSearchResponse.data || [];
       if (catalogItems.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Nenhum item de catalogo encontrado na mesa ${finalDeskId}**\n\n` +
           `*Verifique se a mesa possui itens de catalogo configurados.*`
         );
@@ -205,7 +206,7 @@ async function execute(args, { api }) {
       );
 
       if (matchingItems.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Item de catalogo "${catalog_item_name}" nao encontrado**\n\n` +
           `*Verifique se o nome esta correto ou use services_catalogs_item_id diretamente.*`
         );
@@ -217,7 +218,7 @@ async function execute(args, { api }) {
           itemsList += `${index + 1}. **ID:** ${item.id} | **Nome:** ${item.name} | **Area:** ${item.area.name} | **Catalogo:** ${item.catalog.name}\n`;
         });
 
-        return textResponse(
+        return errorResponse(
           `**Multiplos itens de catalogo encontrados para "${catalog_item_name}"**\n\n` +
           `${itemsList}\n` +
           `*Use services_catalogs_item_id especifico ou seja mais especifico no catalog_item_name.*`
@@ -250,7 +251,7 @@ async function execute(args, { api }) {
     });
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao criar ticket**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -279,7 +280,7 @@ async function execute(args, { api }) {
       `*✅ Ticket criado via API TiFlux*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao criar ticket**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

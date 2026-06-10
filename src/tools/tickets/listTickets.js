@@ -15,6 +15,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 
@@ -80,7 +81,7 @@ async function execute(args, { api }) {
 
   // Validar se pelo menos um dos filtros obrigatorios foi informado
   if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !requestor_ids && !requestor_email) {
-    return textResponse(
+    return errorResponse(
       `**⚠️ Filtro obrigatório não informado**\n\n` +
       `Você deve informar pelo menos um dos seguintes filtros:\n` +
       `• **desk_ids** - IDs das mesas (ex: "1,2,3")\n` +
@@ -112,7 +113,7 @@ async function execute(args, { api }) {
         const stageSearchResponse = await api.searchStages(resolved.deskId);
 
         if (stageSearchResponse.error) {
-          return textResponse(
+          return errorResponse(
             `**❌ Erro ao buscar estágios da mesa "${desk_name}"**\n\n` +
             `**Erro:** ${stageSearchResponse.error}\n\n` +
             `*Verifique se a mesa existe e tem estágios configurados.*`
@@ -126,7 +127,7 @@ async function execute(args, { api }) {
 
         if (matchingStages.length === 0) {
           const stagesList = stages.map(stage => `• ${stage.name}`).join('\n');
-          return textResponse(
+          return errorResponse(
             `**❌ Estágio "${stage_name}" não encontrado na mesa "${desk_name}"**\n\n` +
             `**Estágios disponíveis:**\n${stagesList}\n\n` +
             `*Use stage_ids diretamente ou ajuste o stage_name.*`
@@ -139,7 +140,7 @@ async function execute(args, { api }) {
             stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name}\n`;
           });
 
-          return textResponse(
+          return errorResponse(
             `**⚠️ Múltiplos estágios encontrados para "${stage_name}" na mesa "${desk_name}"**\n\n` +
             `${stagesList}\n` +
             `*Use stage_ids específico ou seja mais específico no stage_name.*`
@@ -177,7 +178,7 @@ async function execute(args, { api }) {
     const response = await api.listTickets(filters);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao listar tickets**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -254,7 +255,7 @@ async function execute(args, { api }) {
 
     return textResponse(`${ticketsList}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`);
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao listar tickets**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

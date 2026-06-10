@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -38,7 +39,7 @@ async function execute(args, { api }) {
     const response = await api.getInternalCommunication(ticket_number, communication_id);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao buscar comunicação interna**\n\n` +
         `**Ticket:** #${ticket_number}\n` +
         `**Comunicação ID:** ${communication_id}\n` +
@@ -60,7 +61,7 @@ async function execute(args, { api }) {
       `*✅ Texto completo obtido da API TiFlux*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao buscar comunicação interna**\n\n` +
       `**Ticket:** #${ticket_number}\n` +
       `**Comunicação ID:** ${communication_id}\n` +

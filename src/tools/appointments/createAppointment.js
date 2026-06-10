@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -58,7 +59,7 @@ async function execute(args, { api }) {
     });
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao criar apontamento**\n\n` +
         `**Ticket:** #${ticket_number}\n` +
         `**Código:** ${response.status}\n` +
@@ -80,7 +81,7 @@ async function execute(args, { api }) {
       `*✅ Apontamento registrado via API TiFlux*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao criar apontamento**\n\n` +
       `**Ticket:** #${ticket_number}\n` +
       `**Erro:** ${error.message}\n\n` +

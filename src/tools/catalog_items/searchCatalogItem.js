@@ -13,6 +13,7 @@
  * Preserva contrato do handler legado: em erro/multiplas, resposta tem isError: true.
  */
 
+const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 
 const schema = {
@@ -61,10 +62,7 @@ const schema = {
 };
 
 function errorTextResponse(message) {
-  return {
-    content: [{ type: 'text', text: `Erro ao buscar item de catalogo: ${message}` }],
-    isError: true
-  };
+  return errorResponse(`Erro ao buscar item de catalogo: ${message}`);
 }
 
 async function execute(args, { api }) {

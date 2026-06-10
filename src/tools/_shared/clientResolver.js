@@ -8,7 +8,8 @@
  *   { error: false, clientId: number, client: object }  — 1 cliente encontrado
  *   { error: true,  response: MCPResponse }              — 0, N ou erro de API
  *
- * O shape de `response` e identico ao que textResponse() produz, entao os
+ * O shape de `response` e identico ao que errorResponse() produz (com
+ * isError: true — a resolucao e pre-condicao da operacao), entao os
  * slices podem simplesmente fazer:
  *
  *   const resolved = await resolveClientName(api, client_name);
@@ -16,7 +17,7 @@
  *   finalClientId = resolved.clientId;
  */
 
-const { textResponse } = require('./response');
+const { errorResponse } = require('./errors');
 
 /**
  * Resolve um nome de cliente para client_id usando searchClients.
@@ -31,7 +32,7 @@ async function resolveClientName(api, clientName) {
   if (clientSearchResponse.error) {
     return {
       error: true,
-      response: textResponse(
+      response: errorResponse(
         `**❌ Erro ao buscar cliente "${clientName}"**\n\n` +
         `**Erro:** ${clientSearchResponse.error}\n\n` +
         `*Verifique se o nome do cliente está correto ou use client_id diretamente.*`
@@ -44,7 +45,7 @@ async function resolveClientName(api, clientName) {
   if (clients.length === 0) {
     return {
       error: true,
-      response: textResponse(
+      response: errorResponse(
         `**❌ Cliente "${clientName}" não encontrado**\n\n` +
         `*Verifique se o nome está correto ou use client_id diretamente.*`
       )
@@ -59,7 +60,7 @@ async function resolveClientName(api, clientName) {
 
     return {
       error: true,
-      response: textResponse(
+      response: errorResponse(
         `**⚠️ Múltiplos clientes encontrados para "${clientName}"**\n\n` +
         `${clientsList}\n` +
         `*Use client_id específico ou seja mais específico no client_name.*`

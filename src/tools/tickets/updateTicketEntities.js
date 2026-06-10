@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -47,7 +48,7 @@ async function execute(args, { api }) {
   }
 
   if (entities.length > 50) {
-    return textResponse(
+    return errorResponse(
       `**❌ Limite excedido**\n\n` +
       `Você está tentando atualizar ${entities.length} campos, mas o limite é de 50 campos por requisição.\n\n` +
       `*Divida a atualização em múltiplas requisições.*`
@@ -59,7 +60,7 @@ async function execute(args, { api }) {
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i];
       if (!entity.entity_field_id) {
-        return textResponse(
+        return errorResponse(
           `**❌ Erro de validação no campo ${i + 1}**\n\n` +
           `O campo \`entity_field_id\` é obrigatório.\n\n` +
           `*Exemplo: { "entity_field_id": 72, "value": "Novo valor" }*`
@@ -67,7 +68,7 @@ async function execute(args, { api }) {
       }
 
       if (entity.value === undefined) {
-        return textResponse(
+        return errorResponse(
           `**❌ Erro de validação no campo ${i + 1}**\n\n` +
           `O campo \`value\` é obrigatório (use null para limpar).\n\n` +
           `*Exemplo: { "entity_field_id": 72, "value": "Novo valor" } ou { "entity_field_id": 72, "value": null }*`
@@ -75,7 +76,7 @@ async function execute(args, { api }) {
       }
 
       if (entity.entity_field_option_id !== undefined && typeof entity.entity_field_option_id !== 'number') {
-        return textResponse(
+        return errorResponse(
           `**❌ Erro de validação no campo ${i + 1}**\n\n` +
           `O campo \`entity_field_option_id\` deve ser um número (ID da opção).\n\n` +
           `*Use list_entity_field_options para obter os IDs de opção disponíveis.*`
@@ -90,7 +91,7 @@ async function execute(args, { api }) {
     const response = await api.updateTicketEntities(ticket_number, updateData);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao atualizar campos personalizados do ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -123,7 +124,7 @@ async function execute(args, { api }) {
       `*✅ Campos atualizados via API TiFlux*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao atualizar campos personalizados**\n\n` +
       `**Ticket:** #${ticket_number}\n` +
       `**Erro:** ${error.message}\n\n` +

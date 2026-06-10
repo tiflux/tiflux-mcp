@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -41,27 +42,27 @@ async function execute(args, { api }) {
 
       // 403 com error codes especificos
       if (status === 403 && errorCode === 40301) {
-        return textResponse(
+        return errorResponse(
           `**🚫 Sem permissão para acessar estágios/SLAs do ticket #${ticket_number}**\n\n` +
           `*Seu usuário não tem permissão para esta operação. Contate o administrador.*`
         );
       }
 
       if (status === 403 && errorCode === 40304) {
-        return textResponse(
+        return errorResponse(
           `**🔒 Sem licença de Tickets**\n\n` +
           `*Seu plano TiFlux não possui licença ativa para o módulo de Tickets.*`
         );
       }
 
       if (status === 404) {
-        return textResponse(
+        return errorResponse(
           `**🔍 Ticket #${ticket_number} não encontrado**\n\n` +
           `*Verifique se o número do ticket está correto.*`
         );
       }
 
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao buscar estágios/SLAs do ticket #${ticket_number}**\n\n` +
         `**Código:** ${status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -115,7 +116,7 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao buscar estágios/SLAs do ticket #${ticket_number}**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

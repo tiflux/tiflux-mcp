@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_in_attendance_chats',
@@ -125,7 +126,7 @@ async function execute(args, { api }) {
     });
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao listar chats em atendimento**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -145,7 +146,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatChatsList(chats, offset, limit));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao listar chats em atendimento**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

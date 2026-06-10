@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -45,7 +46,7 @@ async function execute(args, { api }) {
     const response = await api.searchClients(client_name);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao buscar cliente "${client_name}"**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -65,7 +66,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatClientsList(client_name, clients));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao buscar cliente "${client_name}"**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 
@@ -56,7 +57,7 @@ async function execute(args, { api }) {
 
     // Validar numero total de arquivos
     if (allFiles.length > MAX_FILES) {
-      return textResponse(
+      return errorResponse(
         `**⚠️ Muitos arquivos**\n\n` +
         `**Ticket:** #${ticket_number}\n` +
         `**Arquivos fornecidos:** ${allFiles.length} (${files.length} locais + ${files_base64.length} base64)\n` +
@@ -71,7 +72,7 @@ async function execute(args, { api }) {
         const file = files_base64[i];
 
         if (!file || typeof file !== 'object') {
-          return textResponse(
+          return errorResponse(
             `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
             `O arquivo deve ser um objeto com as propriedades "content" e "filename".\n\n` +
             `**Exemplo correto:**\n` +
@@ -86,7 +87,7 @@ async function execute(args, { api }) {
         }
 
         if (!file.content || typeof file.content !== 'string') {
-          return textResponse(
+          return errorResponse(
             `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
             `A propriedade "content" é obrigatória e deve ser uma string em base64.\n\n` +
             `*Verifique o conteúdo do arquivo e tente novamente.*`
@@ -94,7 +95,7 @@ async function execute(args, { api }) {
         }
 
         if (!file.filename || typeof file.filename !== 'string') {
-          return textResponse(
+          return errorResponse(
             `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
             `A propriedade "filename" é obrigatória e deve ser uma string.\n\n` +
             `*Exemplo: "documento.pdf", "relatorio.xlsx", "imagem.png"*`
@@ -105,7 +106,7 @@ async function execute(args, { api }) {
         const estimatedSize = Math.ceil((file.content.length * 3) / 4);
 
         if (estimatedSize > MAX_FILE_SIZE_BYTES) {
-          return textResponse(
+          return errorResponse(
             `**❌ Arquivo base64 muito grande**\n\n` +
             `**Arquivo:** ${file.filename}\n` +
             `**Tamanho estimado:** ${Math.round(estimatedSize / 1024 / 1024)}MB\n` +
@@ -131,7 +132,7 @@ async function execute(args, { api }) {
     const response = await api.createTicketAnswer(ticket_number, answerData);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao criar resposta no ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -155,7 +156,7 @@ async function execute(args, { api }) {
       `*✅ Resposta enviada via API TiFlux*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao criar resposta no ticket #${ticket_number}**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

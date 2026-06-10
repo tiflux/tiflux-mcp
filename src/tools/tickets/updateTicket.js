@@ -9,6 +9,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
@@ -78,7 +79,7 @@ async function execute(args, { api }) {
       const deskIdForStage = finalDeskId || desk_id;
 
       if (!deskIdForStage) {
-        return textResponse(
+        return errorResponse(
           `**Erro: desk_id ou desk_name obrigatorio para buscar estagio por nome**\n\n` +
           `*Para usar stage_name, informe tambem desk_id ou desk_name.*`
         );
@@ -87,7 +88,7 @@ async function execute(args, { api }) {
       const stageSearchResponse = await api.searchStages(deskIdForStage);
 
       if (stageSearchResponse.error) {
-        return textResponse(
+        return errorResponse(
           `**Erro ao buscar estagios da mesa ID ${deskIdForStage}**\n\n` +
           `**Erro:** ${stageSearchResponse.error}\n\n` +
           `*Verifique se a mesa existe e possui estagios.*`
@@ -100,7 +101,7 @@ async function execute(args, { api }) {
       );
 
       if (matchingStages.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Estagio "${stage_name}" nao encontrado na mesa ID ${deskIdForStage}**\n\n` +
           `*Verifique se o nome esta correto ou use stage_id diretamente.*`
         );
@@ -112,7 +113,7 @@ async function execute(args, { api }) {
           stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name} | **Ordem:** ${stage.index}\n`;
         });
 
-        return textResponse(
+        return errorResponse(
           `**Multiplos estagios encontrados para "${stage_name}"**\n\n` +
           `${stagesList}\n` +
           `*Use stage_id especifico ou seja mais especifico no stage_name.*`
@@ -132,7 +133,7 @@ async function execute(args, { api }) {
       });
 
       if (userSearchResponse.error) {
-        return textResponse(
+        return errorResponse(
           `**Erro ao buscar usuario "${responsible_name}"**\n\n` +
           `**Erro:** ${userSearchResponse.error}\n\n` +
           `*Verifique se o nome do usuario esta correto ou use responsible_id diretamente.*`
@@ -141,7 +142,7 @@ async function execute(args, { api }) {
 
       const users = userSearchResponse.data || [];
       if (users.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Usuario "${responsible_name}" nao encontrado**\n\n` +
           `*Verifique se o nome esta correto ou use responsible_id diretamente.*`
         );
@@ -153,7 +154,7 @@ async function execute(args, { api }) {
           usersList += `${index + 1}. **ID:** ${user.id} | **Nome:** ${user.name} | **Email:** ${user.email}\n`;
         });
 
-        return textResponse(
+        return errorResponse(
           `**Multiplos usuarios encontrados para "${responsible_name}"**\n\n` +
           `${usersList}\n` +
           `*Use responsible_id especifico ou seja mais especifico no responsible_name.*`
@@ -170,7 +171,7 @@ async function execute(args, { api }) {
       const deskIdForCatalog = finalDeskId || desk_id;
 
       if (!deskIdForCatalog) {
-        return textResponse(
+        return errorResponse(
           `**Erro: desk_id ou desk_name obrigatorio para buscar item de catalogo por nome**\n\n` +
           `*Para usar catalog_item_name, informe tambem desk_id ou desk_name.*`
         );
@@ -179,7 +180,7 @@ async function execute(args, { api }) {
       const catalogSearchResponse = await api.searchCatalogItems(deskIdForCatalog, { limit: 200 });
 
       if (catalogSearchResponse.error) {
-        return textResponse(
+        return errorResponse(
           `**Erro ao buscar item de catalogo "${catalog_item_name}"**\n\n` +
           `**Erro:** ${catalogSearchResponse.error}\n\n` +
           `*Verifique se o nome do item esta correto ou use services_catalogs_item_id diretamente.*`
@@ -188,7 +189,7 @@ async function execute(args, { api }) {
 
       const catalogItems = catalogSearchResponse.data || [];
       if (catalogItems.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Nenhum item de catalogo encontrado na mesa ${deskIdForCatalog}**\n\n` +
           `*Verifique se a mesa possui itens de catalogo configurados.*`
         );
@@ -201,7 +202,7 @@ async function execute(args, { api }) {
       );
 
       if (matchingItems.length === 0) {
-        return textResponse(
+        return errorResponse(
           `**Item de catalogo "${catalog_item_name}" nao encontrado**\n\n` +
           `*Verifique se o nome esta correto ou use services_catalogs_item_id diretamente.*`
         );
@@ -213,7 +214,7 @@ async function execute(args, { api }) {
           itemsList += `${index + 1}. **ID:** ${item.id} | **Nome:** ${item.name} | **Area:** ${item.area.name} | **Catalogo:** ${item.catalog.name}\n`;
         });
 
-        return textResponse(
+        return errorResponse(
           `**Multiplos itens de catalogo encontrados para "${catalog_item_name}"**\n\n` +
           `${itemsList}\n` +
           `*Use services_catalogs_item_id especifico ou seja mais especifico no catalog_item_name.*`
@@ -241,7 +242,7 @@ async function execute(args, { api }) {
 
     // Verificar se ha campos para atualizar
     if (Object.keys(updateData).length === 0) {
-      return textResponse(
+      return errorResponse(
         `**⚠️ Nenhum campo informado para atualização**\n\n` +
         `**Ticket ID:** #${ticket_number}\n\n` +
         `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, responsible_id, followers*`
@@ -252,7 +253,7 @@ async function execute(args, { api }) {
     const response = await api.updateTicket(ticket_number, updateData);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao atualizar ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -280,7 +281,7 @@ async function execute(args, { api }) {
       `*✅ Ticket atualizado via API TiFlux*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao atualizar ticket #${ticket_number}**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

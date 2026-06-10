@@ -5,6 +5,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -28,7 +29,7 @@ async function execute(args, { api }) {
     const response = await api.cancelTicket(ticket_number);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao cancelar ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -42,7 +43,7 @@ async function execute(args, { api }) {
       `*O ticket foi cancelado e não pode mais receber atualizações.*`
     );
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao cancelar ticket #${ticket_number}**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e tente novamente.*`

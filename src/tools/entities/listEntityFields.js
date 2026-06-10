@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const TYPES_WITH_OPTIONS = new Set(['single_select', 'checkbox']);
@@ -82,7 +83,7 @@ async function execute(args, { api }) {
     const response = await api.listEntityFields(entity_id, filters);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao listar subcampos da entity ID ${entity_id}**\n\n` +
         `**Codigo:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -93,7 +94,7 @@ async function execute(args, { api }) {
     const fields = response.data || [];
     return textResponse(formatEntityFieldsList(entity_id, fields));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao listar subcampos da entity**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexao e configuracoes da API.*`

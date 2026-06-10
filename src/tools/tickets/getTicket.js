@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -262,7 +263,7 @@ async function execute(args, { api }) {
     const response = await api.fetchTicket(ticket_number, options);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao buscar ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -272,7 +273,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatTicket(ticket_number, response.data));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao buscar ticket #${ticket_number}**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

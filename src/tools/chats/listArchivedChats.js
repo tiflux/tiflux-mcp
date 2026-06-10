@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_archived_chats',
@@ -122,14 +123,14 @@ async function execute(args, { api }) {
     if (response.error) {
       const code = response.status;
       if (code === 403) {
-        return textResponse(
+        return errorResponse(
           `**Sem permissão para listar chats arquivados**\n\n` +
           `**Código:** 403\n` +
           `**Mensagem:** ${response.error}\n\n` +
           `*Verifique se sua conta tem permissão para acessar chats arquivados.*`
         );
       }
-      return textResponse(
+      return errorResponse(
         `**Erro ao listar chats arquivados**\n\n` +
         `**Código:** ${code}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -149,7 +150,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatChatsList(chats, offset, limit));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao listar chats arquivados**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

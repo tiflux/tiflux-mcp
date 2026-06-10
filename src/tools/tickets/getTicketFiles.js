@@ -5,6 +5,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { formatFileSize } = require('../_shared/markdown');
 
@@ -45,7 +46,7 @@ async function execute(args, { api }) {
     const response = await api.fetchTicketFiles(ticket_number);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao buscar arquivos do ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -65,7 +66,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatFilesList(ticket_number, files));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao buscar arquivos do ticket #${ticket_number}**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

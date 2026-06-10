@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_desks',
@@ -69,7 +70,7 @@ async function execute(args, { api }) {
     const response = await api.listDesks(filters);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao listar mesas**\n\n` +
         `**Codigo:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -80,7 +81,7 @@ async function execute(args, { api }) {
     const desks = response.data || [];
     return textResponse(formatDesksList(desks));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao listar mesas**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexao e configuracoes da API.*`

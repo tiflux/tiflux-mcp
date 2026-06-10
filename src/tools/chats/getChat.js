@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -77,14 +78,14 @@ async function execute(args, { api }) {
     if (response.error) {
       const code = response.status;
       if (code === 404) {
-        return textResponse(
+        return errorResponse(
           `**Chat não encontrado**\n\n` +
           `**ID:** ${id}\n\n` +
           `*Verifique se o ID está correto e se você tem acesso a este chat.*`
         );
       }
       if (code === 401) {
-        return textResponse(
+        return errorResponse(
           `**Erro de autenticação**\n\n` +
           `**Código:** 401\n` +
           `**Mensagem:** ${response.error}\n\n` +
@@ -92,14 +93,14 @@ async function execute(args, { api }) {
         );
       }
       if (code === 403) {
-        return textResponse(
+        return errorResponse(
           `**Sem permissão para acessar este chat**\n\n` +
           `**Código:** 403\n` +
           `**Mensagem:** ${response.error}\n\n` +
           `*Verifique se sua conta tem permissão ou licença para acessar chats.*`
         );
       }
-      return textResponse(
+      return errorResponse(
         `**Erro ao buscar chat**\n\n` +
         `**ID:** ${id}\n` +
         `**Código:** ${code}\n` +
@@ -110,7 +111,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatChatCard(response.data));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao buscar chat**\n\n` +
       `**ID:** ${id}\n` +
       `**Erro:** ${error.message}\n\n` +

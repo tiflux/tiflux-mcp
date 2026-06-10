@@ -7,6 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_entities',
@@ -73,7 +74,7 @@ async function execute(args, { api }) {
     const response = await api.listEntities(filters);
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao listar campos personalizados**\n\n` +
         `**Codigo:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -84,7 +85,7 @@ async function execute(args, { api }) {
     const entities = response.data || [];
     return textResponse(formatEntitiesList(entities));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao listar campos personalizados**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexao e configuracoes da API.*`

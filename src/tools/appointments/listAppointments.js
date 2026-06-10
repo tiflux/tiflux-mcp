@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 /**
@@ -168,7 +169,7 @@ async function execute(args, { api }) {
     });
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**❌ Erro ao listar apontamentos**\n\n` +
         `**Ticket:** #${ticket_number}\n` +
         `**Código:** ${response.status}\n` +
@@ -190,7 +191,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatAppointmentsList(ticket_number, appointments, offset, limit));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**❌ Erro interno ao listar apontamentos**\n\n` +
       `**Ticket:** #${ticket_number}\n` +
       `**Erro:** ${error.message}\n\n` +

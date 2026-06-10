@@ -6,6 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_inbox_chats',
@@ -115,7 +116,7 @@ async function execute(args, { api }) {
     });
 
     if (response.error) {
-      return textResponse(
+      return errorResponse(
         `**Erro ao listar chats da caixa de entrada**\n\n` +
         `**Código:** ${response.status}\n` +
         `**Mensagem:** ${response.error}\n\n` +
@@ -135,7 +136,7 @@ async function execute(args, { api }) {
 
     return textResponse(formatChatsList(chats, offset, limit, 'Chats — Caixa de Entrada'));
   } catch (error) {
-    return textResponse(
+    return errorResponse(
       `**Erro interno ao listar chats da caixa de entrada**\n\n` +
       `**Erro:** ${error.message}\n\n` +
       `*Verifique sua conexão e configurações da API.*`

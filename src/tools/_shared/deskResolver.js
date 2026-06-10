@@ -11,7 +11,8 @@
  *   { error: false, deskId: number, desk: object }  — 1 mesa encontrada
  *   { error: true,  response: MCPResponse }          — 0, N ou erro de API
  *
- * O shape de `response` e identico ao que textResponse() produz, entao os
+ * O shape de `response` e identico ao que errorResponse() produz (com
+ * isError: true — a resolucao e pre-condicao da operacao), entao os
  * slices podem simplesmente fazer:
  *
  *   const resolved = await resolveDeskName(api, desk_name);
@@ -19,7 +20,7 @@
  *   finalDeskId = resolved.deskId;
  */
 
-const { textResponse } = require('./response');
+const { errorResponse } = require('./errors');
 
 /**
  * Resolve um nome de mesa para desk_id usando smartSearchDesks.
@@ -34,7 +35,7 @@ async function resolveDeskName(api, deskName) {
   if (deskSearchResponse.error) {
     return {
       error: true,
-      response: textResponse(
+      response: errorResponse(
         `**Erro ao buscar mesa "${deskName}"**\n\n` +
         `**Erro:** ${deskSearchResponse.error}\n\n` +
         `*Verifique se o nome da mesa esta correto ou use desk_id diretamente.*`
@@ -47,7 +48,7 @@ async function resolveDeskName(api, deskName) {
   if (desks.length === 0) {
     return {
       error: true,
-      response: textResponse(
+      response: errorResponse(
         `**Mesa "${deskName}" nao encontrada**\n\n` +
         `*Verifique se o nome esta correto ou use desk_id diretamente.*`
       )
@@ -62,7 +63,7 @@ async function resolveDeskName(api, deskName) {
 
     return {
       error: true,
-      response: textResponse(
+      response: errorResponse(
         `**Multiplas mesas encontradas para "${deskName}"**\n\n` +
         `${desksList}\n` +
         `*Use desk_id especifico ou seja mais especifico no desk_name.*`
