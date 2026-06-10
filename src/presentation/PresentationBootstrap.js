@@ -6,6 +6,11 @@
  * - Pipeline de middleware com middlewares padrão
  * - Response formatters consistentes
  * - Configurações específicas da camada
+ *
+ * NOTA (telemetria server-only — v1): Este caminho (container DI) nao e usado em
+ * producao atualmente (Lambda usa ServerFactory direto). O wrapper de telemetria
+ * de produto foi instalado apenas em ServerFactory.js. Se este caminho voltar a
+ * ser usado em producao, replicar o wrapper do ServerFactory aqui.
  */
 
 class PresentationBootstrap {
