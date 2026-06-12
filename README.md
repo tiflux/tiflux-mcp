@@ -537,6 +537,92 @@ For each stage transition, the formatted output includes:
 }
 ```
 
+### list_ticket_answers
+List answers (communications with the client) of a specific ticket, paginated.
+
+**Parameters:**
+- `ticket_number` (integer, required): Ticket number to list answers from
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Answers per page (default: 20, max: 200)
+
+**Returns:**
+Each answer includes:
+- Author name, date/time, origin (`agent`, `client`, etc.)
+- File count indicator
+- Preview of the content (first 200 characters)
+- Pagination info with hint for next page
+
+**Example:**
+```json
+{
+  "ticket_number": 123,
+  "offset": 1,
+  "limit": 20
+}
+```
+
+### get_ticket_answer
+Get the full detail of a specific answer from a ticket, including attached files.
+
+**Parameters:**
+- `ticket_number` (integer, required): Ticket number
+- `answer_id` (integer, required): ID of the answer to retrieve
+
+**Returns:**
+- Full answer content (untruncated), author, date, origin
+- Complete list of attached files with name, type, size and download URL
+
+**Example:**
+```json
+{
+  "ticket_number": 123,
+  "answer_id": 501
+}
+```
+
+### get_ticket_histories
+List the event history (timeline) of a ticket, showing field changes, stage transitions, and other events. Paginated.
+
+**Parameters:**
+- `ticket_number` (integer, required): Ticket number to retrieve history for
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Events per page (default: 20, max: 200)
+- `history_of` (integer, optional): Filter by ticket area (e.g., `1` = appointments)
+- `type_id_attr` (integer, optional): Filter by attribute type
+- `operation` (integer, optional): Filter by operation type — only valid when `history_of=1`
+
+**Returns:**
+For each event:
+- Action description, user, date/time, event type and operation
+- Diff of changed fields with old → new values
+
+**Example:**
+```json
+{
+  "ticket_number": 123,
+  "history_of": 1
+}
+```
+
+### reopen_ticket
+Reopen a closed or canceled ticket. Tickets that have been billed cannot be reopened.
+
+**Parameters:**
+- `ticket_number` (integer, required): Ticket number to reopen
+- `disapproval_reason` (string, optional): Required when reopening a ticket pending review (disapproval-based reopening)
+
+**Business Rules:**
+- Tickets that have been **billed** cannot be reopened (API returns 422)
+- `disapproval_reason` is mandatory when reopening a ticket that is pending review/approval
+
+**Example:**
+```json
+{
+  "ticket_number": 123,
+  "disapproval_reason": "The solution did not resolve the issue"
+}
+```
+
 ### get_internal_communication
 Get a specific internal communication with full content.
 
@@ -987,7 +1073,11 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `PUT /tickets/{id}/entities` - Update ticket custom fields
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
 - `PUT /tickets/{ticket_number}/close` - Close specific ticket
+- `PUT /tickets/{ticket_number}/reopen` - Reopen closed or canceled ticket (supports optional `disapproval_reason`)
 - `POST /tickets/{ticket_number}/answers` - Create ticket answer (client communication)
+- `GET /tickets/{ticket_number}/answers` - List ticket answers (client communications), paginated
+- `GET /tickets/{ticket_number}/answers/{id}` - Get specific ticket answer with attached files
+- `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
 - `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email` query params)
 - `GET /clients` - Search clients (used by `client_name` auto-resolve in `list_tickets` and `create_ticket`)
 - `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and `requestor_name` auto-resolve in `create_ticket`)

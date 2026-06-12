@@ -985,6 +985,68 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista respostas (comunicacoes com cliente) de um ticket com paginacao
+   * GET /tickets/{ticket_number}/answers
+   */
+  async listTicketAnswers(ticketNumber, offset = 1, limit = 20) {
+    const validOffset = Math.max(1, Number.parseInt(offset) || 1);
+    const validLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
+
+    const params = new URLSearchParams();
+    params.append('offset', validOffset);
+    params.append('limit', validLimit);
+
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/answers?${params.toString()}`);
+  }
+
+  /**
+   * Busca uma resposta especifica de um ticket
+   * GET /tickets/{ticket_number}/answers/{id}
+   */
+  async getTicketAnswer(ticketNumber, answerId) {
+    return await this.makeRequest(
+      `/tickets/${encodeURIComponent(ticketNumber)}/answers/${encodeURIComponent(answerId)}`
+    );
+  }
+
+  /**
+   * Lista o historico de eventos (timeline) de um ticket com paginacao e filtros opcionais
+   * GET /tickets/{ticket_number}/histories
+   */
+  async getTicketHistories(ticketNumber, params = {}) {
+    const validOffset = Math.max(1, Number.parseInt(params.offset) || 1);
+    const validLimit = Math.min(200, Math.max(1, Number.parseInt(params.limit) || 20));
+
+    const qs = new URLSearchParams();
+    qs.append('offset', validOffset);
+    qs.append('limit', validLimit);
+
+    if (params.history_of != null) qs.append('history_of', params.history_of);
+    if (params.type_id_attr != null) qs.append('type_id_attr', params.type_id_attr);
+    if (params.operation != null) qs.append('operation', params.operation);
+
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/histories?${qs.toString()}`);
+  }
+
+  /**
+   * Reabre um ticket fechado ou cancelado
+   * PUT /tickets/{ticket_number}/reopen
+   */
+  async reopenTicket(ticketNumber, disapprovalReason) {
+    // != null (e nao truthy): string vazia deve chegar a API para que ela
+    // devolva o erro de validacao real, em vez de o campo ser engolido aqui.
+    if (disapprovalReason != null) {
+      const jsonData = JSON.stringify({ disapproval_reason: disapprovalReason });
+      const headers = {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(jsonData)
+      };
+      return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/reopen`, 'PUT', jsonData, headers);
+    }
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/reopen`, 'PUT');
+  }
+
+  /**
    * Busca itens de catalogo de servicos de uma mesa especifica
    * GET /desks/{id}/services-catalogs-items
    */

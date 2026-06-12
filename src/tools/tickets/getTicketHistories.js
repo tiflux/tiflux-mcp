@@ -1,0 +1,157 @@
+/**
+ * Slice: get_ticket_histories — lista o historico de eventos (timeline) de um ticket.
+ *
+ * Endpoint: GET /tickets/{ticket_number}/histories?offset&limit&history_of&type_id_attr&operation
+ * (via api.getTicketHistories).
+ * Filtros opcionais: history_of, type_id_attr, operation (so valido com history_of=1).
+ */
+
+const { textResponse } = require('../_shared/response');
+const { errorResponse } = require('../_shared/errors');
+const { requireField } = require('../_shared/validators');
+
+const schema = {
+  name: 'get_ticket_histories',
+  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados. Filtros opcionais: history_of (área), type_id_attr, operation (só com history_of=1 para apontamentos)',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ticket_number: {
+        type: 'integer',
+        description: 'Número do ticket para buscar o histórico'
+      },
+      offset: {
+        type: 'number',
+        description: 'Número da página (padrão: 1)'
+      },
+      limit: {
+        type: 'number',
+        description: 'Eventos por página (padrão: 20, máximo: 200)'
+      },
+      history_of: {
+        type: 'integer',
+        description: 'Filtrar por área do ticket (ex: 1 = apontamentos)'
+      },
+      type_id_attr: {
+        type: 'integer',
+        description: 'Filtrar por tipo de atributo'
+      },
+      operation: {
+        type: 'integer',
+        description: 'Filtrar por tipo de operação — somente válido quando history_of=1'
+      }
+    },
+    required: ['ticket_number']
+  }
+};
+
+// O Swagger nao garante valores escalares em old_values/new_values; sem isto,
+// um objeto viraria "[object Object]" no diff.
+function formatDiffValue(value) {
+  if (value === null || value === undefined) return '—';
+  return typeof value === 'object' ? JSON.stringify(value) : value;
+}
+
+function formatHistoriesList(ticketNumber, events, offset, limit) {
+  let text = `**📋 Histórico do Ticket #${ticketNumber}** (${events.length} eventos)\n\n`;
+
+  events.forEach((event, index) => {
+    const eventId = event.id || 'N/A';
+    const action = event.action || 'ação não informada';
+    const userName = event.user?.name || 'Usuário não informado';
+    const createdAt = event._created_at
+      ? new Date(event._created_at).toLocaleString('pt-BR')
+      : 'Data não informada';
+    const eventType = event._type || '';
+    const eventOp = event._operation || '';
+
+    let typeInfo = '';
+    if (eventType || eventOp) {
+      const opSuffix = eventOp ? `, op: ${eventOp}` : '';
+      typeInfo = ` (tipo: ${eventType}${opSuffix})`;
+    }
+
+    let diffSection = '';
+    if (event.changes && Array.isArray(event.changes.fields) && event.changes.fields.length > 0) {
+      diffSection = '\n   📝 **Alterações:**\n';
+      event.changes.fields.forEach(field => {
+        const oldVal = formatDiffValue(event.changes.old_values?.[field]);
+        const newVal = formatDiffValue(event.changes.new_values?.[field]);
+        diffSection += `      • **${field}:** \`${oldVal}\` → \`${newVal}\`\n`;
+      });
+    }
+
+    text += `**${index + 1}. Evento #${eventId}**${typeInfo}\n` +
+            `   👤 **Usuário:** ${userName}\n` +
+            `   📅 **Data:** ${createdAt}\n` +
+            `   🔔 **Ação:** ${action}${diffSection}\n`;
+  });
+
+  // Espelha o clamp da camada de API (offset >= 1, limit 1..200): a heuristica
+  // de "tem proxima pagina" so funciona comparando contra o limit efetivamente enviado.
+  const currentOffset = Math.max(1, Number.parseInt(offset) || 1);
+  const currentLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
+  const hasMore = events.length === currentLimit;
+
+  let paginationInfo = `\n**📊 Paginação:**\n`;
+  paginationInfo += `• Página atual: ${currentOffset}\n`;
+  paginationInfo += `• Eventos por página: ${currentLimit}\n`;
+  paginationInfo += `• Eventos nesta página: ${events.length}\n`;
+
+  if (hasMore) {
+    const nextOffset = currentOffset + 1;
+    paginationInfo += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais eventos\n`;
+  } else {
+    paginationInfo += `• Esta é a última página disponível\n`;
+  }
+
+  return `${text}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+}
+
+async function execute(args, { api }) {
+  const { ticket_number, offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
+
+  requireField(args, 'ticket_number');
+
+  try {
+    const response = await api.getTicketHistories(ticket_number, {
+      offset,
+      limit,
+      history_of,
+      type_id_attr,
+      operation
+    });
+
+    if (response.error) {
+      return errorResponse(
+        `**❌ Erro ao buscar histórico do ticket**\n\n` +
+        `**Ticket:** #${ticket_number}\n` +
+        `**Código:** ${response.status}\n` +
+        `**Mensagem:** ${response.error}\n\n` +
+        `*Verifique se o ticket existe e se você tem permissão para visualizar o histórico.*`
+      );
+    }
+
+    const events = response.data || [];
+
+    if (events.length === 0) {
+      return textResponse(
+        `**📋 Nenhum evento encontrado no histórico**\n\n` +
+        `**Ticket:** #${ticket_number}\n` +
+        `**Página:** ${offset}\n\n` +
+        `*Não há eventos de histórico para este ticket com os filtros informados.*`
+      );
+    }
+
+    return textResponse(formatHistoriesList(ticket_number, events, offset, limit));
+  } catch (error) {
+    return errorResponse(
+      `**❌ Erro interno ao buscar histórico do ticket**\n\n` +
+      `**Ticket:** #${ticket_number}\n` +
+      `**Erro:** ${error.message}\n\n` +
+      `*Verifique sua conexão e configurações da API.*`
+    );
+  }
+}
+
+module.exports = { name: schema.name, schema, execute, format: formatHistoriesList };
