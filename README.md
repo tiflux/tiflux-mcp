@@ -191,6 +191,10 @@ Create a new ticket in TiFlux.
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
 - `parent_ticket_number` (number, optional): Parent ticket number — the created ticket will be linked as a child of this ticket
+- `files` (array, optional): Array of local file paths to attach to the ticket (max 10 files, 25MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.png"}]` (alternative to files, max 10 files, 25MB each)
+
+**New in v2.4.0:** Support for file/base64 upload via `files`/`files_base64` parameters. The ticket is now sent as `multipart/form-data` (aligned with the TiFlux API spec). **Note for Server mode (Lambda):** `files_base64` payloads are subject to the 6MB API Gateway limit — for large files, use `files` (local paths) in SDK mode instead.
 
 ### update_ticket
 Update an existing ticket in TiFlux.
@@ -978,7 +982,7 @@ This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage
 The MCP server integrates with the following TiFlux API v2 endpoints:
 
 - `GET /tickets/{id}` - Retrieve ticket details
-- `POST /tickets` - Create new tickets (supports `requestor_id` body field to link existing requestor)
+- `POST /tickets` - Create new tickets (supports multipart with file attachments via `files`/`files_base64`; `requestor_id` body field links existing requestor)
 - `PUT /tickets/{id}` - Update existing tickets
 - `PUT /tickets/{id}/entities` - Update ticket custom fields
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket

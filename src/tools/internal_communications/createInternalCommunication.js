@@ -16,9 +16,9 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
+const { validateBase64Files, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
 
 const MAX_FILES = 10;
-const MAX_BASE64_BYTES = 26214400; // 25MB
 
 const schema = {
   name: 'create_internal_communication',
@@ -62,55 +62,6 @@ const schema = {
   }
 };
 
-function validateBase64Files(filesBase64) {
-  for (let i = 0; i < filesBase64.length; i++) {
-    const file = filesBase64[i];
-
-    if (!file || typeof file !== 'object') {
-      return errorResponse(
-        `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
-        `O arquivo deve ser um objeto com as propriedades "content" e "filename".\n\n` +
-        `**Exemplo correto:**\n` +
-        `\`\`\`json\n` +
-        `{\n` +
-        `  "content": "base64string...",\n` +
-        `  "filename": "documento.pdf"\n` +
-        `}\n` +
-        `\`\`\`\n\n` +
-        `*Verifique a estrutura do arquivo e tente novamente.*`
-      );
-    }
-
-    if (!file.content || typeof file.content !== 'string') {
-      return errorResponse(
-        `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
-        `A propriedade "content" é obrigatória e deve ser uma string em base64.\n\n` +
-        `*Verifique o conteúdo do arquivo e tente novamente.*`
-      );
-    }
-
-    if (!file.filename || typeof file.filename !== 'string') {
-      return errorResponse(
-        `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
-        `A propriedade "filename" é obrigatória e deve ser uma string.\n\n` +
-        `*Exemplo: "documento.pdf", "planilha.csv", "imagem.png"*`
-      );
-    }
-
-    const estimatedSize = Math.ceil((file.content.length * 3) / 4);
-
-    if (estimatedSize > MAX_BASE64_BYTES) {
-      return errorResponse(
-        `**❌ Arquivo base64 muito grande**\n\n` +
-        `**Arquivo:** ${file.filename}\n` +
-        `**Tamanho estimado:** ${Math.round(estimatedSize / 1024 / 1024)}MB\n` +
-        `**Limite:** 25MB\n\n` +
-        `*Reduza o tamanho do arquivo ou envie em múltiplas comunicações.*`
-      );
-    }
-  }
-  return null;
-}
 
 async function execute(args, { api }) {
   const { ticket_number, text, files = [], files_base64 = [] } = args;
@@ -132,7 +83,7 @@ async function execute(args, { api }) {
     }
 
     if (files_base64.length > 0) {
-      const validationError = validateBase64Files(files_base64);
+      const validationError = validateBase64Files(files_base64, MAX_BASE64_BYTES_25MB, '25MB');
       if (validationError) return validationError;
     }
 

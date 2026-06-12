@@ -175,33 +175,62 @@ class TiFluxAPI {
   }
 
   /**
-   * Cria um novo ticket
+   * Cria um novo ticket via multipart/form-data.
+   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename }).
+   * ticketData.files: array combinado de paths e/ou objetos base64 (opcional).
    */
   async createTicket(ticketData) {
-    const formData = {};
+    try {
+      const MAX_FILE_SIZE = 26214400; // 25MB
 
-    if (ticketData.title) formData.title = ticketData.title;
-    if (ticketData.description) formData.description = ticketData.description;
-    if (ticketData.client_id) formData.client_id = ticketData.client_id;
-    if (ticketData.desk_id) formData.desk_id = ticketData.desk_id;
-    if (ticketData.priority_id) formData.priority_id = ticketData.priority_id;
-    if (ticketData.services_catalogs_item_id) formData.services_catalogs_item_id = ticketData.services_catalogs_item_id;
-    if (ticketData.status_id) formData.status_id = ticketData.status_id;
-    if (ticketData.requestor_id) formData.requestor_id = ticketData.requestor_id;
-    if (ticketData.requestor_name) formData.requestor_name = ticketData.requestor_name;
-    if (ticketData.requestor_email) formData.requestor_email = ticketData.requestor_email;
-    if (ticketData.requestor_telephone) formData.requestor_telephone = ticketData.requestor_telephone;
-    if (ticketData.responsible_id) formData.responsible_id = ticketData.responsible_id;
-    if (ticketData.followers) formData.followers = ticketData.followers;
-    if (ticketData.parent_ticket_number) formData.ticket_reference_number = ticketData.parent_ticket_number;
+      const processedFiles = [];
+      if (Array.isArray(ticketData.files)) {
+        for (let i = 0; i < Math.min(ticketData.files.length, 10); i++) {
+          const result = this._processAttachment(ticketData.files[i], i, MAX_FILE_SIZE, '25MB');
+          if (result.error) return result;
+          processedFiles.push(result);
+        }
+      }
 
-    const postData = querystring.stringify(formData);
-    const headers = {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Content-Length': Buffer.byteLength(postData)
+      const { buffer, headers } = this._buildMultipart({
+        fields: this._ticketFields(ticketData),
+        files: processedFiles
+      });
+
+      return await this.makeRequestBinary('/tickets', 'POST', buffer, headers);
+
+    } catch (error) {
+      return { error: `Erro interno ao criar ticket: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
+   * Campos texto do multipart de criacao de ticket.
+   * `parent_ticket_number` e enviado como `ticket_reference_number` na API.
+   */
+  _ticketFields(ticketData) {
+    const FIELD_NAMES = {
+      title: 'title',
+      description: 'description',
+      client_id: 'client_id',
+      desk_id: 'desk_id',
+      priority_id: 'priority_id',
+      services_catalogs_item_id: 'services_catalogs_item_id',
+      status_id: 'status_id',
+      requestor_id: 'requestor_id',
+      requestor_name: 'requestor_name',
+      requestor_email: 'requestor_email',
+      requestor_telephone: 'requestor_telephone',
+      responsible_id: 'responsible_id',
+      followers: 'followers',
+      parent_ticket_number: 'ticket_reference_number'
     };
 
-    return await this.makeRequest('/tickets', 'POST', postData, headers);
+    const fields = [];
+    for (const [param, name] of Object.entries(FIELD_NAMES)) {
+      if (ticketData[param]) fields.push({ name, value: String(ticketData[param]) });
+    }
+    return fields;
   }
 
   /**

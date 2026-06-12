@@ -10,9 +10,9 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
+const { validateBase64Files, MAX_BASE64_BYTES_40MB } = require('../_shared/fileValidation');
 
 const MAX_FILES = 10;
-const MAX_FILE_SIZE_BYTES = 41943040; // 40 MB
 
 const schema = {
   name: 'create_ticket_answer',
@@ -68,53 +68,8 @@ async function execute(args, { api }) {
 
     // Validar estrutura dos arquivos base64
     if (files_base64.length > 0) {
-      for (let i = 0; i < files_base64.length; i++) {
-        const file = files_base64[i];
-
-        if (!file || typeof file !== 'object') {
-          return errorResponse(
-            `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
-            `O arquivo deve ser um objeto com as propriedades "content" e "filename".\n\n` +
-            `**Exemplo correto:**\n` +
-            `\`\`\`json\n` +
-            `{\n` +
-            `  "content": "base64string...",\n` +
-            `  "filename": "documento.pdf"\n` +
-            `}\n` +
-            `\`\`\`\n\n` +
-            `*Verifique a estrutura do arquivo e tente novamente.*`
-          );
-        }
-
-        if (!file.content || typeof file.content !== 'string') {
-          return errorResponse(
-            `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
-            `A propriedade "content" é obrigatória e deve ser uma string em base64.\n\n` +
-            `*Verifique o conteúdo do arquivo e tente novamente.*`
-          );
-        }
-
-        if (!file.filename || typeof file.filename !== 'string') {
-          return errorResponse(
-            `**❌ Erro de validação no arquivo base64 #${i + 1}**\n\n` +
-            `A propriedade "filename" é obrigatória e deve ser uma string.\n\n` +
-            `*Exemplo: "documento.pdf", "relatorio.xlsx", "imagem.png"*`
-          );
-        }
-
-        // Validar tamanho do base64 antes de enviar (aproximado)
-        const estimatedSize = Math.ceil((file.content.length * 3) / 4);
-
-        if (estimatedSize > MAX_FILE_SIZE_BYTES) {
-          return errorResponse(
-            `**❌ Arquivo base64 muito grande**\n\n` +
-            `**Arquivo:** ${file.filename}\n` +
-            `**Tamanho estimado:** ${Math.round(estimatedSize / 1024 / 1024)}MB\n` +
-            `**Limite:** 40MB\n\n` +
-            `*Reduza o tamanho do arquivo ou envie em múltiplas respostas.*`
-          );
-        }
-      }
+      const validationError = validateBase64Files(files_base64, MAX_BASE64_BYTES_40MB, '40MB');
+      if (validationError) return validationError;
     }
 
     // Preparar dados da resposta (converter Markdown → HTML antes de enviar)

@@ -23,6 +23,9 @@ const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveRequestorName } = require('../_shared/requestorResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
+const { validateBase64Files, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
+
+const MAX_FILES = 10;
 
 const schema = {
   name: 'create_ticket',
@@ -51,7 +54,30 @@ const schema = {
       responsible_id: { type: 'number', description: 'ID do responsável (opcional)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
       followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' },
-      parent_ticket_number: { type: 'number', description: 'Número do ticket pai. O ticket criado será vinculado como filho deste ticket.' }
+      parent_ticket_number: { type: 'number', description: 'Número do ticket pai. O ticket criado será vinculado como filho deste ticket.' },
+      files: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Lista com os caminhos dos arquivos locais a serem anexados ao ticket (opcional, máximo 10 arquivos de 25MB cada)'
+      },
+      files_base64: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            content: {
+              type: 'string',
+              description: 'Conteúdo do arquivo codificado em base64'
+            },
+            filename: {
+              type: 'string',
+              description: 'Nome do arquivo com extensão (ex: "documento.pdf", "imagem.png")'
+            }
+          },
+          required: ['content', 'filename']
+        },
+        description: 'Lista de arquivos em formato base64 para anexar ao ticket (alternativa ao parâmetro files, máximo 10 arquivos de 25MB cada)'
+      }
     },
     required: ['title', 'description']
   }
@@ -76,7 +102,9 @@ async function execute(args, { api }) {
     responsible_id,
     responsible_name,
     followers,
-    parent_ticket_number
+    parent_ticket_number,
+    files = [],
+    files_base64 = []
   } = args;
 
   if (!title || !description) {
@@ -86,6 +114,22 @@ async function execute(args, { api }) {
   const parsedParentTicketNumber = parent_ticket_number == null ? undefined : Number.parseInt(parent_ticket_number, 10);
   if (parsedParentTicketNumber !== undefined && (Number.isNaN(parsedParentTicketNumber) || parsedParentTicketNumber <= 0)) {
     return errorResponse('**❌ parent_ticket_number inválido:** deve ser um número inteiro positivo.');
+  }
+
+  // Validacao de arquivos
+  const allFiles = [...files, ...files_base64];
+  if (allFiles.length > MAX_FILES) {
+    return errorResponse(
+      `**⚠️ Muitos arquivos**\n\n` +
+      `**Arquivos fornecidos:** ${allFiles.length} (${files.length} locais + ${files_base64.length} base64)\n` +
+      `**Limite:** 10 arquivos por ticket\n\n` +
+      `*Remova alguns arquivos e tente novamente.*`
+    );
+  }
+
+  if (files_base64.length > 0) {
+    const validationError = validateBase64Files(files_base64, MAX_BASE64_BYTES_25MB, '25MB');
+    if (validationError) return validationError;
   }
 
   try {
@@ -247,7 +291,8 @@ async function execute(args, { api }) {
       requestor_telephone: finalRequestorTelephone,
       responsible_id: finalResponsibleId ? parseInt(finalResponsibleId) : undefined,
       followers,
-      parent_ticket_number: parsedParentTicketNumber
+      parent_ticket_number: parsedParentTicketNumber,
+      files: allFiles.length > 0 ? allFiles : undefined
     });
 
     if (response.error) {
@@ -265,6 +310,10 @@ async function execute(args, { api }) {
       ? `**Ticket Pai:** #${parsedParentTicketNumber}\n`
       : '';
 
+    const filesLine = allFiles.length > 0
+      ? `**Arquivos anexados:** ${allFiles.length} arquivo(s)\n`
+      : '';
+
     return textResponse(
       `**✅ Ticket criado com sucesso!**\n\n` +
       `**Número:** #${ticket.ticket_number}\n` +
@@ -275,6 +324,7 @@ async function execute(args, { api }) {
       `**Prioridade:** ${ticket.priority?.name || 'N/A'}\n` +
       `**Criado em:** ${ticket.created_at}\n` +
       parentLine +
+      filesLine +
       `\n**URL Externa:** ${ticket.url_external_path}\n` +
       `**URL Interna:** ${ticket.url_internal_path}\n\n` +
       `*✅ Ticket criado via API TiFlux*`
