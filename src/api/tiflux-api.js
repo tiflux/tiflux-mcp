@@ -925,6 +925,91 @@ class TiFluxAPI {
   }
 
   /**
+   * Atualiza um chat (transfere atendente/departamento, vincula ticket)
+   * PUT /chats/{id}
+   *
+   * Envia apenas os campos informados em chatData (user_id/department_id/ticket_number).
+   */
+  async updateChat(id, chatData = {}) {
+    if (!id) {
+      return { error: 'id é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+
+    const chatObject = {};
+    if (chatData.user_id !== undefined) chatObject.user_id = chatData.user_id;
+    if (chatData.department_id !== undefined) chatObject.department_id = chatData.department_id;
+    if (chatData.ticket_number !== undefined) chatObject.ticket_number = chatData.ticket_number;
+
+    const jsonData = JSON.stringify(chatObject);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest(`/chats/${id}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Envia uma mensagem (livre ou modelo HSM) por WhatsApp, criando o chat no envio
+   * POST /chats/send_message
+   *
+   * Envia apenas os campos informados em messageData. Sucesso: 201.
+   */
+  async sendChatMessage(messageData = {}) {
+    const messageObject = {};
+    const fields = [
+      'number',
+      'integration_id',
+      'message',
+      'template_id',
+      'country_code',
+      'name',
+      'department_id',
+      'ticket_number',
+      'client_id',
+      'parameters',
+      'header_parameters',
+      'archive'
+    ];
+    fields.forEach(field => {
+      if (messageData[field] !== undefined) messageObject[field] = messageData[field];
+    });
+
+    const jsonData = JSON.stringify(messageObject);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest('/chats/send_message', 'POST', jsonData, headers);
+  }
+
+  /**
+   * Finaliza (encerra) um chat
+   * PUT /chats/{id}/archive
+   *
+   * Aceita services_catalogs_item_id quando a org usa catálogo no chat. Sucesso: 202.
+   */
+  async archiveChat(id, body = {}) {
+    if (!id) {
+      return { error: 'id é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+
+    const archiveObject = {};
+    if (body.services_catalogs_item_id !== undefined) {
+      archiveObject.services_catalogs_item_id = body.services_catalogs_item_id;
+    }
+
+    const jsonData = JSON.stringify(archiveObject);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest(`/chats/${id}/archive`, 'PUT', jsonData, headers);
+  }
+
+  /**
    * Lista campos personalizados (entities) disponiveis na organizacao.
    *
    * @param {object} filters - { active (boolean), applied_in (string), name (string), limit (int, default 20, max 200), offset (int, default 1) }

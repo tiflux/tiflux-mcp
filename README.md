@@ -8,7 +8,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Stages & SLA History**: Inspect the full history of ticket stages with per-stage SLA outcomes
 - **Internal Communications**: Create and list internal communications for tickets with file attachments
 - **Time Tracking (Appointments)**: Create and list work-hour appointments on tickets
-- **Chat Queries**: List inbox/mine/in-attendance/archived chats and fetch chat details
+- **Chat Management**: List inbox/mine/in-attendance/archived chats, fetch chat details, transfer/link chats, send WhatsApp messages and finish chats
 - **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
 - **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
 - **Client Search**: Search for clients by name with automatic resolution
@@ -802,6 +802,88 @@ Listar chats arquivados (finalizados ou cancelados) com filtros opcionais. Exibe
 }
 ```
 
+### update_chat
+Atualizar um chat existente: transferir o atendente (`user_id`), transferir o departamento (`department_id`) e/ou vincular o chat a um ticket (`ticket_number`). Só é possível atualizar um chat que **não esteja cancelado ou encerrado**.
+
+**Parameters:**
+- `id` (number, required): Chat ID (accepts numeric string — handler runs `parseInt`)
+- `user_id` (number, optional): Attendant the chat will be transferred to
+- `user_name` (string, optional): Attendant name for automatic lookup (alternative to `user_id`; `user_id` takes precedence). **Caveat (BL-007):** requires an admin API key — `GET /users` returns 403 for non-admin accounts; in that case use `user_id` directly.
+- `department_id` (number, optional): Department the chat will be transferred to. **No `department_name`** — the v2 API has no department search endpoint.
+- `ticket_number` (number, optional): Ticket number to link to the chat
+
+**Note:** At least one of `user_id` / `user_name` / `department_id` / `ticket_number` is required. If none is provided, the tool returns a friendly warning without calling the API.
+
+**Example:**
+```json
+{
+  "id": 37,
+  "user_id": 1,
+  "ticket_number": 127
+}
+```
+
+**Returns:** Markdown confirmation with the list of applied changes.
+
+### send_message
+Enviar uma mensagem por WhatsApp, **criando o chat no envio**. Use mensagem livre (`message`) **ou** modelo HSM / modelo de chat (`template_id`), nunca os dois juntos.
+
+> **`message` é texto plano (NÃO Markdown/HTML).** O WhatsApp usa marcação própria (asterisco para negrito, underscore para itálico); HTML apareceria literal. Por isso, diferentemente de `description`/`answer` de ticket, o conteúdo **não é convertido** para HTML.
+
+**Parameters:**
+- `number` (number, required): Destination phone number. Validated as Brazilian by default; for another country also pass `country_code`.
+- `integration_id` (number, required): WhatsApp integration ID. Accepted types: `gupshup`, `whatsapp_cloud`.
+- `message` (string, optional): Free-text message (plain text). Use `message` OR `template_id`.
+- `template_id` (number, optional): HSM / chat template ID. Use `parameters`/`header_parameters` for variables.
+- `country_code` (string, optional): ISO 3166-1 alpha-2 country code (e.g. `US`). Default `BR`.
+- `name` (string, optional): Requester name.
+- `department_id` (number, optional): Link the created chat to a department.
+- `ticket_number` (number, optional): Link the created chat to a ticket.
+- `client_id` (number, optional): Link the created chat to a client.
+- `parameters` (string[], optional): Values for the HSM body variables (`template_id`).
+- `header_parameters` (string[], optional): Values for the HSM header variables — `whatsapp_cloud` only.
+- `archive` (boolean, optional): Default `false`. `true` = create and send straight to the finished/archived box.
+
+**Note:** Besides `number` + `integration_id`, at least one of `message` / `template_id` is required (validated locally). Success status from the API: **201**.
+
+**Example (free message):**
+```json
+{
+  "number": 5568976728276,
+  "integration_id": 1,
+  "message": "Olá, tudo bem?"
+}
+```
+
+**Example (HSM template with parameters):**
+```json
+{
+  "number": 5519993017428,
+  "integration_id": 1,
+  "template_id": 1,
+  "parameters": ["Valor 1", "Valor 2"]
+}
+```
+
+**Returns:** Markdown confirmation with the send details (type, number, integration, links).
+
+### archive_chat
+Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramento pode ser processado de forma assíncrona; o tool trata 202 como sucesso.
+
+**Parameters:**
+- `id` (number, required): Chat ID to finish (accepts numeric string — handler runs `parseInt`)
+- `services_catalogs_item_id` (number, optional): Service catalog item ID. **Conditional:** required **only** when the organization is configured to "Usar catálogo de serviços no chat" — otherwise the API returns 422. **No `catalog_item_name`**: catalog item search requires a `desk_id`, which the chat does not provide; pass the ID directly when needed.
+
+**Example:**
+```json
+{
+  "id": 37,
+  "services_catalogs_item_id": 1
+}
+```
+
+**Returns:** Markdown confirmation that the chat was finished (202 Accepted).
+
 ## Desk Tools
 
 Explore and inspect desks (service queues) without leaving the chat. Use `list_desks` to discover available desks, `get_desk` to inspect full configuration, `list_desk_priorities` to discover priority IDs before creating tickets, and `list_desk_services_catalogs` to list service catalog containers linked to a desk.
@@ -1099,6 +1181,9 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /chats/mine` - List chats assigned to the authenticated user
 - `GET /chats/in_attendance` - List chats currently in attendance
 - `GET /chats/archived` - List archived (finished or canceled) chats
+- `PUT /chats/{id}` - Update a chat (transfer attendant/department, link ticket)
+- `POST /chats/send_message` - Send a WhatsApp message (free text or HSM template), creating the chat
+- `PUT /chats/{id}/archive` - Finish (archive) a chat
 - `GET /entities` - List custom field groups (`list_entities`)
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)

@@ -12,7 +12,10 @@ const slices = [
   require('./listInboxChats'),
   require('./listMyChats'),
   require('./listInAttendanceChats'),
-  require('./listArchivedChats')
+  require('./listArchivedChats'),
+  require('./updateChat'),
+  require('./sendMessage'),
+  require('./archiveChat')
 ];
 
 class ChatTools {
