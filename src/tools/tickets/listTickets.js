@@ -18,12 +18,13 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
+const { resolveResponsibleName } = require('../_shared/userResolver');
 
 const schema = {
   name: 'list_tickets',
   description: `Lista tickets do TiFlux com filtros. Requer pelo menos um filtro obrigatorio.
 
-**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids (resolva o ID via search_user). Para o atendente atribuido, use responsible_ids (busque o ID via search_user). Em duvida, pergunte ao usuario.
+**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids. Para o atendente atribuido, use responsible_name (resolve automaticamente para todos os perfis, incluindo nao-admin). Em duvida, pergunte ao usuario.
 
 | Entrada do usuario | Filtro a usar |
 |---|---|
@@ -31,7 +32,7 @@ const schema = {
 | "tickets da mesa X" ou "equipe Y" | desk_name |
 | "tickets do cliente Z" ou "empresa ACME" | client_name |
 | "tickets do Joao" (nome de pessoa) | requestor_email ou requestor_ids |
-| "tickets atribuidos ao Joao" | responsible_ids (via search_user) |
+| "tickets atribuidos ao Joao" | responsible_name="Joao" (ou responsible_ids se tiver o ID) |
 | "tickets aberto por joao@empresa.com" | requestor_email |`,
   inputSchema: {
     type: 'object',
@@ -42,7 +43,8 @@ const schema = {
       client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_ids). Use **apenas** quando o usuario disser explicitamente "cliente", "empresa" ou der um nome corporativo conhecido. Para pessoa fisica, prefira requestor_email.' },
       stage_ids: { type: 'string', description: 'IDs dos estágios separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática (deve ser usado junto com desk_name)' },
-      responsible_ids: { type: 'string', description: 'IDs dos responsáveis (atendentes atribuidos) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use quando o usuario disser "atribuido a", "responsavel", "atendente".' },
+      responsible_ids: { type: 'string', description: 'IDs dos responsáveis (atendentes atribuidos) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use quando ja tiver o ID do responsavel.' },
+      responsible_name: { type: 'string', description: 'Nome do responsavel (atendente atribuido) para busca automatica. Resolve o ID via GET /users (admin) ou via grupos de atendimento (nao-admin). Use quando o usuario disser "atribuido a", "responsavel" ou der um nome de atendente.' },
       requestor_ids: { type: 'string', description: 'IDs dos solicitantes (pessoa fisica que abriu o ticket) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar por **pessoa** (nao empresa). Resolva o ID via search_user(type="client").' },
       requestor_email: { type: 'string', description: 'Email do solicitante (pessoa que abriu o ticket). Use quando o usuario referencia uma **pessoa fisica** ou der um email diretamente. Evita round-trip de resolucao de ID.' },
       offset: { type: 'number', description: 'Número da página (padrão: 1)' },
@@ -69,6 +71,7 @@ async function execute(args, { api }) {
     stage_ids,
     stage_name,
     responsible_ids,
+    responsible_name,
     requestor_ids,
     requestor_email,
     offset,
@@ -80,7 +83,7 @@ async function execute(args, { api }) {
   } = args;
 
   // Validar se pelo menos um dos filtros obrigatorios foi informado
-  if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !requestor_ids && !requestor_email) {
+  if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !responsible_name && !requestor_ids && !requestor_email) {
     return errorResponse(
       `**⚠️ Filtro obrigatório não informado**\n\n` +
       `Você deve informar pelo menos um dos seguintes filtros:\n` +
@@ -91,6 +94,7 @@ async function execute(args, { api }) {
       `• **stage_ids** - IDs dos estágios (ex: "1,2,3")\n` +
       `• **stage_name** - Nome do estágio (deve usar junto com desk_name, ex: "to do")\n` +
       `• **responsible_ids** - IDs dos responsáveis (ex: "1,2,3")\n` +
+      `• **responsible_name** - Nome do responsavel atribuido (ex: "Joao") — resolve automaticamente\n` +
       `• **requestor_ids** - IDs dos solicitantes/pessoas (ex: "1,2,3")\n` +
       `• **requestor_email** - Email do solicitante (ex: "joao@empresa.com")\n\n` +
       `*Esta validação evita retornar uma quantidade excessiva de tickets.*`
@@ -158,13 +162,21 @@ async function execute(args, { api }) {
       finalClientIds = String(resolved.clientId);
     }
 
+    // Resolver responsible_name -> responsible_id se fornecido
+    let finalResponsibleIds = responsible_ids;
+    if (responsible_name && !responsible_ids) {
+      const resolved = await resolveResponsibleName(api, responsible_name);
+      if (resolved.error) return resolved.response;
+      finalResponsibleIds = String(resolved.userId);
+    }
+
     // Preparar filtros para a API
     const filters = {};
 
     if (finalDeskIds) filters.desk_ids = finalDeskIds;
     if (finalClientIds) filters.client_ids = finalClientIds;
     if (finalStageIds) filters.stage_ids = finalStageIds;
-    if (responsible_ids) filters.responsible_ids = responsible_ids;
+    if (finalResponsibleIds) filters.responsible_ids = finalResponsibleIds;
     if (requestor_ids) filters.requestor_ids = requestor_ids;
     if (requestor_email) filters.requestor_email = requestor_email;
     if (offset) filters.offset = parseInt(offset);
@@ -196,7 +208,7 @@ async function execute(args, { api }) {
         (finalDeskIds ? `• Mesas: ${finalDeskIds}${desk_name ? ` (${desk_name})` : ''}\n` : '') +
         (finalClientIds ? `• Clientes: ${finalClientIds}${client_name ? ` (${client_name})` : ''}\n` : '') +
         (finalStageIds ? `• Estágios: ${finalStageIds}${stage_name ? ` (${stage_name})` : ''}\n` : '') +
-        (responsible_ids ? `• Responsáveis: ${responsible_ids}\n` : '') +
+        (finalResponsibleIds ? `• Responsáveis: ${finalResponsibleIds}${responsible_name ? ` (${responsible_name})` : ''}\n` : '') +
         (requestor_ids ? `• Solicitantes: ${requestor_ids}\n` : '') +
         (requestor_email ? `• Email solicitante: ${requestor_email}\n` : '') +
         `• Status: ${is_closed ? 'Fechados' : 'Abertos'}\n\n` +

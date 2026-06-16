@@ -291,7 +291,8 @@ List tickets with filtering options.
 - `client_name` (string, optional): Client (company) name for automatic search. Use **only** when the user explicitly says "client", "company", or gives a known corporate name. For a person, prefer `requestor_email`.
 - `stage_ids` (string, optional): Comma-separated stage IDs (e.g., "1,2,3")
 - `stage_name` (string, optional): Stage name (must be used with desk_name)
-- `responsible_ids` (string, optional): Comma-separated responsible (assigned attendant) user IDs
+- `responsible_ids` (string, optional): Comma-separated responsible (assigned attendant) user IDs (use when you already have the ID)
+- `responsible_name` (string, optional): Responsible user name for automatic resolution. Works for both admin (via `GET /users`) and non-admin users (via attendant groups fallback). Use when the user says "assigned to" / "responsible" and gives a name.
 - `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_user(type="client")`.
 - `requestor_email` (string, optional): Email of the requestor (person who opened the ticket). Use when the user references a **person** or provides an email directly. Avoids a round-trip to resolve the ID.
 - `offset` (number, optional): Page number (default: 1)
@@ -301,7 +302,7 @@ List tickets with filtering options.
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 
-**Note:** At least one filter (desk_ids/desk_name, client_ids/client_name, stage_ids/stage_name, responsible_ids, requestor_ids, or requestor_email) is required.
+**Note:** At least one filter (desk_ids/desk_name, client_ids/client_name, stage_ids/stage_name, responsible_ids/responsible_name, requestor_ids, or requestor_email) is required.
 
 **Example — filter by requestor email:**
 ```json
@@ -392,11 +393,11 @@ Search for users by name to use as responsible in tickets.
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 - `offset` (number, optional): Page number (default: 1)
 
-**Implementation Note:**
-The TiFlux API does not support name-based filtering in the `/users` endpoint. This tool fetches up to 200 users from the API and performs client-side filtering by name and email. This approach ensures compatibility with the API while providing the expected search functionality.
+**Non-admin support (fallback via attendant groups):**
+If the API key belongs to a non-admin user, `GET /users` returns 403. In this case, the tool automatically falls back to enumerating attendant groups (`GET /technical-groups`) and their members (`GET /technical-groups/{id}/users`), then applies fuzzy matching by name. The result is identical to the admin path — no parameter change needed. A note is added to the output when the fallback was used.
 
-**Requirements:**
-The API user must have the `users_manage` permission to access the `/users` endpoint.
+**Implementation Note:**
+For admin users, the TiFlux API does not support name-based filtering in the `/users` endpoint — the tool fetches up to 200 users and filters client-side. For non-admin users, the tool uses the technical-groups chain and deduplicates users that appear in multiple groups.
 
 **Example:**
 ```json
@@ -1121,7 +1122,7 @@ When a user references a name without explicitly qualifying the entity type, the
 | "tickets da mesa X" / "equipe Y" | `desk_name` | "mesa" / "equipe" = desk |
 | "tickets do cliente Z" / "empresa ACME" | `client_name` | "cliente" / "empresa" = company |
 | "tickets do João" (person name) | `requestor_email` or `requestor_ids` | Person = requestor |
-| "tickets atribuídos ao João" | `responsible_ids` (resolve via `search_user`) | "atribuído a" = responsible |
+| "tickets atribuídos ao João" | `responsible_name="João"` (or `responsible_ids` if you have the ID) | "atribuído a" = responsible — `responsible_name` resolves automatically for both admin and non-admin |
 | "tickets aberto por joao@empresa.com" | `requestor_email` | Email = requestor |
 | Ambiguous / uncertain | Ask the user | Visible failure > filtering by wrong entity |
 | (create_ticket) "solicitante Fulano" | `requestor_name="Fulano"` — MCP auto-resolves to `requestor_id` | Avoids ghost requestor duplicate |
@@ -1162,7 +1163,9 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
 - `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email` query params)
 - `GET /clients` - Search clients (used by `client_name` auto-resolve in `list_tickets` and `create_ticket`)
-- `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and `requestor_name` auto-resolve in `create_ticket`)
+- `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and `requestor_name` auto-resolve in `create_ticket`). Returns 403 for non-admin users — handled automatically by the fallback below.
+- `GET /technical-groups` - List attendant groups (used by non-admin fallback in `search_user`, `responsible_name` resolution in `create_ticket`, `update_ticket`, `list_tickets`)
+- `GET /technical-groups/{id}/users` - List users in an attendant group (non-admin fallback — deduplicated, fuzzy-matched)
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
 - `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`)

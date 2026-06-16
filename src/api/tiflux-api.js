@@ -19,6 +19,18 @@ const ClientFingerprint = require('../telemetry/ClientFingerprint');
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
+/**
+ * Avalia se um usuario do fallback technical-groups esta ativo, de forma
+ * tolerante a variacao de shape da API (boolean true, 1, "true", "1" ou campo
+ * ausente => ativo). So consideramos inativo quando o campo esta presente e
+ * explicitamente "desligado" — evita filtrar todos os usuarios por engano.
+ */
+function isUserActive(user) {
+  const v = user.active;
+  if (v === false || v === 0 || v === '0' || v === 'false') return false;
+  return true;
+}
+
 class TiFluxAPI {
   /**
    * @param {string|null} apiKey - API key (ou via TIFLUX_API_KEY env)
@@ -820,6 +832,144 @@ class TiFluxAPI {
    */
   async fetchCurrentUser() {
     return await this.makeRequest('/users/me');
+  }
+
+  /**
+   * Lista grupos de atendimento (technical groups)
+   * GET /technical-groups
+   */
+  async listTechnicalGroups(filters = {}) {
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 100));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    return await this.makeRequest(`/technical-groups?${params.toString()}`);
+  }
+
+  /**
+   * Lista usuarios de um grupo de atendimento
+   * GET /technical-groups/{id}/users
+   */
+  async listTechnicalGroupUsers(groupId, filters = {}) {
+    if (!groupId) {
+      return { error: 'groupId é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 200));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    return await this.makeRequest(`/technical-groups/${groupId}/users?${params.toString()}`);
+  }
+
+  /**
+   * Busca usuarios com fallback para nao-admins via technical-groups.
+   *
+   * Fluxo:
+   *   1. Tenta GET /users (admin: retorna lista completa; nao-admin: 403).
+   *   2. Se 403: enumera GET /technical-groups (cap: MAX_GROUPS_CAP grupos),
+   *      para cada grupo GET /technical-groups/{id}/users, dedup por id,
+   *      aplica fuzzyMatchItems pelo nome, retorna no shape { data: [...] }.
+   *
+   * Cap defensivo: MAX_GROUPS_CAP grupos por busca para evitar custo em orgs grandes.
+   * Se truncado, retorna `_truncated: true` no objeto de resposta.
+   */
+  async smartSearchUsers(filters = {}) {
+    const MAX_GROUPS_CAP = 20;
+
+    const directResponse = await this.searchUsers(filters);
+
+    // Caminho direto (admin ou sucesso): retorna imediatamente
+    if (!directResponse.error) {
+      return directResponse;
+    }
+
+    // Se nao for 403, nao e problema de permissao — repassa o erro
+    if (directResponse.status !== 403) {
+      return directResponse;
+    }
+
+    // Fallback: enumerar grupos e seus usuarios.
+    // Pede um a mais que o cap para distinguir "exatamente o cap" de "ha mais grupos".
+    const groupsResponse = await this.listTechnicalGroups({ offset: 1, limit: MAX_GROUPS_CAP + 1 });
+
+    if (groupsResponse.error) {
+      return {
+        error: `Sem acesso a GET /users (403) e GET /technical-groups tambem falhou: ${groupsResponse.error}`,
+        status: groupsResponse.status
+      };
+    }
+
+    const allGroups = groupsResponse.data || [];
+    const truncated = allGroups.length > MAX_GROUPS_CAP;
+    const groups = truncated ? allGroups.slice(0, MAX_GROUPS_CAP) : allGroups;
+
+    // Buscar usuarios de todos os grupos em paralelo (evita N+1 serializado)
+    const perGroupResponses = await Promise.all(
+      groups.map(group => this.listTechnicalGroupUsers(group.id))
+    );
+
+    // Coletar usuarios (dedup por id) e contabilizar grupos sem acesso
+    const seenIds = new Set();
+    const allUsers = [];
+    let groupErrors = 0;
+
+    for (const usersResponse of perGroupResponses) {
+      if (usersResponse.error) {
+        groupErrors++;
+        continue; // skip grupos sem acesso
+      }
+      const users = usersResponse.data || [];
+      for (const user of users) {
+        if (user && user.id !== undefined && !seenIds.has(user.id)) {
+          seenIds.add(user.id);
+          allUsers.push(user);
+        }
+      }
+    }
+
+    // Se NENHUM grupo respondeu e houve falhas, o problema e de permissao —
+    // nao deixar virar "usuario nao encontrado" silencioso (diagnostico enganoso).
+    if (allUsers.length === 0 && groups.length > 0 && groupErrors === groups.length) {
+      return {
+        error: `Sem acesso a GET /users (403) e nenhum dos ${groups.length} grupos de atendimento retornou usuarios (provavel falta de permissao em /technical-groups/{id}/users).`,
+        status: 403
+      };
+    }
+
+    // Aplicar filtros client-side de forma DEFENSIVA: o shape exato de
+    // /technical-groups/{id}/users nao e garantido pelo Swagger, entao so
+    // excluimos um usuario quando o campo esta presente E contradiz o filtro.
+    // Campo ausente nao derruba o resultado (evita "0 usuarios" silencioso).
+    let filtered = allUsers;
+
+    if (filters.active !== undefined) {
+      filtered = filtered.filter(u => isUserActive(u) === filters.active);
+    }
+
+    if (filters.type) {
+      filtered = filtered.filter(u => {
+        const t = u._type !== undefined ? u._type : u.type;
+        return t === undefined || t === null || t === filters.type;
+      });
+    }
+
+    if (filters.name) {
+      const { fuzzyMatchItems } = require('../tools/_shared/fuzzyMatch');
+      const { matches } = fuzzyMatchItems(filters.name, filtered, u => u.name);
+      filtered = matches.map(m => m.item);
+    }
+
+    if (filters.limit && filters.limit < filtered.length) {
+      filtered = filtered.slice(0, filters.limit);
+    }
+
+    return {
+      data: filtered,
+      _truncated: truncated,
+      _fallback: 'technical-groups'
+    };
   }
 
   /**

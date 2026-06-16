@@ -7,6 +7,8 @@
  * Usa api.smartSearchDesks() — tenta busca direta; se 0 resultados,
  * aciona fallback fuzzy automaticamente.
  *
+ * O branching 0/1/N/erro vive em entityResolver.js (compartilhado com userResolver).
+ *
  * Retorno:
  *   { error: false, deskId: number, desk: object }  — 1 mesa encontrada
  *   { error: true,  response: MCPResponse }          — 0, N ou erro de API
@@ -20,7 +22,7 @@
  *   finalDeskId = resolved.deskId;
  */
 
-const { errorResponse } = require('./errors');
+const { resolveEntityByName } = require('./entityResolver');
 
 /**
  * Resolve um nome de mesa para desk_id usando smartSearchDesks.
@@ -30,52 +32,31 @@ const { errorResponse } = require('./errors');
  * @returns {Promise<{error: boolean, deskId?: number, desk?: object, response?: object}>}
  */
 async function resolveDeskName(api, deskName) {
-  const deskSearchResponse = await api.smartSearchDesks(deskName);
+  const response = await api.smartSearchDesks(deskName);
 
-  if (deskSearchResponse.error) {
-    return {
-      error: true,
-      response: errorResponse(
-        `**Erro ao buscar mesa "${deskName}"**\n\n` +
-        `**Erro:** ${deskSearchResponse.error}\n\n` +
-        `*Verifique se o nome da mesa esta correto ou use desk_id diretamente.*`
-      )
-    };
-  }
-
-  const desks = deskSearchResponse.data || [];
-
-  if (desks.length === 0) {
-    return {
-      error: true,
-      response: errorResponse(
-        `**Mesa "${deskName}" nao encontrada**\n\n` +
-        `*Verifique se o nome esta correto ou use desk_id diretamente.*`
-      )
-    };
-  }
-
-  if (desks.length > 1) {
-    let desksList = '**Mesas encontradas:**\n';
-    desks.forEach((desk, index) => {
-      desksList += `${index + 1}. **ID:** ${desk.id} | **Nome:** ${desk.name} | **Display:** ${desk.display_name}\n`;
-    });
-
-    return {
-      error: true,
-      response: errorResponse(
+  return resolveEntityByName(response, {
+    idKey: 'deskId',
+    itemKey: 'desk',
+    idOf: (d) => d.id,
+    searchError: (err) =>
+      `**Erro ao buscar mesa "${deskName}"**\n\n` +
+      `**Erro:** ${err}\n\n` +
+      `*Verifique se o nome da mesa esta correto ou use desk_id diretamente.*`,
+    notFound: () =>
+      `**Mesa "${deskName}" nao encontrada**\n\n` +
+      `*Verifique se o nome esta correto ou use desk_id diretamente.*`,
+    multiple: (desks) => {
+      let desksList = '**Mesas encontradas:**\n';
+      desks.forEach((desk, index) => {
+        desksList += `${index + 1}. **ID:** ${desk.id} | **Nome:** ${desk.name} | **Display:** ${desk.display_name}\n`;
+      });
+      return (
         `**Multiplas mesas encontradas para "${deskName}"**\n\n` +
         `${desksList}\n` +
         `*Use desk_id especifico ou seja mais especifico no desk_name.*`
-      )
-    };
-  }
-
-  return {
-    error: false,
-    deskId: desks[0].id,
-    desk: desks[0]
-  };
+      );
+    }
+  });
 }
 
 module.exports = { resolveDeskName };

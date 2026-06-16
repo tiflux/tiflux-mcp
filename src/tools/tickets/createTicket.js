@@ -22,6 +22,7 @@ const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveRequestorName } = require('../_shared/requestorResolver');
+const { resolveResponsibleName } = require('../_shared/userResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
 
@@ -156,45 +157,12 @@ async function execute(args, { api }) {
 
     let finalResponsibleId = responsible_id;
 
-    // Se responsible_name foi fornecido, buscar o ID do usuario
+    // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado
+    // (suporta admin via GET /users e nao-admin via fallback GET /technical-groups/{id}/users)
     if (responsible_name && !responsible_id) {
-      const userSearchResponse = await api.searchUsers({
-        name: responsible_name,
-        active: true,
-        type: 'attendant', // Apenas atendentes podem ser responsaveis
-        limit: 10
-      });
-
-      if (userSearchResponse.error) {
-        return errorResponse(
-          `**Erro ao buscar usuario "${responsible_name}"**\n\n` +
-          `**Erro:** ${userSearchResponse.error}\n\n` +
-          `*Verifique se o nome do usuario esta correto ou use responsible_id diretamente.*`
-        );
-      }
-
-      const users = userSearchResponse.data || [];
-      if (users.length === 0) {
-        return errorResponse(
-          `**Usuario "${responsible_name}" nao encontrado**\n\n` +
-          `*Verifique se o nome esta correto ou use responsible_id diretamente.*`
-        );
-      }
-
-      if (users.length > 1) {
-        let usersList = '**Usuarios encontrados:**\n';
-        users.forEach((user, index) => {
-          usersList += `${index + 1}. **ID:** ${user.id} | **Nome:** ${user.name} | **Email:** ${user.email}\n`;
-        });
-
-        return errorResponse(
-          `**Multiplos usuarios encontrados para "${responsible_name}"**\n\n` +
-          `${usersList}\n` +
-          `*Use responsible_id especifico ou seja mais especifico no responsible_name.*`
-        );
-      }
-
-      finalResponsibleId = users[0].id;
+      const resolved = await resolveResponsibleName(api, responsible_name);
+      if (resolved.error) return resolved.response;
+      finalResponsibleId = resolved.userId;
     }
 
     // Auto-resolver requestor_name -> requestor_id se sem requestor_id e sem requestor_email
