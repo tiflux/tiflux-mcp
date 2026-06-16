@@ -35,7 +35,9 @@ const slices = [
   require('./getTicketHistories'),
   require('./reopenTicket'),
   require('./uploadTicketFiles'),
-  require('./deleteTicketFile')
+  require('./deleteTicketFile'),
+  require('./deleteTicketAnswer'),
+  require('./deleteTicketAnswerFile')
 ];
 
 class TicketTools {

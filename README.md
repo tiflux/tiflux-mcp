@@ -623,6 +623,40 @@ Get the full detail of a specific answer from a ticket, including attached files
 }
 ```
 
+### delete_ticket_answer
+Remove an answer (client communication) from a ticket in TiFlux.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number from which the answer will be removed (e.g., "123", "456")
+- `answer_id` (string, required): ID of the answer to remove (obtained via `list_ticket_answers` or `get_ticket_answer`)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "answer_id": "501"
+}
+```
+
+**Returns:** Confirmation that the answer was removed.
+
+### delete_ticket_answer_file
+Remove a file attached to a specific ticket answer in TiFlux.
+
+**Parameters:**
+- `answer_id` (string, required): ID of the answer from which the file will be removed (obtained via `list_ticket_answers` or `get_ticket_answer`)
+- `file_id` (string, required): ID of the file to remove (obtained via `get_ticket_answer`, field `files[].id`)
+
+**Example:**
+```json
+{
+  "answer_id": "501",
+  "file_id": "1"
+}
+```
+
+**Returns:** Confirmation that the file was removed.
+
 ### get_ticket_histories
 List the event history (timeline) of a ticket, showing field changes, stage transitions, and other events. Paginated.
 
@@ -672,6 +706,44 @@ Get a specific internal communication with full content.
 **Parameters:**
 - `ticket_number` (string, required): Ticket number containing the communication
 - `communication_id` (string, required): ID of the internal communication to retrieve
+
+### update_internal_communication
+Update the text of an existing internal communication in a ticket. Only the author of the communication can edit it.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number where the communication exists (e.g., "123", "456")
+- `communication_id` (string, required): ID of the internal communication to update (obtained via `list_internal_communications` or `get_internal_communication`)
+- `text` (string, required): New content of the internal communication. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "communication_id": "101",
+  "text": "Updated communication content with **important** details."
+}
+```
+
+**Returns:** Confirmation with updated communication content.
+
+**Note:** The TiFlux API only allows the author of the communication to edit it. A 403 error will be returned if the authenticated user did not create the communication.
+
+### delete_internal_communication
+Remove an internal communication from a ticket in TiFlux.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number from which the communication will be removed (e.g., "123", "456")
+- `communication_id` (string, required): ID of the internal communication to remove (obtained via `list_internal_communications`)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "communication_id": "101"
+}
+```
+
+**Returns:** Confirmation that the internal communication was removed.
 
 ## Appointments (Time Tracking)
 
@@ -1202,6 +1274,8 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /tickets/{ticket_number}/answers` - Create ticket answer (client communication)
 - `GET /tickets/{ticket_number}/answers` - List ticket answers (client communications), paginated
 - `GET /tickets/{ticket_number}/answers/{id}` - Get specific ticket answer with attached files
+- `DELETE /tickets/{ticket_number}/answers/{id}` - Remove a ticket answer (`delete_ticket_answer`)
+- `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
 - `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email` query params)
 - `GET /clients` - Search clients (used by `client_name` auto-resolve in `list_tickets` and `create_ticket`)
@@ -1217,6 +1291,8 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
+- `PUT /tickets/{ticket_number}/internal_communications/{id}` - Update internal communication text (`update_internal_communication`)
+- `DELETE /tickets/{ticket_number}/internal_communications/{id}` - Remove an internal communication (`delete_internal_communication`)
 - `GET /tickets/{ticket_number}/files` - Get ticket attached files
 - `POST /tickets/{ticket_number}/files` - Upload files to an existing ticket (`upload_ticket_files`)
 - `DELETE /tickets/{ticket_number}/files/{id}` - Remove a file attached to a ticket (`delete_ticket_file`)

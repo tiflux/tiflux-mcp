@@ -4,11 +4,13 @@
 
 const TiFluxAPI = require('../../api/tiflux-api');
 
-// Ordem preservada do handler legado: create -> list -> get.
+// Ordem preservada do handler legado: create -> list -> get -> update -> delete.
 const slices = [
   require('./createInternalCommunication'),
   require('./listInternalCommunications'),
-  require('./getInternalCommunication')
+  require('./getInternalCommunication'),
+  require('./updateInternalCommunication'),
+  require('./deleteInternalCommunication')
 ];
 
 class InternalCommunicationsTools {

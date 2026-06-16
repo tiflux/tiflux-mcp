@@ -1337,6 +1337,104 @@ class TiFluxAPI {
   }
 
   /**
+   * Remove uma resposta de um ticket.
+   * DELETE /tickets/{ticket_number}/answers/{id}
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {string|number} answerId - ID da resposta a remover
+   */
+  async deleteTicketAnswer(ticketNumber, answerId) {
+    try {
+      const response = await this.makeRequest(
+        `/tickets/${encodeURIComponent(ticketNumber)}/answers/${encodeURIComponent(answerId)}`,
+        'DELETE'
+      );
+
+      // 204 No Content — sucesso sem corpo
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar resposta: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
+   * Remove um arquivo de uma resposta de ticket.
+   * DELETE /ticket_answers/{ticket_answer_id}/files/{id}
+   *
+   * @param {string|number} answerId - ID da resposta
+   * @param {string|number} fileId - ID do arquivo a remover
+   */
+  async deleteTicketAnswerFile(answerId, fileId) {
+    try {
+      const response = await this.makeRequest(
+        `/ticket_answers/${encodeURIComponent(answerId)}/files/${encodeURIComponent(fileId)}`,
+        'DELETE'
+      );
+
+      // 204 No Content — sucesso sem corpo
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar arquivo da resposta: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
+   * Atualiza o texto de uma comunicacao interna.
+   * PUT /tickets/{ticket_number}/internal_communications/{id}
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {string|number} communicationId - ID da comunicacao interna
+   * @param {string} text - novo texto (HTML, ja convertido pelo slice)
+   */
+  async updateInternalCommunication(ticketNumber, communicationId, text) {
+    const jsonData = JSON.stringify({ text });
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest(
+      `/tickets/${encodeURIComponent(ticketNumber)}/internal_communications/${encodeURIComponent(communicationId)}`,
+      'PUT',
+      jsonData,
+      headers
+    );
+  }
+
+  /**
+   * Remove uma comunicacao interna de um ticket.
+   * DELETE /tickets/{ticket_number}/internal_communications/{id}
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {string|number} communicationId - ID da comunicacao interna
+   */
+  async deleteInternalCommunication(ticketNumber, communicationId) {
+    try {
+      const response = await this.makeRequest(
+        `/tickets/${encodeURIComponent(ticketNumber)}/internal_communications/${encodeURIComponent(communicationId)}`,
+        'DELETE'
+      );
+
+      // 204 No Content — sucesso sem corpo
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar comunicacao interna: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
    * Busca itens de catalogo de servicos de uma mesa especifica
    * GET /desks/{id}/services-catalogs-items
    */
