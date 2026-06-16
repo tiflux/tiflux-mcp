@@ -10,12 +10,11 @@
  */
 
 const querystring = require('querystring');
-const fs = require('fs');
-const path = require('path');
 
 const HttpClient = require('../infrastructure/http/HttpClient');
 const { APIError, TimeoutError, NetworkError } = require('../utils/errors');
 const ClientFingerprint = require('../telemetry/ClientFingerprint');
+const { MAX_BASE64_BYTES_25MB, MAX_BASE64_BYTES_40MB } = require('../tools/_shared/fileValidation');
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -188,25 +187,16 @@ class TiFluxAPI {
 
   /**
    * Cria um novo ticket via multipart/form-data.
-   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename }).
-   * ticketData.files: array combinado de paths e/ou objetos base64 (opcional).
+   * Aceita arquivos em base64 (objeto { content, filename }) via ticketData.files (opcional).
    */
   async createTicket(ticketData) {
     try {
-      const MAX_FILE_SIZE = 26214400; // 25MB
-
-      const processedFiles = [];
-      if (Array.isArray(ticketData.files)) {
-        for (let i = 0; i < Math.min(ticketData.files.length, 10); i++) {
-          const result = this._processAttachment(ticketData.files[i], i, MAX_FILE_SIZE, '25MB');
-          if (result.error) return result;
-          processedFiles.push(result);
-        }
-      }
+      const processed = this._processAttachments(ticketData.files, MAX_BASE64_BYTES_25MB, '25MB');
+      if (processed.error) return processed;
 
       const { buffer, headers } = this._buildMultipart({
         fields: this._ticketFields(ticketData),
-        files: processedFiles
+        files: processed.processedFiles
       });
 
       return await this.makeRequestBinary('/tickets', 'POST', buffer, headers);
@@ -303,28 +293,20 @@ class TiFluxAPI {
 
   /**
    * Cria uma resposta (comunicacao com cliente) em um ticket especifico.
-   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename }).
+   * Aceita arquivos em base64 (objeto { content, filename }) via answerData.files (opcional).
    */
   async createTicketAnswer(ticketNumber, answerData) {
     try {
-      const MAX_FILE_SIZE = 41943040; // 40MB (Ticket Answer limit)
-
       if (!answerData.name) {
         return { error: 'Campo "name" é obrigatório', status: 'VALIDATION_ERROR' };
       }
 
-      const processedFiles = [];
-      if (answerData.files && Array.isArray(answerData.files) && answerData.files.length > 0) {
-        for (let i = 0; i < Math.min(answerData.files.length, 10); i++) {
-          const result = this._processAttachment(answerData.files[i], i, MAX_FILE_SIZE, '40MB');
-          if (result.error) return result;
-          processedFiles.push(result);
-        }
-      }
+      const processed = this._processAttachments(answerData.files, MAX_BASE64_BYTES_40MB, '40MB');
+      if (processed.error) return processed;
 
       const { buffer, headers } = this._buildMultipart({
         fields: this._ticketAnswerFields(answerData),
-        files: processedFiles
+        files: processed.processedFiles
       });
 
       return await this.makeRequestBinary(
@@ -543,21 +525,15 @@ class TiFluxAPI {
 
   /**
    * Versao completa com arquivos.
-   * Suporta arquivos locais (string com path) e base64 (objeto { content, filename }).
+   * Aceita arquivos em base64 (objeto { content, filename }).
    */
   async createInternalCommunicationWithFiles(ticketNumber, text, files) {
-    const MAX_FILE_SIZE = 26214400; // 25MB (Internal Communication limit)
-    const processedFiles = [];
-
-    for (let i = 0; i < Math.min(files.length, 10); i++) {
-      const result = this._processAttachment(files[i], i, MAX_FILE_SIZE, '25MB');
-      if (result.error) return result;
-      processedFiles.push(result);
-    }
+    const processed = this._processAttachments(files, MAX_BASE64_BYTES_25MB, '25MB');
+    if (processed.error) return processed;
 
     const { buffer, headers } = this._buildMultipart({
       fields: [{ name: 'text', value: text }],
-      files: processedFiles
+      files: processed.processedFiles
     });
 
     return await this.makeRequestBinary(
@@ -569,30 +545,10 @@ class TiFluxAPI {
   }
 
   /**
-   * Processa um anexo (string=path local ou objeto base64) validando tamanho.
+   * Processa um anexo base64 (objeto { content, filename }) validando tamanho.
    * Retorna `{ content, filename }` em sucesso ou `{ error, status }` em falha.
    */
   _processAttachment(file, index, maxSize, maxSizeLabel) {
-    if (typeof file === 'string') {
-      if (!fs.existsSync(file)) {
-        return { error: `Arquivo não encontrado: ${file}`, status: 'FILE_NOT_FOUND' };
-      }
-
-      const fileStats = fs.statSync(file);
-      if (fileStats.size > maxSize) {
-        return { error: `Arquivo muito grande (máx ${maxSizeLabel}): ${path.basename(file)}`, status: 'FILE_TOO_LARGE' };
-      }
-
-      const content = fs.readFileSync(file);
-      const filename = path.basename(file);
-
-      this.logger.info('TiFlux API file attachment (local)', {
-        filename, sizeBytes: fileStats.size, source: 'path'
-      });
-
-      return { content, filename };
-    }
-
     if (typeof file === 'object' && file && file.content && file.filename) {
       try {
         const content = Buffer.from(file.content, 'base64');
@@ -619,9 +575,58 @@ class TiFluxAPI {
     }
 
     return {
-      error: `Formato de arquivo inválido no índice ${index}. Use string (path) ou { content: "base64...", filename: "nome.ext" }`,
+      error: `Formato de arquivo inválido no índice ${index}. Use { content: "base64...", filename: "nome.ext" }`,
       status: 'INVALID_FILE_FORMAT'
     };
+  }
+
+  /**
+   * Processa um array de anexos base64 (no maximo 10), validando cada um.
+   * Centraliza o loop reutilizado por createTicket, createTicketAnswer,
+   * createInternalCommunicationWithFiles e uploadTicketFiles.
+   * Retorna `{ processedFiles }` em sucesso ou `{ error, status }` na primeira falha.
+   */
+  _processAttachments(files, maxSize, maxSizeLabel) {
+    const list = Array.isArray(files) ? files : [];
+    const processedFiles = [];
+    for (let i = 0; i < Math.min(list.length, 10); i++) {
+      const result = this._processAttachment(list[i], i, maxSize, maxSizeLabel);
+      if (result.error) return result;
+      processedFiles.push(result);
+    }
+    return { processedFiles };
+  }
+
+  /**
+   * Deriva o Content-Type de uma parte por extensao de filename.
+   * Tipos texto recebem `; charset=utf-8` para evitar mojibake no portal.
+   * Fallback: application/octet-stream.
+   */
+  _mimeTypeForFilename(filename) {
+    const MIME_MAP = {
+      '.md':   'text/markdown; charset=utf-8',
+      '.txt':  'text/plain; charset=utf-8',
+      '.csv':  'text/csv; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.html': 'text/html; charset=utf-8',
+      '.htm':  'text/html; charset=utf-8',
+      '.xml':  'application/xml; charset=utf-8',
+      '.pdf':  'application/pdf',
+      '.png':  'image/png',
+      '.jpg':  'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif':  'image/gif',
+      '.webp': 'image/webp',
+      '.svg':  'image/svg+xml',
+      '.zip':  'application/zip',
+      '.xls':  'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.doc':  'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    };
+    const dot = filename.lastIndexOf('.');
+    const ext = dot === -1 ? '' : filename.slice(dot).toLowerCase();
+    return MIME_MAP[ext] || 'application/octet-stream';
   }
 
   /**
@@ -642,10 +647,15 @@ class TiFluxAPI {
     }
 
     for (const file of files) {
+      const contentType = this._mimeTypeForFilename(file.filename);
+      // Defesa em profundidade: remove CR/LF/aspas que poderiam injetar headers
+      // de parte no multipart (a validacao de slice ja rejeita, mas o builder e
+      // o ponto de injecao real e pode ser chamado por outros caminhos).
+      const safeFilename = String(file.filename).replace(/[\r\n"]/g, '');
       let header = '';
       header += `--${boundary}\r\n`;
-      header += `Content-Disposition: form-data; name="files[]"; filename="${file.filename}"\r\n`;
-      header += 'Content-Type: application/octet-stream\r\n';
+      header += `Content-Disposition: form-data; name="files[]"; filename="${safeFilename}"\r\n`;
+      header += `Content-Type: ${contentType}\r\n`;
       header += '\r\n';
       parts.push(Buffer.from(header));
       parts.push(file.content);
@@ -775,6 +785,51 @@ class TiFluxAPI {
     params.append('limit', limit);
 
     return await this.makeRequest(`/tickets/${ticketNumber}/stages-slas?${params.toString()}`);
+  }
+
+  /**
+   * Faz upload de arquivos para um ticket existente via multipart.
+   * POST /tickets/{ticket_number}/files
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {Array<{content: string, filename: string}>} files - array de objetos base64
+   */
+  async uploadTicketFiles(ticketNumber, files) {
+    try {
+      const processed = this._processAttachments(files, MAX_BASE64_BYTES_25MB, '25MB');
+      if (processed.error) return processed;
+
+      const { buffer, headers } = this._buildMultipart({
+        fields: [],
+        files: processed.processedFiles
+      });
+
+      return await this.makeRequestBinary(`/tickets/${encodeURIComponent(ticketNumber)}/files`, 'POST', buffer, headers);
+    } catch (error) {
+      return { error: `Erro interno ao fazer upload de arquivos: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
+   * Remove um arquivo anexado de um ticket.
+   * DELETE /tickets/{ticket_number}/files/{id}
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {string|number} fileId - ID do arquivo a remover
+   */
+  async deleteTicketFile(ticketNumber, fileId) {
+    try {
+      const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/files/${encodeURIComponent(fileId)}`, 'DELETE');
+
+      // 204 No Content — sucesso sem corpo
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar arquivo: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
   }
 
   /**

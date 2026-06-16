@@ -191,10 +191,11 @@ Create a new ticket in TiFlux.
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
 - `parent_ticket_number` (number, optional): Parent ticket number — the created ticket will be linked as a child of this ticket
-- `files` (array, optional): Array of local file paths to attach to the ticket (max 10 files, 25MB each)
-- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.png"}]` (alternative to files, max 10 files, 25MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.png"}]` (max 10 files, 25MB each)
 
-**New in v2.4.0:** Support for file/base64 upload via `files`/`files_base64` parameters. The ticket is now sent as `multipart/form-data` (aligned with the TiFlux API spec). **Note for Server mode (Lambda):** `files_base64` payloads are subject to the 6MB API Gateway limit — for large files, use `files` (local paths) in SDK mode instead.
+**New in v2.4.0:** Support for base64 file upload via `files_base64`. The ticket is sent as `multipart/form-data`. **Note for Server mode (Lambda):** `files_base64` payloads are subject to the 6MB API Gateway limit.
+
+> **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
 ### update_ticket
 Update an existing ticket in TiFlux.
@@ -362,10 +363,11 @@ Create a new answer (client communication) in a specific ticket.
 - `ticket_number` (string, required): Ticket number where answer will be created
 - `text` (string, required): Answer content that will be sent to the client. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
 - `with_signature` (boolean, optional): Include user signature in the answer (default: false)
-- `files` (array, optional): Array of local file paths to attach (max 10 files, 40MB each)
-- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (alternative to files, max 10 files, 40MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 40MB each)
 
 **New in v1.3.0:** Support for base64 file upload via `files_base64` parameter.
+
+> **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
 **Example:**
 ```json
@@ -373,7 +375,7 @@ Create a new answer (client communication) in a specific ticket.
   "ticket_number": "123",
   "text": "Hello, your issue has been resolved.",
   "with_signature": true,
-  "files": ["/path/to/attachment.pdf"]
+  "files_base64": [{"content": "JVBERi0x...", "filename": "attachment.pdf"}]
 }
 ```
 
@@ -468,17 +470,18 @@ Create a new internal communication in a ticket.
 **Parameters:**
 - `ticket_number` (string, required): Ticket number where communication will be created
 - `text` (string, required): Communication content. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
-- `files` (array, optional): Array of local file paths to attach (max 10 files, 25MB each)
-- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (alternative to files, max 10 files, 25MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each)
 
 **New in v1.3.0:** Support for base64 file upload via `files_base64` parameter.
+
+> **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
 **Example:**
 ```json
 {
   "ticket_number": "123",
   "text": "Internal communication content",
-  "files": ["/path/to/file1.pdf", "/path/to/file2.png"]
+  "files_base64": [{"content": "base64...", "filename": "relatorio.pdf"}]
 }
 ```
 
@@ -509,6 +512,45 @@ List of files with details including:
   "ticket_number": "123"
 }
 ```
+
+### upload_ticket_files
+Upload files to an existing ticket in TiFlux. Files must be provided as base64-encoded content.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number where files will be attached (e.g., "123", "456")
+- `files_base64` (array, required): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "files_base64": [
+    {"content": "base64encodedcontent...", "filename": "relatorio.md"},
+    {"content": "base64encodedcontent...", "filename": "screenshot.png"}
+  ]
+}
+```
+
+**Returns:** Confirmation with list of uploaded files.
+
+**Note:** Uploaded text files (`.md`, `.txt`, `.csv`, `.json`) are sent with the appropriate `charset=utf-8` content type, which prevents character encoding issues (mojibake) in the TiFlux portal.
+
+### delete_ticket_file
+Remove a file attached to a ticket in TiFlux.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number from which the file will be removed (e.g., "123", "456")
+- `file_id` (string, required): ID of the file to remove (obtained via `get_ticket_files`)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "file_id": "456"
+}
+```
+
+**Returns:** Confirmation that the file was removed.
 
 ### get_ticket_stages_slas
 List the full history of a ticket as it moved through the desk's stages, with the SLA outcome for each stage. Useful for SLA audits, escalation reviews, and bottleneck analysis.
@@ -1151,7 +1193,7 @@ This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage
 The MCP server integrates with the following TiFlux API v2 endpoints:
 
 - `GET /tickets/{id}` - Retrieve ticket details
-- `POST /tickets` - Create new tickets (supports multipart with file attachments via `files`/`files_base64`; `requestor_id` body field links existing requestor)
+- `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
 - `PUT /tickets/{id}` - Update existing tickets
 - `PUT /tickets/{id}/entities` - Update ticket custom fields
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
@@ -1176,6 +1218,8 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
 - `GET /tickets/{ticket_number}/files` - Get ticket attached files
+- `POST /tickets/{ticket_number}/files` - Upload files to an existing ticket (`upload_ticket_files`)
+- `DELETE /tickets/{ticket_number}/files/{id}` - Remove a file attached to a ticket (`delete_ticket_file`)
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters

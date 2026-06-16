@@ -4,7 +4,7 @@
  * Endpoint: POST /tickets/{ticket_number}/internal_communications (via api.createInternalCommunication).
  * Validacoes locais:
  *   - ticket_number + text obrigatorios (throw)
- *   - maximo 10 arquivos combinados (files + files_base64)
+ *   - maximo 10 arquivos (files_base64)
  *   - cada file_base64 precisa de {content, filename}
  *   - tamanho base64 estimado <= 25MB
  *
@@ -16,7 +16,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
-const { validateBase64Files, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
+const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
 
 const MAX_FILES = 10;
 
@@ -34,29 +34,10 @@ const schema = {
         type: 'string',
         description: 'Conteúdo da comunicação interna. Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.'
       },
-      files: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Lista com os caminhos dos arquivos locais a serem anexados (opcional, máximo 10 arquivos de 25MB cada)'
-      },
-      files_base64: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            content: {
-              type: 'string',
-              description: 'Conteúdo do arquivo codificado em base64'
-            },
-            filename: {
-              type: 'string',
-              description: 'Nome do arquivo com extensão (ex: "documento.pdf", "planilha.csv")'
-            }
-          },
-          required: ['content', 'filename']
-        },
-        description: 'Lista de arquivos em formato base64 para anexar (alternativa ao parâmetro files, máximo 10 arquivos de 25MB cada)'
-      }
+      files_base64: filesBase64SchemaProperty(
+        'Lista de arquivos em formato base64 para anexar (máximo 10 arquivos de 25MB cada)',
+        '"documento.pdf", "planilha.csv"'
+      )
     },
     required: ['ticket_number', 'text']
   }
@@ -64,22 +45,14 @@ const schema = {
 
 
 async function execute(args, { api }) {
-  const { ticket_number, text, files = [], files_base64 = [] } = args;
+  const { ticket_number, text, files_base64 = [] } = args;
 
   requireField(args, 'ticket_number');
   requireField(args, 'text');
 
   try {
-    const allFiles = [...files, ...files_base64];
-
-    if (allFiles.length > MAX_FILES) {
-      return errorResponse(
-        `**⚠️ Muitos arquivos**\n\n` +
-        `**Ticket:** #${ticket_number}\n` +
-        `**Arquivos fornecidos:** ${allFiles.length} (${files.length} locais + ${files_base64.length} base64)\n` +
-        `**Limite:** 10 arquivos por comunicação\n\n` +
-        `*Remova alguns arquivos e tente novamente.*`
-      );
+    if (files_base64.length > MAX_FILES) {
+      return tooManyFilesError(ticket_number, files_base64.length, '10 arquivos por comunicação');
     }
 
     if (files_base64.length > 0) {
@@ -89,7 +62,7 @@ async function execute(args, { api }) {
 
     // Converter Markdown → HTML antes de enviar à API v2 (idempotente para HTML já presente)
     const textHtml = markdownToHtml(text);
-    const response = await api.createInternalCommunication(ticket_number, textHtml, allFiles);
+    const response = await api.createInternalCommunication(ticket_number, textHtml, files_base64);
 
     if (response.error) {
       return errorResponse(

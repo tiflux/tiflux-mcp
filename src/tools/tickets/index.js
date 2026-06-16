@@ -7,9 +7,10 @@
  *   - instala um metodo `_exec_<toolName>` por slice, com ctx { api, logger }
  *   - expoe `static TOOLS` derivado dos slices (formato consumido pelo registry)
  *
- * Status: 14 slices — 10 originais com paridade byte-a-byte contra o legado
+ * Status: 16 slices — 10 originais com paridade byte-a-byte contra o legado
  * src/handlers/tickets.js (validado via tests/unit/tools/tickets/parity.test.js)
- * + 4 de answers/histories/reopen (spec 2026-06-12-ticket-answers-read).
+ * + 4 de answers/histories/reopen (spec 2026-06-12-ticket-answers-read)
+ * + 2 de upload/delete arquivos (spec 2026-06-16-ticket-files-upload-delete-base64).
  * Registry swap ocorre em src/registry/index.js.
  */
 
@@ -32,7 +33,9 @@ const slices = [
   require('./listTicketAnswers'),
   require('./getTicketAnswer'),
   require('./getTicketHistories'),
-  require('./reopenTicket')
+  require('./reopenTicket'),
+  require('./uploadTicketFiles'),
+  require('./deleteTicketFile')
 ];
 
 class TicketTools {

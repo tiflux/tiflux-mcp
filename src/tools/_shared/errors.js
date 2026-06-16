@@ -20,4 +20,20 @@ function errorResponse(text) {
 // Alias mantido por compatibilidade com usos existentes.
 const apiErrorResponse = errorResponse;
 
-module.exports = { errorResponse, apiErrorResponse };
+/**
+ * Resposta de erro para excecoes internas (bloco catch).
+ * Padroniza o rodape "Erro: <msg> / Verifique sua conexao", recebendo apenas
+ * o titulo contextual de cada slice.
+ *
+ * @param {string} title - titulo em Markdown (ex: "**❌ Erro interno ao remover arquivo do ticket #123**")
+ * @param {Error} error - excecao capturada
+ */
+function internalErrorResponse(title, error) {
+  return errorResponse(
+    `${title}\n\n` +
+    `**Erro:** ${error.message}\n\n` +
+    `*Verifique sua conexão e configurações da API.*`
+  );
+}
+
+module.exports = { errorResponse, apiErrorResponse, internalErrorResponse };

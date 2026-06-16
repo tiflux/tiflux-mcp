@@ -3,14 +3,14 @@
  * em um ticket.
  *
  * Endpoint: POST /tickets/{ticket_number}/answers (via api.createTicketAnswer).
- * Suporta anexos (files local paths + files_base64), max 10 arquivos, max 40MB cada.
+ * Suporta anexos (files_base64 apenas), max 10 arquivos, max 40MB cada.
  */
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
-const { validateBase64Files, MAX_BASE64_BYTES_40MB } = require('../_shared/fileValidation');
+const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_40MB } = require('../_shared/fileValidation');
 
 const MAX_FILES = 10;
 
@@ -23,47 +23,25 @@ const schema = {
       ticket_number: { type: 'string', description: 'Número do ticket onde será criada a resposta' },
       text: { type: 'string', description: 'Conteúdo da resposta que será enviada ao cliente. Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
       with_signature: { type: 'boolean', description: 'Incluir assinatura do usuário na resposta (padrão: false)' },
-      files: {
-        type: 'array',
-        description: 'Lista com os caminhos dos arquivos locais a serem anexados (opcional, máximo 10 arquivos de 40MB cada)',
-        items: { type: 'string' }
-      },
-      files_base64: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            content: { type: 'string', description: 'Conteúdo do arquivo codificado em base64' },
-            filename: { type: 'string', description: 'Nome do arquivo com extensão (ex: "documento.pdf", "relatorio.xlsx")' }
-          },
-          required: ['content', 'filename']
-        },
-        description: 'Lista de arquivos em formato base64 para anexar (alternativa ao parâmetro files, máximo 10 arquivos de 40MB cada)'
-      }
+      files_base64: filesBase64SchemaProperty(
+        'Lista de arquivos em formato base64 para anexar (máximo 10 arquivos de 40MB cada)',
+        '"documento.pdf", "relatorio.xlsx"'
+      )
     },
     required: ['ticket_number', 'text']
   }
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, text, with_signature, files = [], files_base64 = [] } = args;
+  const { ticket_number, text, with_signature, files_base64 = [] } = args;
 
   requireField(args, 'ticket_number');
   requireField(args, 'text');
 
   try {
-    // Combinar arquivos locais e base64
-    const allFiles = [...files, ...files_base64];
-
     // Validar numero total de arquivos
-    if (allFiles.length > MAX_FILES) {
-      return errorResponse(
-        `**⚠️ Muitos arquivos**\n\n` +
-        `**Ticket:** #${ticket_number}\n` +
-        `**Arquivos fornecidos:** ${allFiles.length} (${files.length} locais + ${files_base64.length} base64)\n` +
-        `**Limite:** 10 arquivos por resposta\n\n` +
-        `*Remova alguns arquivos e tente novamente.*`
-      );
+    if (files_base64.length > MAX_FILES) {
+      return tooManyFilesError(ticket_number, files_base64.length, '10 arquivos por resposta');
     }
 
     // Validar estrutura dos arquivos base64
@@ -79,8 +57,8 @@ async function execute(args, { api }) {
     };
 
     // Adicionar arquivos se fornecidos
-    if (allFiles.length > 0) {
-      answerData.files = allFiles;
+    if (files_base64.length > 0) {
+      answerData.files = files_base64;
     }
 
     // Criar resposta via API
@@ -96,8 +74,8 @@ async function execute(args, { api }) {
     }
 
     const answer = response.data;
-    const filesInfo = files && files.length > 0
-      ? `\n**Arquivos anexados:** ${files.length} arquivo(s)`
+    const filesInfo = files_base64.length > 0
+      ? `\n**Arquivos anexados:** ${files_base64.length} arquivo(s)`
       : '';
 
     return textResponse(
