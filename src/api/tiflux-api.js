@@ -1435,6 +1435,152 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca um cliente especifico pelo ID
+   * GET /clients/{id}
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} options - { showEntities (boolean) }
+   */
+  async getClient(clientId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.showEntities) params.append('show_entities', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}${qs}`);
+  }
+
+  /**
+   * Cria um novo cliente
+   * POST /clients
+   *
+   * @param {object} body - { name*, social*, social_revenue, desk_ids[], ... }
+   */
+  async createClient(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest('/clients', 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um cliente existente (atualizacao parcial — so envia campos informados)
+   * PUT /clients/{id}
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} body - campos a atualizar
+   */
+  async updateClient(clientId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Atualiza campos personalizados (entities) de um cliente
+   * PUT /clients/{id}/entities
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} entitiesData - { entities[] }
+   */
+  async updateClientEntities(clientId, entitiesData) {
+    const jsonData = JSON.stringify(entitiesData);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/entities`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Lista clientes com filtros opcionais
+   * GET /clients
+   *
+   * @param {object} filters - { active, name, social_revenue, offset, limit }
+   */
+  async listClients(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.active !== undefined) params.append('active', filters.active);
+    if (filters.name) params.append('name', filters.name);
+    if (filters.social_revenue) params.append('social_revenue', filters.social_revenue);
+
+    return await this.makeRequest(`/clients?${params.toString()}`);
+  }
+
+  /**
+   * Lista mesas relacionadas a um cliente especifico
+   * GET /clients/{id}/desks
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} options - { offset, limit }
+   */
+  async getClientDesks(clientId, options = {}) {
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(options.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/desks?${params.toString()}`);
+  }
+
+  /**
+   * Lista grupos tecnicos relacionados a um cliente especifico
+   * GET /clients/{id}/technical-groups
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} options - { offset, limit }
+   */
+  async getClientTechnicalGroups(clientId, options = {}) {
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(options.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/technical-groups?${params.toString()}`);
+  }
+
+  /**
+   * Cria um usuario cliente (portal) para um cliente especifico
+   * POST /clients/{id}/users
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} user - { name*, email*, extension, authorization_flow, telephone, country_code }
+   */
+  async createClientUser(clientId, user) {
+    const jsonData = JSON.stringify({ user });
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/users`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Adiciona dominio/e-mail autorizado a abrir tickets em nome do cliente
+   * POST /clients/{id}/email_tickets_permissions
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {string} address - dominio ou email
+   */
+  async addClientEmailPermission(clientId, address) {
+    const jsonData = JSON.stringify({ address });
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/email_tickets_permissions`, 'POST', jsonData, headers);
+  }
+
+  /**
    * Busca itens de catalogo de servicos de uma mesa especifica
    * GET /desks/{id}/services-catalogs-items
    */

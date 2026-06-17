@@ -5,7 +5,16 @@
 const TiFluxAPI = require('../../api/tiflux-api');
 
 const slices = [
-  require('./searchClient')
+  require('./searchClient'),
+  require('./getClient'),
+  require('./createClient'),
+  require('./updateClient'),
+  require('./updateClientEntities'),
+  require('./listClients'),
+  require('./getClientDesks'),
+  require('./getClientTechnicalGroups'),
+  require('./createClientUser'),
+  require('./addClientEmailPermission')
 ];
 
 class ClientTools {

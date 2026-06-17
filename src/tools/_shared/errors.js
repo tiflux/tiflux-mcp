@@ -36,4 +36,21 @@ function internalErrorResponse(title, error) {
   );
 }
 
-module.exports = { errorResponse, apiErrorResponse, internalErrorResponse };
+/**
+ * Resposta de erro para falha vinda da API v2 (`response.error` presente).
+ * Padroniza o corpo "Código / Mensagem"; titulo e cauda contextual variam por slice.
+ *
+ * @param {string} title - titulo em Markdown (ex: "**❌ Erro ao buscar cliente #123**")
+ * @param {{status: number|string, error: string}} response - resposta da API com erro
+ * @param {string} [tail] - dica contextual em Markdown (ex: "*Verifique se o cliente existe.*")
+ */
+function apiFailureResponse(title, response, tail = '') {
+  return errorResponse(
+    `${title}\n\n` +
+    `**Código:** ${response.status}\n` +
+    `**Mensagem:** ${response.error}\n\n` +
+    `${tail}`
+  );
+}
+
+module.exports = { errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse };

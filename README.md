@@ -11,7 +11,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Chat Management**: List inbox/mine/in-attendance/archived chats, fetch chat details, transfer/link chats, send WhatsApp messages and finish chats
 - **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
 - **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
-- **Client Search**: Search for clients by name with automatic resolution
+- **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
 - **File Upload Support**: Attach up to 10 files (25MB each) to internal communications
 - **API Integration**: Direct integration with TiFlux API v2
 - **Environment Configuration**: Secure configuration with environment variables
@@ -380,10 +380,161 @@ Create a new answer (client communication) in a specific ticket.
 ```
 
 ### search_client
-Search for clients by name.
+Search for clients by name (shortcut — name-only). Use `list_clients` for full filters and pagination.
 
 **Parameters:**
 - `client_name` (string, required): Client name to search (partial match supported)
+
+### list_clients
+List clients with filters and pagination. Full version of `search_client` — accepts status, name, and CPF/CNPJ filters.
+
+**Parameters:**
+- `active` (boolean, optional): Filter by status: true = active only, false = inactive only. Omit for all.
+- `name` (string, optional): Filter by name (partial match)
+- `social_revenue` (string, optional): Filter by CPF/CNPJ
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+**Example:**
+```json
+{
+  "active": true,
+  "name": "Acme",
+  "limit": 10
+}
+```
+
+### get_client
+Get full details of a client by ID.
+
+**Parameters:**
+- `client_id` (number, required): Client ID (obtained via `search_client` or `list_clients`)
+- `show_entities` (boolean, optional): Include custom fields (entities) in the response (default: false)
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "show_entities": true
+}
+```
+
+### create_client
+Create a new client in TiFlux. Only `name` and `social` are required; all other fields are optional and only sent if provided.
+
+**Parameters:**
+- `name` (string, required): Client trade name (nome fantasia)
+- `social` (string, required): Client legal name (razão social)
+- `social_revenue` (string, optional): CPF or CNPJ
+- `desk_ids` (array of numbers, optional): Desk IDs to associate
+- `add_all_desks` (boolean, optional): Associate all desks
+- `technical_group_ids` (array of numbers, optional): Technical group IDs to associate
+- `status` (boolean, optional): Active (true) or inactive (false) — default: true
+- `max_agents` (number, optional): Maximum agents allowed
+- `email_financial` (string, optional): Financial contact email
+- `anotations` (string, optional): Internal notes
+- `billing_report_type` (string, optional): `detailed_with_appointment`, `detailed`, `synthetic`, or `""` (empty)
+
+**Example:**
+```json
+{
+  "name": "Acme Corp",
+  "social": "Acme Corporação Ltda",
+  "social_revenue": "12.345.678/0001-99",
+  "desk_ids": [1, 2]
+}
+```
+
+### update_client
+Update an existing client (partial update — only provided fields are sent).
+
+**Parameters:**
+- `client_id` (number, required): Client ID to update
+- All fields from `create_client` (all optional)
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "status": false,
+  "email_financial": "novo@empresa.com"
+}
+```
+
+### update_client_entities
+Update custom fields (entities) for a client. Supports up to 50 fields per request. For checkbox fields with multiple options, send one item per option with `entity_field_id + entity_field_option_id + value: "true"/"false"`.
+
+**Parameters:**
+- `client_id` (number, required): Client ID to update
+- `entities` (array, required): List of custom fields. Each item:
+  - `entity_field_id` (number, required): Custom field ID
+  - `value` (string, required): Field value (or null to clear)
+  - `entity_field_option_id` (number, optional): Option ID for checkbox/single_select
+  - `country_code` (string, optional): Country code for phone fields
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "entities": [
+    { "entity_field_id": 72, "value": "TI" },
+    { "entity_field_id": 80, "entity_field_option_id": 12, "value": "true" }
+  ]
+}
+```
+
+### get_client_desks
+List desks associated with a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+### get_client_technical_groups
+List technical groups associated with a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+### create_client_user
+Create a portal user for a client. Allows the user to access the client portal.
+
+**Parameters:**
+- `client_id` (number, required): Client ID to associate the user with
+- `name` (string, required): Full name of the user
+- `email` (string, required): User email — used for portal login
+- `extension` (string, optional): Phone extension
+- `authorization_flow` (boolean, optional): Require authorization for portal access
+- `telephone` (string, optional): Phone number
+- `country_code` (string, optional): Country code for the phone number
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "name": "João Silva",
+  "email": "joao@empresa.com",
+  "telephone": "11999999999"
+}
+```
+
+### add_client_email_permission
+Add an authorized domain or email to open tickets on behalf of a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `address` (string, required): Domain (e.g. `@empresa.com.br`) or specific email authorized to open tickets for this client
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "address": "@empresa.com.br"
+}
+```
 
 ### search_user
 Search for users by name to use as responsible in tickets.
@@ -1278,7 +1429,15 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
 - `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email` query params)
-- `GET /clients` - Search clients (used by `client_name` auto-resolve in `list_tickets` and `create_ticket`)
+- `GET /clients` - Search/list clients (`search_client`, `list_clients`, and `client_name` auto-resolve in `list_tickets` and `create_ticket`)
+- `GET /clients/{id}` - Get client details (`get_client`)
+- `POST /clients` - Create a new client (`create_client`)
+- `PUT /clients/{id}` - Update client fields (`update_client`)
+- `PUT /clients/{id}/entities` - Update client custom fields (`update_client_entities`)
+- `GET /clients/{id}/desks` - List desks associated with a client (`get_client_desks`)
+- `GET /clients/{id}/technical-groups` - List technical groups associated with a client (`get_client_technical_groups`)
+- `POST /clients/{id}/users` - Create a portal user for a client (`create_client_user`)
+- `POST /clients/{id}/email_tickets_permissions` - Add authorized email/domain for a client (`add_client_email_permission`)
 - `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and `requestor_name` auto-resolve in `create_ticket`). Returns 403 for non-admin users — handled automatically by the fallback below.
 - `GET /technical-groups` - List attendant groups (used by non-admin fallback in `search_user`, `responsible_name` resolution in `create_ticket`, `update_ticket`, `list_tickets`)
 - `GET /technical-groups/{id}/users` - List users in an attendant group (non-admin fallback — deduplicated, fuzzy-matched)
