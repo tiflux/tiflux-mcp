@@ -18,6 +18,7 @@ const AppointmentHandlers = require('../tools/appointments');
 const ChatHandlers = require('../tools/chats');
 const DeskHandlers = require('../tools/desks');
 const EntityHandlers = require('../tools/entities');
+const RequestorHandlers = require('../tools/requestors');
 
 function createRegistry() {
   const registry = new HandlerRegistry();
@@ -31,6 +32,7 @@ function createRegistry() {
   registry.register(ChatHandlers);
   registry.register(DeskHandlers);
   registry.register(EntityHandlers);
+  registry.register(RequestorHandlers);
   return registry;
 }
 

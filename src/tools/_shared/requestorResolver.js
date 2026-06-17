@@ -5,7 +5,12 @@
  * o caller pode querer criar um solicitante novo. Apenas N matches e erro
  * (precisa desambiguar).
  *
- * Usa api.searchUsers({ name, type: 'client' }) — solicitante = users de type=client.
+ * Cascata de resolucao (graceful degradation por permissao):
+ *   1. GET /requestors (global) — funciona para admin / atendente com permissao global.
+ *   2. Se 403 e houver clientId: GET /clients/{clientId}/requestors (escopado) —
+ *      pode estar acessivel a atendentes com permissao naquele cliente.
+ *   3. Se ainda 403 (ou sem clientId): NAO e erro — retorna requestorId: null para
+ *      que o caller siga com requestor_name cru (a API resolve/cria o solicitante).
  *
  * Retorno:
  *   { error: false, requestorId: number, requestor: object }  — 1 match (ID resolvido)
@@ -27,18 +32,36 @@
 const { errorResponse } = require('./errors');
 
 /**
- * Resolve um nome de solicitante para requestor_id usando searchUsers com type=client.
+ * Resolve um nome de solicitante para requestor_id usando searchRequestors (GET /requestors).
  *
  * @param {object} api - instancia de TiFluxAPI
  * @param {string} requestorName - nome (parcial ou exato) do solicitante
+ * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
  * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
  */
-async function resolveRequestorName(api, requestorName) {
-  const userSearchResponse = await api.searchUsers({
+async function resolveRequestorName(api, requestorName, clientId) {
+  let userSearchResponse = await api.searchRequestors({
     name: requestorName,
-    type: 'client',
     limit: 10
   });
+
+  // Fallback atendente: /requestors global e admin-only (403). Com clientId, tenta
+  // a rota escopada por cliente (clientes ja vem filtrados pela permissao do atendente).
+  if (userSearchResponse.status === 403 && clientId) {
+    userSearchResponse = await api.searchClientRequestors(clientId, {
+      name: requestorName,
+      limit: 10
+    });
+  }
+
+  // Sem permissao para resolver (403 mesmo apos fallback): NAO e erro fatal — o caller
+  // segue com requestor_name cru e a API resolve/cria o solicitante no POST /tickets.
+  if (userSearchResponse.status === 403) {
+    return {
+      error: false,
+      requestorId: null
+    };
+  }
 
   if (userSearchResponse.error) {
     return {
@@ -51,27 +74,27 @@ async function resolveRequestorName(api, requestorName) {
     };
   }
 
-  const users = userSearchResponse.data || [];
+  const requestors = userSearchResponse.data || [];
 
   // 0 matches: NAO e erro — retorna requestorId: null para que o caller use requestor_name cru
-  if (users.length === 0) {
+  if (requestors.length === 0) {
     return {
       error: false,
       requestorId: null
     };
   }
 
-  if (users.length > 1) {
-    let usersList = '**Solicitantes encontrados:**\n';
-    users.forEach((user, index) => {
-      usersList += `${index + 1}. **ID:** ${user.id} | **Nome:** ${user.name} | **Email:** ${user.email || 'N/A'}\n`;
+  if (requestors.length > 1) {
+    let requestorsList = '**Solicitantes encontrados:**\n';
+    requestors.forEach((requestor, index) => {
+      requestorsList += `${index + 1}. **ID:** ${requestor.id} | **Nome:** ${requestor.name} | **Email:** ${requestor.email || 'N/A'}\n`;
     });
 
     return {
       error: true,
       response: errorResponse(
         `**⚠️ Múltiplos solicitantes encontrados para "${requestorName}"**\n\n` +
-        `${usersList}\n` +
+        `${requestorsList}\n` +
         `*Use requestor_id específico ou seja mais específico no requestor_name.*`
       )
     };
@@ -79,8 +102,8 @@ async function resolveRequestorName(api, requestorName) {
 
   return {
     error: false,
-    requestorId: users[0].id,
-    requestor: users[0]
+    requestorId: requestors[0].id,
+    requestor: requestors[0]
   };
 }
 

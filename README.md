@@ -12,6 +12,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
 - **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
 - **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
+- **Requestor Search**: Search ticket openers (requestors) by name, email, or telephone via dedicated `GET /requestors` endpoint with server-side filtering (no 200-record limit). Includes an automatic fallback chain that works for non-admin attendants and finds people who only exist as users: `GET /requestors` → client-scoped `GET /clients/{id}/requestors` → `GET /users` (email used as `requestor_email`) → `GET /users/me` (open as yourself). Triggers on 403 or zero results
 - **File Upload Support**: Attach up to 10 files (25MB each) to internal communications
 - **API Integration**: Direct integration with TiFlux API v2
 - **Environment Configuration**: Secure configuration with environment variables
@@ -184,7 +185,7 @@ Create a new ticket in TiFlux.
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 - `status_id` (number, optional): Status ID
 - `requestor_id` (number, optional): Requestor ID (person who opens the ticket, must belong to the selected client). Pass this directly if you already know the ID — skips the auto-resolve lookup.
-- `requestor_name` (string, optional): Requestor name. If provided without `requestor_id` and without `requestor_email`, the MCP automatically attempts to resolve this to an existing `requestor_id` (avoids creating a "ghost" requestor). If multiple matches are found, returns a list to disambiguate. If no match, falls back to the previous behavior (sends name as-is).
+- `requestor_name` (string, optional): Requestor name. If provided without `requestor_id` and without `requestor_email`, the MCP automatically attempts to resolve this to an existing `requestor_id` (avoids creating a "ghost" requestor) via `GET /requestors`, falling back to the client-scoped `GET /clients/{id}/requestors` if the global endpoint returns 403. If multiple matches are found, returns a list to disambiguate. If no match — or if the user lacks permission to search requestors — falls back to the previous behavior (sends name as-is, and the API resolves/creates the requestor).
 - `requestor_email` (string, optional): Requestor email. When provided, the MCP does **not** attempt to auto-resolve the name to an ID — the email is an exact enough identifier.
 - `requestor_telephone` (string, optional): Requestor phone
 - `responsible_id` (number, optional): Responsible user ID
@@ -294,7 +295,7 @@ List tickets with filtering options.
 - `stage_name` (string, optional): Stage name (must be used with desk_name)
 - `responsible_ids` (string, optional): Comma-separated responsible (assigned attendant) user IDs (use when you already have the ID)
 - `responsible_name` (string, optional): Responsible user name for automatic resolution. Works for both admin (via `GET /users`) and non-admin users (via attendant groups fallback). Use when the user says "assigned to" / "responsible" and gives a name.
-- `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_user(type="client")`.
+- `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_requestor`.
 - `requestor_email` (string, optional): Email of the requestor (person who opened the ticket). Use when the user references a **person** or provides an email directly. Avoids a round-trip to resolve the ID.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200)
@@ -558,6 +559,45 @@ For admin users, the TiFlux API does not support name-based filtering in the `/u
   "name": "John",
   "type": "attendant",
   "active": true
+}
+```
+
+### search_requestor
+Search for requestors (ticket openers) in TiFlux by name, email, or telephone. Uses the dedicated `GET /requestors` endpoint with server-side filtering — no client-side limit.
+
+**Automatic fallback chain (triggers on `403` OR on zero results — no questions asked):** the tool tries each source in order and returns the first that finds someone, so it also works for non-admin attendants and for searches where the term exists only as a user (not as a registered requestor):
+
+1. `GET /requestors` — global requestors (admin/global permission). → use the `id` as `requestor_id`.
+2. `GET /clients/{client_id}/requestors` — client-scoped requestors (only if `client_id` is provided; clients are already filtered by the attendant's permission). → `requestor_id`.
+3. `GET /users` — users matching the name/email. Users are **not** requestors, but their **email** can be used as `requestor_email` when creating the ticket.
+4. `GET /users/me` — the current user. Suggests opening the ticket as yourself, using your own **email** as `requestor_email`.
+
+A non-`403` hard error (e.g. 5xx) on the primary endpoint is surfaced instead of being masked by the chain. The calling LLM decides the next step from the suggestion.
+
+**Parameters:**
+- `name` (string, optional): Requestor name to search (partial match, server-side)
+- `email` (string, optional): Requestor email to search
+- `telephone` (string, optional): Requestor phone number (no country code, no symbols)
+- `can_open_ticket` (boolean, optional): Filter requestors who can (true) or cannot (false) open tickets by email
+- `client_id` (number, optional): Client ID to scope the search. Enables the automatic `GET /clients/{id}/requestors` fallback when the global endpoint returns 403.
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+- `offset` (number, optional): Page number (default: 1)
+
+**Note:** At least one filter parameter must be provided.
+
+**Returns:** When found via levels 1–2, a list of requestors with id, name, email, telephone, client.name, and can_open_ticket (use the `id` as `requestor_id`). When found only via level 3 (users) or level 4 (yourself), a suggestion to use the matched **email** as `requestor_email`.
+
+**Example:**
+```json
+{
+  "name": "João Silva"
+}
+```
+
+**Example (by email):**
+```json
+{
+  "email": "joao@empresa.com"
 }
 ```
 
@@ -1438,7 +1478,10 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /clients/{id}/technical-groups` - List technical groups associated with a client (`get_client_technical_groups`)
 - `POST /clients/{id}/users` - Create a portal user for a client (`create_client_user`)
 - `POST /clients/{id}/email_tickets_permissions` - Add authorized email/domain for a client (`add_client_email_permission`)
-- `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and `requestor_name` auto-resolve in `create_ticket`). Returns 403 for non-admin users — handled automatically by the fallback below.
+- `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name` auto-resolve in `create_ticket`). Admin/global permission required — returns 403 for non-admin attendants, handled by the client-scoped fallback below.
+- `GET /clients/{client_id}/requestors` - Client-scoped requestor search; automatic fallback for `search_requestor` and `create_ticket` when `GET /requestors` returns 403 (attendant with permission on that client).
+- `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and as level 3 of the `search_requestor` fallback chain — the matched user's email becomes `requestor_email`). Returns 403 for non-admin users — handled automatically by the fallback below.
+- `GET /users/me` - Current authenticated user (used as the final level of the `search_requestor` chain — suggests opening the ticket as yourself via `requestor_email`).
 - `GET /technical-groups` - List attendant groups (used by non-admin fallback in `search_user`, `responsible_name` resolution in `create_ticket`, `update_ticket`, `list_tickets`)
 - `GET /technical-groups/{id}/users` - List users in an attendant group (non-admin fallback — deduplicated, fuzzy-matched)
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)

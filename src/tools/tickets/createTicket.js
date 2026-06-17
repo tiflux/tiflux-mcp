@@ -5,13 +5,13 @@
  * Resolve client_name -> client_id (via resolveClientName helper),
  * desk_name -> desk_id (api.searchDesks),
  * responsible_name -> responsible_id (api.searchUsers type=attendant),
- * requestor_name -> requestor_id (api.searchUsers type=client, se sem requestor_id/email),
+ * requestor_name -> requestor_id (api.searchRequestors, se sem requestor_id/email),
  * catalog_item_name -> services_catalogs_item_id (api.searchCatalogItems).
  * Falls back para TIFLUX_DEFAULT_{CLIENT,DESK,PRIORITY,CATALOG_ITEM}_ID do env
  * quando IDs nao informados.
  *
  * Auto-resolve de solicitante: quando requestor_name e passado sem requestor_id e sem
- * requestor_email, tenta resolver para requestor_id via search_user(type=client).
+ * requestor_email, tenta resolver para requestor_id via GET /requestors (search_requestor).
  * Se encontrar 1 match, envia requestor_id e suprime requestor_name (evita solicitante fantasma).
  * Se 0 matches, mantém comportamento anterior (envia requestor_name cru).
  * Se N matches, retorna lista para desambiguacao.
@@ -149,7 +149,10 @@ async function execute(args, { api }) {
     let finalRequestorTelephone = requestor_telephone;
 
     if (requestor_name && !requestor_id && !requestor_email) {
-      const resolved = await resolveRequestorName(api, requestor_name);
+      // Passa o client_id (explicito, resolvido por nome, ou default de env) para habilitar
+      // o fallback escopado GET /clients/{id}/requestors quando o /requestors global da 403.
+      const requestorClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
+      const resolved = await resolveRequestorName(api, requestor_name, requestorClientId);
       if (resolved.error) return resolved.response;
 
       if (resolved.requestorId !== null) {

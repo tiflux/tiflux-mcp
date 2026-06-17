@@ -882,6 +882,57 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca solicitantes com filtros server-side
+   * GET /requestors
+   *
+   * Diferente de searchUsers: suporta busca por nome server-side (sem filtro client-side),
+   * retorna requestor_id correto para criacao de ticket, e nao exige permissao admin.
+   */
+  async searchRequestors(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.name) params.append('name', filters.name);
+    if (filters.email) params.append('email', filters.email);
+    if (filters.telephone) params.append('telephone', filters.telephone);
+    if (filters.can_open_ticket !== undefined) params.append('can_open_ticket', filters.can_open_ticket);
+
+    return await this.makeRequest(`/requestors?${params.toString()}`);
+  }
+
+  /**
+   * Busca solicitantes de um cliente especifico.
+   * GET /clients/{client_id}/requestors
+   *
+   * Fallback de searchRequestors: o endpoint global GET /requestors e admin-only
+   * (403 para atendente sem permissao de gestao global). A rota escopada por cliente
+   * pode estar acessivel a atendentes com permissao naquele cliente — os clientes ja
+   * vem filtrados pela permissao/mesa do atendente. Mesmos filtros que searchRequestors.
+   */
+  async searchClientRequestors(clientId, filters = {}) {
+    if (!clientId) {
+      return { error: 'clientId é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.name) params.append('name', filters.name);
+    if (filters.email) params.append('email', filters.email);
+    if (filters.telephone) params.append('telephone', filters.telephone);
+    if (filters.can_open_ticket !== undefined) params.append('can_open_ticket', filters.can_open_ticket);
+
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/requestors?${params.toString()}`);
+  }
+
+  /**
    * Busca dados do usuario autenticado incluindo feature flags
    * GET /users/me
    */
