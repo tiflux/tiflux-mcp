@@ -9,6 +9,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
+const { footer } = require('../_shared/format');
 
 const schema = {
   name: 'get_ticket_answer',
@@ -29,7 +30,7 @@ const schema = {
   }
 };
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, answer_id } = args;
 
   requireField(args, 'ticket_number');
@@ -91,7 +92,7 @@ async function execute(args, { api }) {
       `📅 **Data:** ${answerTime}\n` +
       `📡 **Origem:** ${origin}\n\n` +
       `---\n\n${content}${filesSection}\n\n` +
-      `*✅ Dados obtidos da API TiFlux em tempo real*`
+      `${footer(verbosity)}`
     );
   } catch (error) {
     return errorResponse(

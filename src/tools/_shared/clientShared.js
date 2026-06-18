@@ -9,6 +9,7 @@
 const { textResponse } = require('./response');
 const { internalErrorResponse, apiFailureResponse } = require('./errors');
 const { requireField } = require('./validators');
+const { footer, pagination } = require('./format');
 
 /**
  * Enum real da API v2 para `billing_report_type` (POST /clients e PUT /clients/{id}),
@@ -58,7 +59,7 @@ const CLIENT_WRITABLE_FIELDS = Object.keys(clientWritableFieldSchemas);
  * @param {string} config.emptyHint - dica do caso vazio
  * @param {(item: object, index: number) => string} config.renderItem - renderiza um item em Markdown
  */
-async function listClientSubresource(args, { api }, config) {
+async function listClientSubresource(args, { api, verbosity }, config) {
   const { client_id, offset, limit } = args;
 
   requireField(args, 'client_id');
@@ -92,13 +93,10 @@ async function listClientSubresource(args, { api }, config) {
 
     const currentOffset = options.offset || 1;
     const currentLimit = options.limit || 20;
-    if (items.length === currentLimit) {
-      text += `*Próxima página: use \`offset: ${currentOffset + 1}\`*\n`;
-    } else {
-      text += `*Última página*\n`;
-    }
-
-    text += `\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+    const v = verbosity || 'rich';
+    text += pagination({ offset: currentOffset, limit: currentLimit, count: items.length }, v);
+    const footerStr = footer(v);
+    if (footerStr) text += `\n${footerStr}`;
     return textResponse(text);
   } catch (error) {
     return internalErrorResponse(

@@ -145,6 +145,37 @@ TIFLUX_DEFAULT_PRIORITY_ID=1
 TIFLUX_DEFAULT_CATALOG_ITEM_ID=1
 ```
 
+### Response Verbosity
+
+The server supports two verbosity modes to control token consumption:
+
+| Mode | Description |
+|------|-------------|
+| `rich` | Full Markdown output with emojis, footers, and verbose pagination blocks (default) |
+| `compact` | Terse output — no decorative footer, one-line pagination summary, `get_ticket` omits low-value flags and truncates long descriptions, `list_tickets` uses ultra-terse per-ticket rows |
+
+**SDK (stdio) — environment variable:**
+
+```bash
+TIFLUX_MCP_VERBOSITY=compact npx @tiflux/mcp@latest
+```
+
+**Server (HTTP/Lambda) — per-request header:**
+
+```
+x-tiflux-verbosity: compact
+```
+
+> Default is `rich` in both modes. Existing integrations are unaffected unless the env var or header is set.
+
+### Token-reduction tips for API integrations
+
+When building applications that call this MCP server programmatically, token costs matter. Follow these guidelines:
+
+- **Pass IDs when you already have them.** Every tool that accepts a `_name` param for auto-resolution (e.g. `desk_name`, `stage_name`, `entity_field_name`) will make one or more extra API calls to resolve the name. If you stored the ID from a previous call, pass it directly (e.g. `desk_id`, `stage_id`, `entity_field_id`) — this is always faster and cheaper.
+- **Use `compact` verbosity** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) or `x-tiflux-verbosity: compact` header (Server). Compact mode cuts `get_ticket` and `list_tickets` output by ~50%.
+- **Paginate deliberately.** `list_tickets` with a wide date range on a busy desk can return hundreds of items. Pass `limit` and `offset` intentionally — when a full page comes back, compact mode appends a next-page hint (`→ offset: N`) so the model knows there may be more to fetch.
+
 ## Available Tools
 
 ### get_ticket
@@ -236,12 +267,17 @@ Update an existing ticket in TiFlux. Supports transferring a ticket to another d
 ### update_ticket_entities
 Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields per request. For checkbox fields with multiple named options, send one item per option with `entity_field_option_id`. Use `list_entity_field_options` to discover option IDs.
 
+> **Tip:** Prefer `entity_field_id` (numeric) when available — it avoids extra API calls. Use the `_name` params only when you don't have the ID yet.
+
 **Parameters:**
 - `ticket_number` (string, required): Ticket number to update
 - `entities` (array, required): List of custom fields to update. For multiple-choice checkbox fields, send one item per option.
 
 **Entity Object Structure:**
-- `entity_field_id` (number, required): Custom field ID (obtained via `get_ticket` or `list_entity_fields`)
+- `entity_field_id` (number): Custom field ID (obtained via `get_ticket` or `list_entity_fields`). Prefer this when available.
+- `entity_name` (string, optional): Entity group name for automatic `entity_field_id` resolution — alternative when the ID is unknown.
+- `entity_field_name` (string, optional): Field name within the entity group for automatic `entity_field_id` resolution — use together with `entity_name`.
+- `entity_field_option_name` (string, optional): Option name for automatic `entity_field_option_id` resolution (for `single_select`/`checkbox` fields).
 - `value` (string, required): Field value. Accepted types:
   - `text`: string
   - `text_area`: string
@@ -256,18 +292,27 @@ Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields 
 - `entity_field_option_id` (number, optional): Option ID for checkbox multiple-choice fields. Use `list_entity_field_options` to get IDs. For multiple-choice checkboxes, send one item per option with the same `entity_field_id` and different `entity_field_option_id`.
 - `country_code` (string, optional): Country code (for phone fields outside Brazil)
 
-**Example — simple text/date fields:**
+**Example — simple text/date fields (with IDs, most efficient):**
+```json
+{
+  "ticket_number": "123",
+  "entities": [
+    { "entity_field_id": 72, "value": "New value" },
+    { "entity_field_id": 73, "value": "2025-01-15" }
+  ]
+}
+```
+
+**Example — resolving by name (when IDs are unknown):**
 ```json
 {
   "ticket_number": "123",
   "entities": [
     {
-      "entity_field_id": 72,
-      "value": "New value"
-    },
-    {
-      "entity_field_id": 73,
-      "value": "2025-01-15"
+      "entity_name": "Contrato",
+      "entity_field_name": "Tipo de contrato",
+      "entity_field_option_name": "Suporte Premium",
+      "value": "true"
     }
   ]
 }
@@ -480,21 +525,41 @@ Update an existing client (partial update — only provided fields are sent).
 ### update_client_entities
 Update custom fields (entities) for a client. Supports up to 50 fields per request. For checkbox fields with multiple options, send one item per option with `entity_field_id + entity_field_option_id + value: "true"/"false"`.
 
+> **Tip:** Prefer `entity_field_id` (numeric) when available — it avoids extra API calls. Use the `_name` params only when you don't have the ID yet.
+
 **Parameters:**
 - `client_id` (number, required): Client ID to update
 - `entities` (array, required): List of custom fields. Each item:
-  - `entity_field_id` (number, required): Custom field ID
+  - `entity_field_id` (number): Custom field ID. Prefer this when available.
+  - `entity_name` (string, optional): Entity group name for automatic `entity_field_id` resolution.
+  - `entity_field_name` (string, optional): Field name for automatic `entity_field_id` resolution (use with `entity_name`).
+  - `entity_field_option_name` (string, optional): Option name for automatic `entity_field_option_id` resolution.
   - `value` (string, required): Field value (or null to clear)
   - `entity_field_option_id` (number, optional): Option ID for checkbox/single_select
   - `country_code` (string, optional): Country code for phone fields
 
-**Example:**
+**Example — with IDs (most efficient):**
 ```json
 {
   "client_id": 42,
   "entities": [
     { "entity_field_id": 72, "value": "TI" },
     { "entity_field_id": 80, "entity_field_option_id": 12, "value": "true" }
+  ]
+}
+```
+
+**Example — resolving by name:**
+```json
+{
+  "client_id": 42,
+  "entities": [
+    {
+      "entity_name": "Dados comerciais",
+      "entity_field_name": "Segmento",
+      "entity_field_option_name": "Tecnologia",
+      "value": "true"
+    }
   ]
 }
 ```

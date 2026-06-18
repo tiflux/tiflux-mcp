@@ -8,6 +8,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { formatFileSize } = require('../_shared/markdown');
+const { footer } = require('../_shared/format');
 
 const schema = {
   name: 'get_ticket_files',
@@ -21,7 +22,7 @@ const schema = {
   }
 };
 
-function formatFilesList(ticketNumber, files) {
+function formatFilesList(ticketNumber, files, verbosity) {
   let filesText = `**📎 Arquivos do Ticket #${ticketNumber}** (${files.length} ${files.length === 1 ? 'arquivo' : 'arquivos'})\n\n`;
 
   files.forEach((file, index) => {
@@ -34,10 +35,10 @@ function formatFilesList(ticketNumber, files) {
     filesText += `   • **Criado por:** ${file.created_by?.name || 'N/A'}\n\n`;
   });
 
-  return filesText + `*✅ Dados obtidos da API TiFlux em tempo real*`;
+  return filesText + footer(verbosity);
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number } = args;
 
   requireField(args, 'ticket_number');
@@ -60,11 +61,11 @@ async function execute(args, { api }) {
       return textResponse(
         `**📎 Arquivos do Ticket #${ticket_number}**\n\n` +
         `*Nenhum arquivo anexado neste ticket.*\n\n` +
-        `*✅ Dados obtidos da API TiFlux em tempo real*`
+        `${footer(verbosity)}`
       );
     }
 
-    return textResponse(formatFilesList(ticket_number, files));
+    return textResponse(formatFilesList(ticket_number, files, verbosity));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao buscar arquivos do ticket #${ticket_number}**\n\n` +

@@ -9,6 +9,8 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer, truncate } = require('../_shared/format');
+const { stripHtml } = require('../_shared/markdown');
 
 const schema = {
   name: 'get_ticket',
@@ -45,7 +47,48 @@ function formatEntityField(field) {
   return text;
 }
 
-function formatTicket(ticketNumber, ticket) {
+function formatTicket(ticketNumber, ticket, v) {
+  const verbosity = v || 'rich';
+
+  // compact: saida tersa sem flags de baixo valor, sem emojis, descricao truncada
+  if (verbosity === 'compact') {
+    const status = ticket.status?.name || 'N/A';
+    const priority = ticket.priority?.name || 'N/D';
+    const desk = ticket.desk?.display_name || ticket.desk?.name || 'N/A';
+    const stage = ticket.stage?.name || 'N/A';
+    const responsible = ticket.responsible?.name || 'N/A';
+    const client = ticket.client?.name || 'N/A';
+    const desc = truncate(ticket.description || '', 800);
+
+    // Campos personalizados (compact: apenas nome e valor)
+    let entitiesText = '';
+    if (ticket.entities && ticket.entities.length > 0) {
+      entitiesText = '\n\nCampos personalizados:\n';
+      ticket.entities.forEach(entity => {
+        if (entity.entity_fields && entity.entity_fields.length > 0) {
+          entity.entity_fields.forEach(field => {
+            const val = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
+            entitiesText += `  ${field.name}: ${val} (id:${field.entity_field_id})\n`;
+          });
+        }
+      });
+    }
+
+    let slaCompact = '';
+    if (ticket.sla_info?.stage_expiration) {
+      slaCompact = `\nSLA expira: ${ticket.sla_info.stage_expiration}`;
+    }
+
+    return `Ticket #${ticketNumber}: ${ticket.title || 'N/A'}\n` +
+           `Status: ${status} | Prioridade: ${priority} | Mesa: ${desk} (id:${ticket.desk?.id || 'N/A'})\n` +
+           `Estagio: ${stage} (id:${ticket.stage?.id || 'N/A'}) | Responsavel: ${responsible}\n` +
+           `Cliente: ${client} | Criado: ${ticket.created_at || 'N/A'}` +
+           `${slaCompact}` +
+           (desc ? `\nDescricao: ${desc}` : '') +
+           `${entitiesText}`;
+  }
+
+  // rich: saida atual completa
   // Campos personalizados
   let entitiesText = '';
   if (ticket.entities || ticket.entity_fields) {
@@ -247,11 +290,12 @@ function formatTicket(ticketNumber, ticket) {
          `${slaInfo}` +
          `${urlInfo}\n` +
          `**Descrição:**\n${ticket.description || 'Sem descrição'}${entitiesText}\n\n` +
-         `*✅ Dados obtidos da API TiFlux em tempo real*`;
+         `${footer(verbosity)}`;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, show_entities, include_filled_entity } = args;
+  const v = verbosity || 'rich';
 
   requireField(args, 'ticket_number');
 
@@ -271,7 +315,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatTicket(ticket_number, response.data));
+    return textResponse(formatTicket(ticket_number, response.data, v));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao buscar ticket #${ticket_number}**\n\n` +

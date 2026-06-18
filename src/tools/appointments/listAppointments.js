@@ -8,6 +8,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer, pagination } = require('../_shared/format');
 
 /**
  * Formata um valor monetário string (ex: "170.05") como "R$ 170,05".
@@ -67,7 +68,7 @@ const schema = {
   }
 };
 
-function formatAppointmentsList(ticket_number, appointments, offset, limit) {
+function formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity) {
   let text = `**📋 Apontamentos do Ticket #${ticket_number}** (${appointments.length} encontrados)\n\n`;
 
   appointments.forEach((appt, index) => {
@@ -94,9 +95,9 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit) {
 
     text += `   💬 **Descrição:** ${desc}\n`;
 
-    // Bloco de valorização — só renderiza quando valorization é objeto não-nulo
+    // Bloco de valorização — só renderiza quando valorization é objeto não-nulo e verbosidade rich
     const val = appt.valorization;
-    if (val !== null && val !== undefined && typeof val === 'object') {
+    if (val !== null && val !== undefined && typeof val === 'object' && (verbosity || 'rich') !== 'compact') {
       const attendanceLabel = ATTENDANCE_LABELS[val.attendance] || val.attendance || 'N/A';
       const isContract = val.attendance_kind === 'Contract';
       // Sem default silencioso: tipo desconhecido mostra o valor cru da API, nunca "Avulso" indevido
@@ -132,29 +133,20 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit) {
       });
     }
 
+    // compact: omitir bloco de valorização (ja incluido acima com guard `v !== 'compact'`)
     text += '\n';
   });
 
   const currentOffset = parseInt(offset) || 1;
   const currentLimit = parseInt(limit) || 20;
-  const hasMore = appointments.length === currentLimit;
-
-  let paginationInfo = `**📊 Paginação:**\n`;
-  paginationInfo += `• Página atual: ${currentOffset}\n`;
-  paginationInfo += `• Apontamentos por página: ${currentLimit}\n`;
-  paginationInfo += `• Apontamentos nesta página: ${appointments.length}\n`;
-
-  if (hasMore) {
-    const nextOffset = currentOffset + 1;
-    paginationInfo += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais apontamentos\n`;
-  } else {
-    paginationInfo += `• Esta é a última página disponível\n`;
-  }
-
-  return `${text}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+  const v = verbosity || 'rich';
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: appointments.length, unit: 'apontamentos' }, v);
+  const footerStr = footer(v);
+  const sep = footerStr ? '\n' : '';
+  return `${text}${paginationInfo}${sep}${footerStr}`;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, user_id, start_date, end_date, offset = 1, limit = 20 } = args;
 
   requireField(args, 'ticket_number');
@@ -189,7 +181,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatAppointmentsList(ticket_number, appointments, offset, limit));
+    return textResponse(formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar apontamentos**\n\n` +

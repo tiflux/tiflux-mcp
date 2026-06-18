@@ -9,6 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'get_ticket_histories',
@@ -47,12 +48,15 @@ const schema = {
 
 // O Swagger nao garante valores escalares em old_values/new_values; sem isto,
 // um objeto viraria "[object Object]" no diff.
+// Always-on: limite de ~200 chars para evitar blowup em objetos aninhados profundos.
+const DIFF_VALUE_MAX = 200;
 function formatDiffValue(value) {
   if (value === null || value === undefined) return '—';
-  return typeof value === 'object' ? JSON.stringify(value) : value;
+  const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return str.length > DIFF_VALUE_MAX ? str.substring(0, DIFF_VALUE_MAX) + '...' : str;
 }
 
-function formatHistoriesList(ticketNumber, events, offset, limit) {
+function formatHistoriesList(ticketNumber, events, offset, limit, verbosity) {
   let text = `**📋 Histórico do Ticket #${ticketNumber}** (${events.length} eventos)\n\n`;
 
   events.forEach((event, index) => {
@@ -91,24 +95,16 @@ function formatHistoriesList(ticketNumber, events, offset, limit) {
   // de "tem proxima pagina" so funciona comparando contra o limit efetivamente enviado.
   const currentOffset = Math.max(1, Number.parseInt(offset) || 1);
   const currentLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
-  const hasMore = events.length === currentLimit;
 
-  let paginationInfo = `\n**📊 Paginação:**\n`;
-  paginationInfo += `• Página atual: ${currentOffset}\n`;
-  paginationInfo += `• Eventos por página: ${currentLimit}\n`;
-  paginationInfo += `• Eventos nesta página: ${events.length}\n`;
-
-  if (hasMore) {
-    const nextOffset = currentOffset + 1;
-    paginationInfo += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais eventos\n`;
-  } else {
-    paginationInfo += `• Esta é a última página disponível\n`;
-  }
-
-  return `${text}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+  // verbosity e opcional (testes legados passam so 2 args); default 'rich'
+  const v = verbosity || 'rich';
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: events.length, unit: 'eventos' }, v);
+  const footerStr = footer(v);
+  const sep = footerStr ? '\n' : '';
+  return `${text}${paginationInfo}${sep}${footerStr}`;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
 
   requireField(args, 'ticket_number');
@@ -143,7 +139,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatHistoriesList(ticket_number, events, offset, limit));
+    return textResponse(formatHistoriesList(ticket_number, events, offset, limit, verbosity));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao buscar histórico do ticket**\n\n` +

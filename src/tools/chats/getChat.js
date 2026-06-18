@@ -8,6 +8,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer } = require('../_shared/format');
 
 const schema = {
   name: 'get_chat',
@@ -24,7 +25,7 @@ const schema = {
   }
 };
 
-function formatChatCard(chat) {
+function formatChatCard(chat, verbosity) {
   const id = chat.id || 'N/A';
   const archived = chat.archived ? 'Sim' : 'Não';
   const canceled = chat.canceled ? 'Sim' : 'Não';
@@ -63,11 +64,11 @@ function formatChatCard(chat) {
     `**Criado em:** ${createdAt}\n` +
     `**Atualizado em:** ${updatedAt}\n` +
     `**Assumido em:** ${assumedAt}\n\n` +
-    `*Dados obtidos da API TiFlux em tempo real*`
+    `${footer(verbosity)}`
   );
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   requireField(args, 'id');
 
   const id = parseInt(args.id);
@@ -109,7 +110,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatChatCard(response.data));
+    return textResponse(formatChatCard(response.data, verbosity));
   } catch (error) {
     return errorResponse(
       `**Erro interno ao buscar chat**\n\n` +

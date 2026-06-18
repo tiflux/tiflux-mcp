@@ -19,6 +19,7 @@ const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'list_tickets',
@@ -62,7 +63,8 @@ const schema = {
   }
 };
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
+  const v = verbosity || 'rich';
   const {
     desk_ids,
     desk_name,
@@ -216,56 +218,60 @@ async function execute(args, { api }) {
       );
     }
 
-    // Formatar lista de tickets
-    let ticketsList = `**📋 Lista de Tickets** (${tickets.length} encontrados)\n\n`;
-
-    tickets.forEach((ticket, index) => {
-      const ticketNumber = ticket.ticket_number || 'N/A';
-      const title = ticket.title || 'Sem título';
-      const clientName = ticket.client?.name || 'Cliente não informado';
-      const deskName = ticket.desk?.name || 'Mesa não informada';
-      const stageName = ticket.stage?.name || 'Estágio não informado';
-      const responsibleName = ticket.responsible?.name || 'Não atribuído';
-      const status = ticket.status?.name || 'Status não informado';
-      const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : 'Data não informada';
-
-      // Resumo da descricao (primeiras 100 caracteres)
-      let descriptionSummary = '';
-      if (ticket.description) {
-        descriptionSummary = ticket.description.length > 100
-          ? ticket.description.substring(0, 100) + '...'
-          : ticket.description;
-        descriptionSummary = `\n   📄 ${descriptionSummary}`;
-      }
-
-      ticketsList += `**${index + 1}. Ticket #${ticketNumber}**\n` +
-                    `   📝 **Título:** ${title}\n` +
-                    `   👤 **Responsável:** ${responsibleName}\n` +
-                    `   🏢 **Cliente:** ${clientName}\n` +
-                    `   🗂️ **Mesa:** ${deskName}\n` +
-                    `   📊 **Estágio:** ${stageName}\n` +
-                    `   🚨 **Status:** ${status}\n` +
-                    `   📅 **Criado em:** ${createdAt}${descriptionSummary}\n\n`;
-    });
-
-    // Informacoes de paginacao
     const currentOffset = filters.offset || 1;
     const currentLimit = filters.limit || 20;
-    const hasMoreTickets = tickets.length === currentLimit; // Se retornou o limite maximo, pode ter mais
 
-    let paginationInfo = `**📊 Paginação:**\n`;
-    paginationInfo += `• Página atual: ${currentOffset}\n`;
-    paginationInfo += `• Tickets por página: ${currentLimit}\n`;
-    paginationInfo += `• Tickets nesta página: ${tickets.length}\n`;
-
-    if (hasMoreTickets) {
-      const nextOffset = currentOffset + 1;
-      paginationInfo += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais tickets\n`;
+    let ticketsList;
+    if (v === 'compact') {
+      // compact: item ultra-terso — 1 linha por ticket
+      ticketsList = `Tickets (${tickets.length}):\n`;
+      tickets.forEach(ticket => {
+        const n = ticket.ticket_number || 'N/A';
+        const title = ticket.title || '(sem título)';
+        const status = ticket.status?.name || 'N/A';
+        const stage = ticket.stage?.name || 'N/A';
+        const responsible = ticket.responsible?.name || 'N/A';
+        ticketsList += `#${n} ${title} | ${status} | ${stage} | ${responsible}\n`;
+      });
+      ticketsList += `(use get_ticket #N para detalhes)\n`;
     } else {
-      paginationInfo += `• Esta é a última página disponível\n`;
+      // rich: saida atual
+      ticketsList = `**📋 Lista de Tickets** (${tickets.length} encontrados)\n\n`;
+
+      tickets.forEach((ticket, index) => {
+        const ticketNumber = ticket.ticket_number || 'N/A';
+        const title = ticket.title || 'Sem título';
+        const clientName = ticket.client?.name || 'Cliente não informado';
+        const deskName = ticket.desk?.name || 'Mesa não informada';
+        const stageName = ticket.stage?.name || 'Estágio não informado';
+        const responsibleName = ticket.responsible?.name || 'Não atribuído';
+        const status = ticket.status?.name || 'Status não informado';
+        const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : 'Data não informada';
+
+        // Resumo da descricao (primeiras 100 caracteres)
+        let descriptionSummary = '';
+        if (ticket.description) {
+          descriptionSummary = ticket.description.length > 100
+            ? ticket.description.substring(0, 100) + '...'
+            : ticket.description;
+          descriptionSummary = `\n   📄 ${descriptionSummary}`;
+        }
+
+        ticketsList += `**${index + 1}. Ticket #${ticketNumber}**\n` +
+                      `   📝 **Título:** ${title}\n` +
+                      `   👤 **Responsável:** ${responsibleName}\n` +
+                      `   🏢 **Cliente:** ${clientName}\n` +
+                      `   🗂️ **Mesa:** ${deskName}\n` +
+                      `   📊 **Estágio:** ${stageName}\n` +
+                      `   🚨 **Status:** ${status}\n` +
+                      `   📅 **Criado em:** ${createdAt}${descriptionSummary}\n\n`;
+      });
     }
 
-    return textResponse(`${ticketsList}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`);
+    const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, unit: 'tickets' }, v);
+    const footerStr = footer(v);
+    const sep = footerStr ? '\n' : '';
+    return textResponse(`${ticketsList}${paginationInfo}${sep}${footerStr}`);
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar tickets**\n\n` +

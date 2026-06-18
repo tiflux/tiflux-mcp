@@ -15,6 +15,24 @@ class HandlerRegistry {
   }
 
   /**
+   * Define o nivel de verbosidade para todas as instancias de handlers.
+   * Espelha o padrao de setApiKey: loop dedupe sobre instancias unicas.
+   * Valores aceitos: 'rich' (default, comportamento atual) | 'compact'.
+   * Ausencia de setVerbosity = 'rich' (retrocompatibilidade).
+   */
+  setVerbosity(v) {
+    const verbosity = (v === 'compact') ? 'compact' : 'rich';
+    const seen = new Set();
+    for (const { instance } of Object.values(this.handlers)) {
+      if (seen.has(instance)) continue;
+      seen.add(instance);
+      if (instance && 'verbosity' in instance) {
+        instance.verbosity = verbosity;
+      }
+    }
+  }
+
+  /**
    * Registra um handler a partir da classe (instanciada aqui).
    * Extrai `static TOOLS` e agrega schemas + roteamento.
    */

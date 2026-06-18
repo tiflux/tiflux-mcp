@@ -33,6 +33,13 @@ function createRegistry() {
   registry.register(DeskHandlers);
   registry.register(EntityHandlers);
   registry.register(RequestorHandlers);
+
+  // Lê verbosidade do env (SDK); Lambda sobrescreve via registry.setVerbosity por request.
+  // Default 'rich' preserva comportamento atual quando env nao esta definido.
+  if (process.env.TIFLUX_MCP_VERBOSITY) {
+    registry.setVerbosity(process.env.TIFLUX_MCP_VERBOSITY);
+  }
+
   return registry;
 }
 

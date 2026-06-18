@@ -8,6 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'list_clients',
@@ -40,8 +41,9 @@ const schema = {
   }
 };
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { active, name, social_revenue, offset, limit } = args;
+  const v = verbosity || 'rich';
 
   try {
     const filters = {};
@@ -90,20 +92,11 @@ async function execute(args, { api }) {
       text += '\n';
     });
 
-    // Paginação
     const currentOffset = filters.offset || 1;
     const currentLimit = filters.limit || 20;
-    const hasMore = clients.length === currentLimit;
-
-    text += `**Paginação:**\n`;
-    text += `• Página atual: ${currentOffset} | Por página: ${currentLimit}\n`;
-    if (hasMore) {
-      text += `• Próxima página: use \`offset: ${currentOffset + 1}\`\n`;
-    } else {
-      text += `• Última página\n`;
-    }
-
-    text += `\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+    text += pagination({ offset: currentOffset, limit: currentLimit, count: clients.length, unit: 'clientes' }, v);
+    const footerStr = footer(v);
+    if (footerStr) text += `\n${footerStr}`;
     return textResponse(text);
   } catch (error) {
     return internalErrorResponse(`**❌ Erro interno ao listar clientes**`, error);

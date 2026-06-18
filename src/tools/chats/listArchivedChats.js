@@ -7,6 +7,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'list_archived_chats',
@@ -78,7 +79,7 @@ function formatChatItem(chat, index) {
   );
 }
 
-function formatChatsList(chats, offset, limit) {
+function formatChatsList(chats, offset, limit, verbosity) {
   let text = `**Chats Arquivados** (${chats.length} encontrado${chats.length !== 1 ? 's' : ''})\n\n`;
 
   chats.forEach((chat, index) => {
@@ -87,24 +88,14 @@ function formatChatsList(chats, offset, limit) {
 
   const currentOffset = parseInt(offset) || 1;
   const currentLimit = parseInt(limit) || 20;
-  const hasMore = chats.length === currentLimit;
-
-  text += `**Paginação:**\n`;
-  text += `• Página atual: ${currentOffset}\n`;
-  text += `• Chats por página: ${currentLimit}\n`;
-  text += `• Chats nesta página: ${chats.length}\n`;
-
-  if (hasMore) {
-    const nextOffset = currentOffset + 1;
-    text += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais chats\n`;
-  } else {
-    text += `• Esta é a última página disponível\n`;
-  }
-
-  return text + '\n*Dados obtidos da API TiFlux em tempo real*';
+  const v = verbosity || 'rich';
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: chats.length, unit: 'chats' }, v);
+  const footerStr = footer(v);
+  const sep = footerStr ? '\n' : '';
+  return text + paginationInfo + sep + footerStr;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { offset = 1, limit = 20, department_id, client_id, requestor_id, number, origins, started_by, canceled } = args;
 
   try {
@@ -148,7 +139,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatChatsList(chats, offset, limit));
+    return textResponse(formatChatsList(chats, offset, limit, verbosity));
   } catch (error) {
     return errorResponse(
       `**Erro interno ao listar chats arquivados**\n\n` +

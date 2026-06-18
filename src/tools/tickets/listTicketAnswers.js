@@ -10,6 +10,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'list_ticket_answers',
@@ -34,7 +35,7 @@ const schema = {
   }
 };
 
-function formatAnswersList(ticketNumber, answers, offset, limit) {
+function formatAnswersList(ticketNumber, answers, offset, limit, verbosity) {
   let text = `**💬 Respostas do Ticket #${ticketNumber}** (${answers.length} encontradas)\n\n`;
 
   answers.forEach((answer, index) => {
@@ -71,24 +72,15 @@ function formatAnswersList(ticketNumber, answers, offset, limit) {
   // de "tem proxima pagina" so funciona comparando contra o limit efetivamente enviado.
   const currentOffset = Math.max(1, Number.parseInt(offset) || 1);
   const currentLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
-  const hasMore = answers.length === currentLimit;
 
-  let paginationInfo = `**📊 Paginação:**\n`;
-  paginationInfo += `• Página atual: ${currentOffset}\n`;
-  paginationInfo += `• Respostas por página: ${currentLimit}\n`;
-  paginationInfo += `• Respostas nesta página: ${answers.length}\n`;
-
-  if (hasMore) {
-    const nextOffset = currentOffset + 1;
-    paginationInfo += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais respostas\n`;
-  } else {
-    paginationInfo += `• Esta é a última página disponível\n`;
-  }
-
-  return `${text}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+  const v = verbosity || 'rich';
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: answers.length, unit: 'respostas' }, v);
+  const footerStr = footer(v);
+  const sep = footerStr ? '\n' : '';
+  return `${text}${paginationInfo}${sep}${footerStr}`;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, offset = 1, limit = 20 } = args;
 
   requireField(args, 'ticket_number');
@@ -117,7 +109,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatAnswersList(ticket_number, answers, offset, limit));
+    return textResponse(formatAnswersList(ticket_number, answers, offset, limit, verbosity));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar respostas do ticket**\n\n` +

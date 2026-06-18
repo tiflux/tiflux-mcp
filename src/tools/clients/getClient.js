@@ -8,6 +8,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer } = require('../_shared/format');
 
 const schema = {
   name: 'get_client',
@@ -28,7 +29,7 @@ const schema = {
   }
 };
 
-function formatClient(client) {
+function formatClient(client, verbosity) {
   let text = `**Cliente: ${client.name || 'N/A'}**\n\n`;
   text += `**ID:** ${client.id}\n`;
   text += `**Razão Social:** ${client.social || 'N/A'}\n`;
@@ -83,11 +84,11 @@ function formatClient(client) {
     text += `**Atualizado em:** ${client.updated_at}\n`;
   }
 
-  text += `\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+  text += `\n${footer(verbosity)}`;
   return text;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { client_id, show_entities } = args;
 
   requireField(args, 'client_id');
@@ -115,7 +116,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatClient(response.data));
+    return textResponse(formatClient(response.data, verbosity));
   } catch (error) {
     return internalErrorResponse(
       `**❌ Erro interno ao buscar cliente #${client_id}**`,

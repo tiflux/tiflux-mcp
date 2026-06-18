@@ -9,6 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'get_ticket_stages_slas',
@@ -24,8 +25,9 @@ const schema = {
   }
 };
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, offset, limit } = args || {};
+  const v = verbosity || 'rich';
 
   requireField(args, 'ticket_number');
 
@@ -79,7 +81,7 @@ async function execute(args, { api }) {
         `Possíveis motivos:\n` +
         `• Ticket pertence a uma mesa **sem SLA ativo** (durações por estágio só são registradas em mesas com SLA configurado).\n` +
         `• Página solicitada está além do total de registros.\n\n` +
-        `*✅ Dados obtidos da API TiFlux em tempo real*`
+        `${footer(v)}`
       );
     }
 
@@ -108,11 +110,9 @@ async function execute(args, { api }) {
 
     const currentOffset = offset || 1;
     const currentLimit = limit || 20;
-    text += `**📊 Paginação:**\n`;
-    text += `• Página atual: ${currentOffset}\n`;
-    text += `• Registros por página: ${currentLimit}\n`;
-    text += `• Registros nesta página: ${items.length}\n`;
-    text += `\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+    text += pagination({ offset: currentOffset, limit: currentLimit, count: items.length, unit: 'registros' }, v);
+    const footerStr = footer(v);
+    if (footerStr) text += `\n${footerStr}`;
 
     return textResponse(text);
   } catch (error) {

@@ -138,74 +138,77 @@ async function execute(args, { api }) {
       finalDeskId = resolved.deskId;
     }
 
-    // Se stage_name foi fornecido, buscar o ID do estagio
-    // Precisa de desk_id ou desk_name para buscar estagios
-    if (stage_name && !stage_id) {
+    // Resolver estagio: uma única chamada searchStages quando há mesa + (stage_name OU auto-resolve).
+    // Caso 1: stage_name fornecido → encontrar ID por nome (requer desk).
+    // Caso 2: mesa-destino nova sem stage_id/stage_name → auto-selecionar 1º estágio.
+    // Ambos os caminhos reusam a mesma resposta da API (uma única chamada por execução).
+    let autoResolvedStageId = null;
+    let autoResolvedStageName = null;
+
+    const needsStageResolution =
+      (stage_name && !stage_id) ||
+      (finalDeskId && !stage_id && !stage_name);
+
+    if (needsStageResolution) {
       const deskIdForStage = finalDeskId || desk_id;
 
       if (!deskIdForStage) {
+        // Só chega aqui se stage_name foi fornecido sem desk
         return errorResponse(
           `**Erro: desk_id ou desk_name obrigatorio para buscar estagio por nome**\n\n` +
           `*Para usar stage_name, informe tambem desk_id ou desk_name.*`
         );
       }
 
-      const stageSearchResponse = await api.searchStages(deskIdForStage);
+      const stagesResponse = await api.searchStages(Number.parseInt(deskIdForStage, 10));
 
-      if (stageSearchResponse.error) {
+      if (stagesResponse.error) {
         return errorResponse(
           `**Erro ao buscar estagios da mesa ID ${deskIdForStage}**\n\n` +
-          `**Erro:** ${stageSearchResponse.error}\n\n` +
+          `**Erro:** ${stagesResponse.error}\n\n` +
           `*Verifique se a mesa existe e possui estagios.*`
         );
       }
 
-      const stages = stageSearchResponse.data || [];
-      const matchingStages = stages.filter(s =>
-        s.name.toLowerCase().includes(stage_name.toLowerCase())
-      );
-
-      if (matchingStages.length === 0) {
-        return errorResponse(
-          `**Estagio "${stage_name}" nao encontrado na mesa ID ${deskIdForStage}**\n\n` +
-          `*Verifique se o nome esta correto ou use stage_id diretamente.*`
-        );
-      }
-
-      if (matchingStages.length > 1) {
-        let stagesList = '**Estagios encontrados:**\n';
-        matchingStages.forEach((stage, index) => {
-          stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name} | **Ordem:** ${stage.index}\n`;
-        });
-
-        return errorResponse(
-          `**Multiplos estagios encontrados para "${stage_name}"**\n\n` +
-          `${stagesList}\n` +
-          `*Use stage_id especifico ou seja mais especifico no stage_name.*`
-        );
-      }
-
-      finalStageId = matchingStages[0].id;
-      resolvedStageName = matchingStages[0].name;
-    }
-
-    // Auto-resolver o 1o estagio da mesa-destino quando ha troca de mesa sem estagio explicito.
-    // Condicao: finalDeskId foi definido (nova mesa) E nao ha stage_id/stage_name informados.
-    let autoResolvedStageId = null;
-    let autoResolvedStageName = null;
-    if (finalDeskId && !stage_id && !stage_name) {
-      const stagesResponse = await api.searchStages(parseInt(finalDeskId));
-
-      if (stagesResponse.error) {
-        return errorResponse(
-          `**Erro ao buscar estágios da mesa-destino ID ${finalDeskId}**\n\n` +
-          `**Erro:** ${stagesResponse.error}\n\n` +
-          `*A transferência de mesa requer um estágio válido. Informe explicitamente stage_name ou stage_id da mesa-destino.*`
-        );
-      }
-
       const stages = stagesResponse.data || [];
-      if (stages.length > 0) {
+
+      if (stage_name && !stage_id) {
+        // Caso 1: resolver stage_name → stage_id
+        const matchingStages = stages.filter(s =>
+          s.name.toLowerCase().includes(stage_name.toLowerCase())
+        );
+
+        if (matchingStages.length === 0) {
+          return errorResponse(
+            `**Estagio "${stage_name}" nao encontrado na mesa ID ${deskIdForStage}**\n\n` +
+            `*Verifique se o nome esta correto ou use stage_id diretamente.*`
+          );
+        }
+
+        if (matchingStages.length > 1) {
+          let stagesList = '**Estagios encontrados:**\n';
+          matchingStages.forEach((stage, index) => {
+            stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name} | **Ordem:** ${stage.index}\n`;
+          });
+
+          return errorResponse(
+            `**Multiplos estagios encontrados para "${stage_name}"**\n\n` +
+            `${stagesList}\n` +
+            `*Use stage_id especifico ou seja mais especifico no stage_name.*`
+          );
+        }
+
+        finalStageId = matchingStages[0].id;
+        resolvedStageName = matchingStages[0].name;
+      } else {
+        // Caso 2: auto-resolver 1º estágio da mesa-destino
+        if (stages.length === 0) {
+          return errorResponse(
+            `**Erro: Mesa-destino ID ${deskIdForStage} não possui estágios configurados**\n\n` +
+            `*Informe stage_name ou stage_id explicitamente.*`
+          );
+        }
+
         // Preferir o estagio com first_stage truthy (tolera bool/1/"true" da API); fallback: menor index
         let firstStage = stages.find(s => s.first_stage);
         if (!firstStage) {
@@ -219,11 +222,6 @@ async function execute(args, { api }) {
         finalStageId = firstStage.id;
         autoResolvedStageId = firstStage.id;
         autoResolvedStageName = firstStage.name || null;
-      } else {
-        return errorResponse(
-          `**Erro: Mesa-destino ID ${finalDeskId} não possui estágios configurados**\n\n` +
-          `*Informe stage_name ou stage_id explicitamente.*`
-        );
       }
     }
 

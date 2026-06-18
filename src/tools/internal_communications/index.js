@@ -17,13 +17,14 @@ class InternalCommunicationsTools {
   constructor() {
     this.api = new TiFluxAPI();
     this.logger = console;
+    this.verbosity = 'rich';
   }
 }
 
 slices.forEach(slice => {
   const methodName = `_exec_${slice.name}`;
   InternalCommunicationsTools.prototype[methodName] = function (args) {
-    return slice.execute(args, { api: this.api, logger: this.logger });
+    return slice.execute(args, { api: this.api, logger: this.logger, verbosity: this.verbosity });
   };
 });
 

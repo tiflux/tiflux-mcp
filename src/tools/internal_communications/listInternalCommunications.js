@@ -9,6 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'list_internal_communications',
@@ -33,7 +34,7 @@ const schema = {
   }
 };
 
-function formatCommunicationsList(ticket_number, communications, offset, limit) {
+function formatCommunicationsList(ticket_number, communications, offset, limit, verbosity) {
   let text = `**📋 Comunicações Internas do Ticket #${ticket_number}** (${communications.length} encontradas)\n\n`;
 
   communications.forEach((comm, index) => {
@@ -66,24 +67,14 @@ function formatCommunicationsList(ticket_number, communications, offset, limit) 
 
   const currentOffset = parseInt(offset) || 1;
   const currentLimit = parseInt(limit) || 20;
-  const hasMore = communications.length === currentLimit;
-
-  let paginationInfo = `**📊 Paginação:**\n`;
-  paginationInfo += `• Página atual: ${currentOffset}\n`;
-  paginationInfo += `• Comunicações por página: ${currentLimit}\n`;
-  paginationInfo += `• Comunicações nesta página: ${communications.length}\n`;
-
-  if (hasMore) {
-    const nextOffset = currentOffset + 1;
-    paginationInfo += `• Próxima página: Use \`offset: ${nextOffset}\` para ver mais comunicações\n`;
-  } else {
-    paginationInfo += `• Esta é a última página disponível\n`;
-  }
-
-  return `${text}${paginationInfo}\n*✅ Dados obtidos da API TiFlux em tempo real*`;
+  const v = verbosity || 'rich';
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: communications.length, unit: 'comunicações' }, v);
+  const footerStr = footer(v);
+  const sep = footerStr ? '\n' : '';
+  return `${text}${paginationInfo}${sep}${footerStr}`;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   const { ticket_number, offset = 1, limit = 20 } = args;
 
   requireField(args, 'ticket_number');
@@ -112,7 +103,7 @@ async function execute(args, { api }) {
       );
     }
 
-    return textResponse(formatCommunicationsList(ticket_number, communications, offset, limit));
+    return textResponse(formatCommunicationsList(ticket_number, communications, offset, limit, verbosity));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar comunicações internas**\n\n` +
