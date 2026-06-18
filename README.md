@@ -210,6 +210,10 @@ Update an existing ticket in TiFlux. Supports transferring a ticket to another d
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
 - `stage_id` (number, optional): Stage/phase ID. Always takes precedence over auto-resolution.
 - `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id, requires desk_id or desk_name). Always takes precedence over auto-resolution.
+- `priority_id` (number, optional): Priority ID. Priorities are scoped per desk — use `list_desk_priorities` to discover valid IDs for the destination desk. When transferring desks, provide this field (or `priority_name`) to preserve the ticket's priority (priorities are not automatically preserved across desk transfers).
+- `priority_name` (string, optional): Priority name for automatic search (requires `desk_id` or `desk_name` to resolve). **Because it requires a desk, the API treats it as a transfer — so `priority_name` only works when transferring to another desk.** To change priority on the ticket's **current** desk, use `priority_id` directly (no desk).
+- `priority_change_reason` (string, optional): Reason for the priority change (free text). **Required** when changing priority (`priority_id`) **outside** of a desk transfer — the API rejects `priority_id` without it (`42201`). **Not allowed** during a desk transfer — the API rejects it (`42202`); in that case it is dropped automatically and a warning is shown.
+- `status_id` (number, optional): Status ID. There is no status listing endpoint in the API v2 — provide the ID directly (no `status_name`).
 - `responsible_id` (number, optional): Responsible user ID (use null to unassign)
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
@@ -217,6 +221,17 @@ Update an existing ticket in TiFlux. Supports transferring a ticket to another d
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 
 **Note:** At least one optional field must be provided along with the `ticket_number`.
+
+**Desk Transfer Prerequisites:**
+1. **Desk relationship** — origin and destination desks must be **linked** in TiFlux settings. Without this the API rejects the transfer with a `42202` error.
+2. **Catalog item for destination desk** — desks that require a service catalog reject the transfer without `services_catalogs_item_id`/`catalog_item_name` of the destination desk.
+3. **Priority is not preserved** — priority is scoped per desk and is **lost** on transfer (becomes `null`). Provide `priority_name`/`priority_id` to preserve it. Status is automatically reallocated by the API.
+
+**Priority change rules** (enforced by the API v2):
+- **Same desk (no transfer):** use `priority_id` directly (no `desk_id`/`desk_name`). `priority_change_reason` is **required** (`42201` otherwise). `priority_name` does **not** work here — it requires a desk, which the API interprets as a transfer.
+- **During a desk transfer:** provide `priority_id` or `priority_name` to preserve priority; do **not** send `priority_change_reason` (`42202` otherwise — it is dropped automatically with a warning).
+
+**Error messages:** Common `42202` transfer errors (missing desk relationship, required catalog) are returned as actionable messages instead of raw API text.
 
 ### update_ticket_entities
 Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields per request. For checkbox fields with multiple named options, send one item per option with `entity_field_option_id`. Use `list_entity_field_options` to discover option IDs.
@@ -1486,7 +1501,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /technical-groups/{id}/users` - List users in an attendant group (non-admin fallback — deduplicated, fuzzy-matched)
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
-- `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`)
+- `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`, `update_ticket` priority_name resolution)
 - `GET /desks/{id}/services-catalogs` - Get desk service catalogs (`list_desk_services_catalogs`)
 - `GET /desks/{id}/stages` - Get desk stages
 - `GET /desks/{id}/services-catalogs-items` - Get service catalog items (supports `?name` for server-side search by catalog/area/item name)

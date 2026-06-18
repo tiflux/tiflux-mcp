@@ -3,9 +3,13 @@
  *
  * Endpoint: PUT /tickets/{ticket_number} (via api.updateTicket).
  * Resolve desk_name, stage_name (requer desk_id ou desk_name),
+ * priority_name (requer desk_id ou desk_name, usa listDeskPriorities + fuzzy),
  * responsible_name, catalog_item_name (requer desk).
  * responsible_id=null remove o responsavel.
  * Envia apenas campos informados; se nenhum campo informado, retorna aviso.
+ *
+ * Frente 3: mapeia erros 42202 de transferencia (relacionamento de mesa ausente,
+ * catalogo exigido) para mensagens amigaveis orientando o operador.
  */
 
 const { textResponse } = require('../_shared/response');
@@ -14,6 +18,7 @@ const { requireField } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
+const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 
 const schema = {
   name: 'update_ticket',
@@ -21,7 +26,11 @@ const schema = {
 
 **Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_id se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa, use responsible_name/responsible_id para atendente atribuido.
 
-**Nota:** A API v2 nao permite alterar o solicitante (requestor) em um ticket existente via update. Para vincular solicitante, use create_ticket.`,
+**Transferencia de mesa:** Ao mover o ticket para outra mesa, inclua priority_name ou priority_id para preservar a prioridade (prioridades sao escopadas por mesa e se perdem na transferencia). Se a mesa-destino exigir prioridade, a transferencia falha sem esse campo. NAO envie priority_change_reason em transferencia (a API rejeita; e ignorado automaticamente).
+
+**Mudar prioridade sem transferir:** Use priority_id diretamente (sem desk) — priority_change_reason e OBRIGATORIO nesse caso. priority_name NAO serve para a mesa atual (exige informar mesa, que a API trata como transferencia).
+
+**Nota:** A API v2 nao permite alterar o solicitante (requestor) em um ticket existente via update. Para vincular solicitante, use create_ticket. Tambem nao existe status_name — use status_id diretamente (nao ha endpoint de listagem de status por mesa na API v2).`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -33,6 +42,10 @@ const schema = {
       desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
       stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática (alternativa ao stage_id, requer desk_id ou desk_name)' },
+      priority_id: { type: 'number', description: 'ID da prioridade do ticket (opcional). Prioridades são escopadas por mesa — use list_desk_priorities para descobrir IDs válidos na mesa-destino. Ao transferir de mesa, informe este campo (ou priority_name) para preservar a prioridade.' },
+      priority_name: { type: 'string', description: 'Nome da prioridade para busca automática (requer desk_id ou desk_name para resolver). IMPORTANTE: como exige informar a mesa, a API interpreta como transferência — só funciona ao transferir para outra mesa. Para mudar a prioridade na mesa ATUAL do ticket, use priority_id diretamente (sem desk).' },
+      priority_change_reason: { type: 'string', description: 'Motivo da mudança de prioridade (texto livre). OBRIGATÓRIO ao mudar a prioridade (priority_id) FORA de uma transferência de mesa — a API rejeita priority_id sem ele. NÃO deve ser usado durante transferência de mesa (a API rejeita); nesse caso é ignorado automaticamente.' },
+      status_id: { type: 'number', description: 'ID do status do ticket (opcional). Não há endpoint de listagem de status por mesa na API v2 — informe o ID diretamente (sem status_name).' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional - use null ou omita para remover responsável)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
       followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' },
@@ -42,6 +55,45 @@ const schema = {
     required: ['ticket_number']
   }
 };
+
+/**
+ * Tenta mapear um erro 422 / error_code 42202 para uma mensagem amigavel.
+ * Retorna string formatada se reconhecido, ou null caso contrario.
+ *
+ * @param {object} responseError — objeto de erro retornado por api.updateTicket
+ * @param {string|number} deskRef — nome ou ID da mesa-destino (para mensagem)
+ */
+function mapTransferError422(responseError, deskRef) {
+  if (!responseError) return null;
+  // api.updateTicket sempre retorna error como string (ver tiflux-api.js _handleError);
+  // se vier outro tipo, nao da pra casar por substring de forma confiavel — degradar p/ erro generico.
+  if (typeof responseError !== 'string') return null;
+
+  const errorText = responseError;
+
+  // Relacionamento de mesa ausente
+  if (errorText.includes('desk_id') && errorText.includes('relationship')) {
+    const deskLabel = deskRef ? `**${deskRef}**` : 'a mesa-destino';
+    return (
+      `**Erro: ${deskLabel} não está vinculada à mesa atual do ticket.**\n\n` +
+      `Para transferir, configure o relacionamento entre as mesas no TiFlux (Configurações → Mesas → Relacionamentos).\n\n` +
+      `*Se você só quer alterar a prioridade na mesa atual (sem transferir), use \`priority_id\` diretamente — sem \`desk_id\`/\`desk_name\`. O \`priority_name\` exige informar a mesa, o que a API interpreta como transferência.*\n\n` +
+      `**Detalhe da API:** ${errorText}`
+    );
+  }
+
+  // Catalogo exigido pela mesa-destino
+  if (errorText.includes('services_catalogs_item_id') && (errorText.includes('requires a services catalog') || errorText.includes('catalog item'))) {
+    const deskLabel = deskRef ? `**${deskRef}**` : 'A mesa-destino';
+    return (
+      `**Erro: ${deskLabel} exige um item de catálogo de serviços.**\n\n` +
+      `Informe \`catalog_item_name\` ou \`services_catalogs_item_id\` válido da mesa-destino antes de transferir.\n\n` +
+      `**Detalhe da API:** ${errorText}`
+    );
+  }
+
+  return null;
+}
 
 async function execute(args, { api }) {
   const {
@@ -53,6 +105,10 @@ async function execute(args, { api }) {
     desk_name,
     stage_id,
     stage_name,
+    priority_id,
+    priority_name,
+    priority_change_reason,
+    status_id,
     responsible_id,
     responsible_name,
     followers,
@@ -62,10 +118,18 @@ async function execute(args, { api }) {
 
   requireField(args, 'ticket_number');
 
+  // Track resolved names for the summary
+  let resolvedDeskName = desk_name || null;
+  let resolvedStageName = null;
+  let resolvedPriorityName = priority_name || null;
+  let resolvedResponsibleName = responsible_name || null;
+  let resolvedCatalogItemName = catalog_item_name || null;
+
   try {
     let finalDeskId = desk_id;
     let finalStageId = stage_id;
     let finalResponsibleId = responsible_id;
+    let finalPriorityId = priority_id;
 
     // Se desk_name foi fornecido, buscar o ID da mesa
     if (desk_name && !desk_id) {
@@ -122,11 +186,13 @@ async function execute(args, { api }) {
       }
 
       finalStageId = matchingStages[0].id;
+      resolvedStageName = matchingStages[0].name;
     }
 
     // Auto-resolver o 1o estagio da mesa-destino quando ha troca de mesa sem estagio explicito.
     // Condicao: finalDeskId foi definido (nova mesa) E nao ha stage_id/stage_name informados.
     let autoResolvedStageId = null;
+    let autoResolvedStageName = null;
     if (finalDeskId && !stage_id && !stage_name) {
       const stagesResponse = await api.searchStages(parseInt(finalDeskId));
 
@@ -152,6 +218,7 @@ async function execute(args, { api }) {
         }
         finalStageId = firstStage.id;
         autoResolvedStageId = firstStage.id;
+        autoResolvedStageName = firstStage.name || null;
       } else {
         return errorResponse(
           `**Erro: Mesa-destino ID ${finalDeskId} não possui estágios configurados**\n\n` +
@@ -160,12 +227,91 @@ async function execute(args, { api }) {
       }
     }
 
+    // Resolver priority_name → priority_id (requer desk)
+    // Se priority_id ja foi fornecido, nao resolver priority_name
+    if (priority_name && !priority_id) {
+      const deskIdForPriority = finalDeskId;
+
+      if (!deskIdForPriority) {
+        return errorResponse(
+          `**Erro: desk_id ou desk_name obrigatorio para buscar prioridade por nome**\n\n` +
+          `*Para usar priority_name, informe tambem desk_id ou desk_name (da mesa-destino na transferencia).*`
+        );
+      }
+
+      const priorityResponse = await api.listDeskPriorities(parseInt(deskIdForPriority));
+
+      if (priorityResponse.error) {
+        return errorResponse(
+          `**Erro ao buscar prioridades da mesa ID ${deskIdForPriority}**\n\n` +
+          `**Erro:** ${priorityResponse.error}\n\n` +
+          `*Verifique se a mesa existe e possui prioridades configuradas.*`
+        );
+      }
+
+      const priorities = priorityResponse.data || [];
+
+      if (priorities.length === 0) {
+        return errorResponse(
+          `**Nenhuma prioridade encontrada na mesa ID ${deskIdForPriority}**\n\n` +
+          `*Verifique se a mesa possui prioridades configuradas ou use priority_id diretamente.*`
+        );
+      }
+
+      const { matches } = fuzzyMatchItems(priority_name, priorities, p => p.name);
+
+      if (matches.length === 0) {
+        return errorResponse(
+          `**Prioridade "${priority_name}" nao encontrada na mesa ID ${deskIdForPriority}**\n\n` +
+          `*Verifique se o nome esta correto ou use priority_id diretamente.*`
+        );
+      }
+
+      if (matches.length > 1) {
+        // Verificar se o melhor match e exato — se sim, usar sem ambiguidade
+        const bestScore = matches[0].score;
+        const tied = matches.filter(m => m.score === bestScore);
+        if (tied.length > 1) {
+          let prioritiesList = '**Prioridades encontradas:**\n';
+          matches.forEach((m, index) => {
+            prioritiesList += `${index + 1}. **ID:** ${m.item.id} | **Nome:** ${m.item.name}\n`;
+          });
+
+          return errorResponse(
+            `**Multiplas prioridades encontradas para "${priority_name}"**\n\n` +
+            `${prioritiesList}\n` +
+            `*Use priority_id especifico ou seja mais especifico no priority_name.*`
+          );
+        }
+      }
+
+      finalPriorityId = matches[0].item.id;
+      resolvedPriorityName = matches[0].item.name;
+    }
+
+    // Decisao 1b: se ha troca de mesa e nenhuma prioridade informada, verificar se a mesa-destino
+    // exige prioridade (require_service_catalog_open_ticket=false implica priority obrigatorio).
+    // Para isso, verificamos se a mesa nao tem catalogo mas tem prioridades configuradas,
+    // e se a API retornar 422 de prioridade — tratamos via mapTransferError422 no bloco de erro.
+    // Alternativa proativa: se ha troca de mesa, priority ausente, e a mesa nao tem catalogo
+    // (require_service_catalog_open_ticket=false), retornar erro preventivo.
+    // Implementacao: verificar GET /desks/{id} para saber se exige catalogo ou prioridade.
+    // Nota: para manter a implementacao simples e sem GET extra por padrao, optamos por
+    // tratar o erro 422 de forma amigavel (Frente 3) quando ocorrer, e documentar que o usuario
+    // deve informar priority_name/priority_id ao transferir para mesa que exige prioridade.
+    // O erro preventivo (1b) seria muito custoso (GET /desks/{id} sempre que ha troca).
+    // Portanto: tratamento reativo via mapTransferError422 + mensagem do schema.
+
     // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado
     // (suporta admin via GET /users e nao-admin via fallback GET /technical-groups/{id}/users)
     if (responsible_name && !responsible_id) {
       const resolved = await resolveResponsibleName(api, responsible_name);
       if (resolved.error) return resolved.response;
       finalResponsibleId = resolved.userId;
+      // Captura nome real resolvido (pode diferir do nome parcial informado)
+      if (resolved.user && resolved.user.name) {
+        resolvedResponsibleName = resolved.user.name;
+      }
     }
 
     let finalCatalogItemId = services_catalogs_item_id;
@@ -226,6 +372,19 @@ async function execute(args, { api }) {
       }
 
       finalCatalogItemId = matchingItems[0].id;
+      resolvedCatalogItemName = matchingItems[0].name;
+    }
+
+    // isDeskTransfer = mesa foi informada (desk_id/desk_name) — mesmo criterio usado p/ auto-resolver estagio.
+    const isDeskTransfer = finalDeskId !== undefined;
+
+    // priority_change_reason e obrigatorio ao mudar prioridade FORA de transferencia (API 42201).
+    if (finalPriorityId !== undefined && !isDeskTransfer &&
+        (priority_change_reason === undefined || String(priority_change_reason).trim() === '')) {
+      return errorResponse(
+        `**Erro: priority_change_reason obrigatório ao alterar a prioridade**\n\n` +
+        `*A API v2 exige um motivo (priority_change_reason) ao mudar a prioridade de um ticket fora de uma transferência de mesa.*`
+      );
     }
 
     // Preparar dados de atualizacao (apenas campos fornecidos)
@@ -236,6 +395,20 @@ async function execute(args, { api }) {
     if (client_id !== undefined) updateData.client_id = parseInt(client_id);
     if (finalDeskId !== undefined) updateData.desk_id = parseInt(finalDeskId);
     if (finalStageId !== undefined) updateData.stage_id = parseInt(finalStageId);
+    if (finalPriorityId !== undefined) updateData.priority_id = parseInt(finalPriorityId);
+    // Regras da API v2 para priority_change_reason (validadas via teste em producao 2026-06-18):
+    //  - Mudanca de prioridade SEM transferencia de mesa → priority_change_reason e OBRIGATORIO
+    //    (a API retorna 42201 "Cannot send :priority_id without :priority_change_reason" sem ele).
+    //  - DURANTE transferencia de mesa → priority_change_reason e PROIBIDO
+    //    (a API retorna 42202 "not allowed during desk transfer" se enviado).
+    let priorityReasonDropped = false;
+    if (finalPriorityId !== undefined && !isDeskTransfer) {
+      updateData.priority_change_reason = priority_change_reason;
+    } else if (priority_change_reason !== undefined && isDeskTransfer) {
+      // Usuario passou reason numa transferencia — a API rejeitaria; descartamos e avisamos no resumo.
+      priorityReasonDropped = true;
+    }
+    if (status_id !== undefined) updateData.status_id = parseInt(status_id);
     if (followers !== undefined) updateData.followers = followers;
     if (finalCatalogItemId !== undefined) updateData.services_catalogs_item_id = parseInt(finalCatalogItemId);
 
@@ -249,7 +422,7 @@ async function execute(args, { api }) {
       return errorResponse(
         `**⚠️ Nenhum campo informado para atualização**\n\n` +
         `**Ticket ID:** #${ticket_number}\n\n` +
-        `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, responsible_id, followers*`
+        `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, priority_id, priority_name, status_id, responsible_id, followers*`
       );
     }
 
@@ -257,6 +430,13 @@ async function execute(args, { api }) {
     const response = await api.updateTicket(ticket_number, updateData);
 
     if (response.error) {
+      // Frente 3: mapear erros 42202 de transferencia para mensagens amigaveis
+      const deskRef = resolvedDeskName || (finalDeskId ? `ID ${finalDeskId}` : null);
+      const friendlyError = mapTransferError422(response.error, deskRef);
+      if (friendlyError) {
+        return errorResponse(`**❌ Erro ao atualizar ticket #${ticket_number}**\n\n${friendlyError}`);
+      }
+
       return errorResponse(
         `**❌ Erro ao atualizar ticket #${ticket_number}**\n\n` +
         `**Código:** ${response.status}\n` +
@@ -265,23 +445,43 @@ async function execute(args, { api }) {
       );
     }
 
-    // Preparar resumo das alteracoes
+    // Preparar resumo das alteracoes — exibir nome + ID quando disponivel; fallback "ID X" para IDs crus
     let changesText = '**Alterações realizadas:**\n';
     if (title !== undefined) changesText += `• Título: ${title}\n`;
     if (description !== undefined) changesText += `• Descrição: ${description.substring(0, 50)}...\n`;
     if (client_id !== undefined) changesText += `• Cliente ID: ${client_id}\n`;
     if (finalDeskId !== undefined) {
-      changesText += `• Mesa transferida: ID ${finalDeskId}\n`;
+      const deskLabel = resolvedDeskName ? `${resolvedDeskName} (ID ${finalDeskId})` : `ID ${finalDeskId}`;
+      changesText += `• Mesa transferida: ${deskLabel}\n`;
       if (autoResolvedStageId !== null) {
-        changesText += `• Estágio auto-resolvido: ID ${autoResolvedStageId} (1º estágio da mesa-destino)\n`;
+        const stageLabel = autoResolvedStageName ? `${autoResolvedStageName} (ID ${autoResolvedStageId})` : `ID ${autoResolvedStageId}`;
+        changesText += `• Estágio auto-resolvido: ${stageLabel} (1º estágio da mesa-destino)\n`;
       }
     }
-    if (finalStageId !== undefined && autoResolvedStageId === null) changesText += `• Estágio ID: ${finalStageId}\n`;
+    if (finalStageId !== undefined && autoResolvedStageId === null) {
+      const stageLabel = resolvedStageName ? `${resolvedStageName} (ID ${finalStageId})` : `ID ${finalStageId}`;
+      changesText += `• Estágio: ${stageLabel}\n`;
+    }
+    if (finalPriorityId !== undefined) {
+      const priorityLabel = resolvedPriorityName ? `${resolvedPriorityName} (ID ${finalPriorityId})` : `ID ${finalPriorityId}`;
+      changesText += `• Prioridade: ${priorityLabel}\n`;
+    }
+    if (updateData.priority_change_reason !== undefined) changesText += `• Motivo da mudança de prioridade: ${priority_change_reason}\n`;
+    if (priorityReasonDropped) changesText += `• ⚠️ priority_change_reason ignorado: a API v2 não permite motivo de mudança de prioridade durante transferência de mesa\n`;
+    if (status_id !== undefined) changesText += `• Status ID: ${status_id}\n`;
     if (finalResponsibleId !== undefined) {
-      changesText += `• Responsável: ${finalResponsibleId ? `ID ${finalResponsibleId}` : 'Removido (não atribuído)'}\n`;
+      if (finalResponsibleId === null || finalResponsibleId === 0) {
+        changesText += `• Responsável: Removido (não atribuído)\n`;
+      } else {
+        const respLabel = resolvedResponsibleName ? `${resolvedResponsibleName} (ID ${finalResponsibleId})` : `ID ${finalResponsibleId}`;
+        changesText += `• Responsável: ${respLabel}\n`;
+      }
     }
     if (followers !== undefined) changesText += `• Seguidores: ${followers}\n`;
-    if (finalCatalogItemId !== undefined) changesText += `• Item de Catálogo ID: ${finalCatalogItemId}\n`;
+    if (finalCatalogItemId !== undefined) {
+      const catalogLabel = resolvedCatalogItemName ? `${resolvedCatalogItemName} (ID ${finalCatalogItemId})` : `ID ${finalCatalogItemId}`;
+      changesText += `• Item de Catálogo: ${catalogLabel}\n`;
+    }
 
     return textResponse(
       `**✅ Ticket #${ticket_number} atualizado com sucesso!**\n\n` +

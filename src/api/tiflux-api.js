@@ -246,6 +246,7 @@ class TiFluxAPI {
     if (ticketData.client_id !== undefined) ticketObject.client_id = ticketData.client_id;
     if (ticketData.desk_id !== undefined) ticketObject.desk_id = ticketData.desk_id;
     if (ticketData.priority_id !== undefined) ticketObject.priority_id = ticketData.priority_id;
+    if (ticketData.priority_change_reason !== undefined) ticketObject.priority_change_reason = ticketData.priority_change_reason;
     if (ticketData.status_id !== undefined) ticketObject.status_id = ticketData.status_id;
     if (ticketData.stage_id !== undefined) ticketObject.stage_id = ticketData.stage_id;
     if (ticketData.services_catalogs_item_id !== undefined) ticketObject.services_catalogs_item_id = ticketData.services_catalogs_item_id;
