@@ -4,7 +4,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 
 ## Features
 
-- **Ticket Management**: Get, create, update, close and list tickets with comprehensive filtering
+- **Ticket Management**: Get, create, update, close and list tickets with comprehensive filtering. Supports desk transfer — when `desk_id`/`desk_name` is informed, the MCP auto-resolves the first stage of the destination desk.
 - **Stages & SLA History**: Inspect the full history of ticket stages with per-stage SLA outcomes
 - **Internal Communications**: Create and list internal communications for tickets with file attachments
 - **Time Tracking (Appointments)**: Create and list work-hour appointments on tickets
@@ -199,24 +199,24 @@ Create a new ticket in TiFlux.
 > **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
 ### update_ticket
-Update an existing ticket in TiFlux.
+Update an existing ticket in TiFlux. Supports transferring a ticket to another desk — when `desk_id`/`desk_name` is provided without an explicit `stage_id`/`stage_name`, the MCP automatically resolves the first stage of the destination desk (the stage with `first_stage: true`, or the one with the lowest index as a fallback), preventing invalid-stage errors.
 
 **Parameters:**
-- `ticket_id` (string, required): ID of the ticket to update
+- `ticket_number` (string, required): Number of the ticket to update (e.g. "123", "456")
 - `title` (string, optional): New ticket title
 - `description` (string, optional): New ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
 - `client_id` (number, optional): New client ID
-- `desk_id` (number, optional): New desk ID
-- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution)
-- `stage_id` (number, optional): Stage/phase ID
-- `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id, requires desk_id or desk_name)
+- `desk_id` (number, optional): New desk ID. Transfers the ticket to the specified desk. Stages and priorities are scoped per desk — if no stage is provided, the MCP auto-resolves the first stage of the destination desk.
+- `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
+- `stage_id` (number, optional): Stage/phase ID. Always takes precedence over auto-resolution.
+- `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id, requires desk_id or desk_name). Always takes precedence over auto-resolution.
 - `responsible_id` (number, optional): Responsible user ID (use null to unassign)
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
 - `services_catalogs_item_id` (number, optional): Catalog item ID for updating desk with specific item
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 
-**Note:** At least one optional field must be provided along with the ticket_id.
+**Note:** At least one optional field must be provided along with the `ticket_number`.
 
 ### update_ticket_entities
 Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields per request. For checkbox fields with multiple named options, send one item per option with `entity_field_option_id`. Use `list_entity_field_options` to discover option IDs.

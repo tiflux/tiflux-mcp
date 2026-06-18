@@ -1,7 +1,7 @@
 /**
  * Slice: update_ticket — atualiza um ticket existente.
  *
- * Endpoint: PATCH /tickets/{ticket_number} (via api.updateTicket).
+ * Endpoint: PUT /tickets/{ticket_number} (via api.updateTicket).
  * Resolve desk_name, stage_name (requer desk_id ou desk_name),
  * responsible_name, catalog_item_name (requer desk).
  * responsible_id=null remove o responsavel.
@@ -29,7 +29,7 @@ const schema = {
       title: { type: 'string', description: 'Novo título do ticket (opcional)' },
       description: { type: 'string', description: 'Nova descrição do ticket (opcional). Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
       client_id: { type: 'number', description: 'Novo ID do cliente/empresa (opcional). Use quando o usuario disser explicitamente "cliente" ou "empresa".' },
-      desk_id: { type: 'number', description: 'Novo ID da mesa (opcional - LIMITAÇÃO: API não suporta transferência de mesa via update)' },
+      desk_id: { type: 'number', description: 'Novo ID da mesa (opcional). Transfere o ticket para outra mesa. Como estágios e prioridades são escopados por mesa, ao transferir sem informar stage_id/stage_name o MCP resolve automaticamente o 1º estágio da mesa-destino.' },
       desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
       stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática (alternativa ao stage_id, requer desk_id ou desk_name)' },
@@ -122,6 +122,42 @@ async function execute(args, { api }) {
       }
 
       finalStageId = matchingStages[0].id;
+    }
+
+    // Auto-resolver o 1o estagio da mesa-destino quando ha troca de mesa sem estagio explicito.
+    // Condicao: finalDeskId foi definido (nova mesa) E nao ha stage_id/stage_name informados.
+    let autoResolvedStageId = null;
+    if (finalDeskId && !stage_id && !stage_name) {
+      const stagesResponse = await api.searchStages(parseInt(finalDeskId));
+
+      if (stagesResponse.error) {
+        return errorResponse(
+          `**Erro ao buscar estágios da mesa-destino ID ${finalDeskId}**\n\n` +
+          `**Erro:** ${stagesResponse.error}\n\n` +
+          `*A transferência de mesa requer um estágio válido. Informe explicitamente stage_name ou stage_id da mesa-destino.*`
+        );
+      }
+
+      const stages = stagesResponse.data || [];
+      if (stages.length > 0) {
+        // Preferir o estagio com first_stage truthy (tolera bool/1/"true" da API); fallback: menor index
+        let firstStage = stages.find(s => s.first_stage);
+        if (!firstStage) {
+          firstStage = stages.reduce((min, s) =>
+            (s.index !== undefined && (min === null || s.index < min.index)) ? s : min, null
+          );
+        }
+        if (!firstStage) {
+          firstStage = stages[0];
+        }
+        finalStageId = firstStage.id;
+        autoResolvedStageId = firstStage.id;
+      } else {
+        return errorResponse(
+          `**Erro: Mesa-destino ID ${finalDeskId} não possui estágios configurados**\n\n` +
+          `*Informe stage_name ou stage_id explicitamente.*`
+        );
+      }
     }
 
     // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado
@@ -234,10 +270,15 @@ async function execute(args, { api }) {
     if (title !== undefined) changesText += `• Título: ${title}\n`;
     if (description !== undefined) changesText += `• Descrição: ${description.substring(0, 50)}...\n`;
     if (client_id !== undefined) changesText += `• Cliente ID: ${client_id}\n`;
-    if (desk_id !== undefined) changesText += `• Mesa transferida: ID ${desk_id}\n`;
-    if (stage_id !== undefined) changesText += `• Estágio ID: ${stage_id}\n`;
-    if (responsible_id !== undefined) {
-      changesText += `• Responsável: ${responsible_id ? `ID ${responsible_id}` : 'Removido (não atribuído)'}\n`;
+    if (finalDeskId !== undefined) {
+      changesText += `• Mesa transferida: ID ${finalDeskId}\n`;
+      if (autoResolvedStageId !== null) {
+        changesText += `• Estágio auto-resolvido: ID ${autoResolvedStageId} (1º estágio da mesa-destino)\n`;
+      }
+    }
+    if (finalStageId !== undefined && autoResolvedStageId === null) changesText += `• Estágio ID: ${finalStageId}\n`;
+    if (finalResponsibleId !== undefined) {
+      changesText += `• Responsável: ${finalResponsibleId ? `ID ${finalResponsibleId}` : 'Removido (não atribuído)'}\n`;
     }
     if (followers !== undefined) changesText += `• Seguidores: ${followers}\n`;
     if (finalCatalogItemId !== undefined) changesText += `• Item de Catálogo ID: ${finalCatalogItemId}\n`;
