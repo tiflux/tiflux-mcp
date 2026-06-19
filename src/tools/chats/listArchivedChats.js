@@ -8,6 +8,8 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
+const { createdAtFilterSchemaProperties, finishedAtFilterSchemaProperties } = require('../_shared/schemaProps');
+const { commonChatListFilters } = require('../_shared/chatFilters');
 
 const schema = {
   name: 'list_archived_chats',
@@ -50,7 +52,9 @@ const schema = {
       canceled: {
         type: 'boolean',
         description: 'Filtrar por cancelamento: true = somente cancelados, false = somente finalizados normalmente, omitido = todos os arquivados (opcional)'
-      }
+      },
+      ...createdAtFilterSchemaProperties(),
+      ...finishedAtFilterSchemaProperties()
     },
     required: []
   }
@@ -96,20 +100,16 @@ function formatChatsList(chats, offset, limit, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const { offset = 1, limit = 20, department_id, client_id, requestor_id, number, origins, started_by, canceled } = args;
+  const filters = {
+    ...commonChatListFilters(args),
+    canceled: args.canceled,
+    finished_at_start: args.finished_at_start,
+    finished_at_end: args.finished_at_end
+  };
+  const { offset, limit } = filters;
 
   try {
-    const response = await api.listArchivedChats({
-      offset,
-      limit,
-      department_id,
-      client_id,
-      requestor_id,
-      number,
-      origins,
-      started_by,
-      canceled
-    });
+    const response = await api.listArchivedChats(filters);
 
     if (response.error) {
       const code = response.status;

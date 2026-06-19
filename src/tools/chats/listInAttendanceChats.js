@@ -8,6 +8,8 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
+const { createdAtFilterSchemaProperties } = require('../_shared/schemaProps');
+const { commonChatListFilters } = require('../_shared/chatFilters');
 
 const schema = {
   name: 'list_in_attendance_chats',
@@ -54,7 +56,8 @@ const schema = {
       status: {
         type: 'string',
         description: 'Filtrar por status do atendimento: waiting_client, waiting_attendance, triage (opcional)'
-      }
+      },
+      ...createdAtFilterSchemaProperties()
     },
     required: []
   }
@@ -100,21 +103,11 @@ function formatChatsList(chats, offset, limit, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const { offset = 1, limit = 20, department_id, client_id, requestor_id, number, origins, started_by, user_id, status } = args;
+  const filters = { ...commonChatListFilters(args), user_id: args.user_id, status: args.status };
+  const { offset, limit } = filters;
 
   try {
-    const response = await api.listInAttendanceChats({
-      offset,
-      limit,
-      department_id,
-      client_id,
-      requestor_id,
-      number,
-      origins,
-      started_by,
-      user_id,
-      status
-    });
+    const response = await api.listInAttendanceChats(filters);
 
     if (response.error) {
       return errorResponse(

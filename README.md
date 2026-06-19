@@ -1125,7 +1125,7 @@ Card with all relevant chat fields including:
 ```
 
 ### list_inbox_chats
-Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de departamento, cliente, origem e paginação.
+Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de departamento, cliente, origem, data e paginação.
 
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
@@ -1136,13 +1136,16 @@ Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
 - `origins` (string, optional): Comma-separated origin channels: `chat`, `site_widget`, `campaign`, `whatsapp`, `whatsapp_web`, `gupshup`, `whatsapp_cloud`
 - `started_by` (string, optional): Chat initiator type: `Client`, `Attendant`, `Campaign`, `API`
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
 **Example:**
 ```json
 {
   "origins": "whatsapp",
-  "limit": 10,
-  "offset": 1
+  "created_at_start": "2026-06-01T00:00:00Z",
+  "created_at_end": "2026-06-30T23:59:59Z",
+  "limit": 10
 }
 ```
 
@@ -1158,17 +1161,20 @@ Listar chats assumidos pelo usuário autenticado (dono da API key) com filtros o
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
 - `origins` (string, optional): Comma-separated origin channels (see list_inbox_chats)
 - `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
 **Example:**
 ```json
 {
   "department_id": 3,
+  "created_at_start": "2026-06-01T00:00:00Z",
   "limit": 20
 }
 ```
 
 ### list_in_attendance_chats
-Listar todos os chats em atendimento da organização com filtros opcionais de responsável, status e paginação.
+Listar todos os chats em atendimento da organização com filtros opcionais de responsável, status, data e paginação.
 
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
@@ -1181,17 +1187,20 @@ Listar todos os chats em atendimento da organização com filtros opcionais de r
 - `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
 - `user_id` (number, optional): Filter by responsible attendant ID
 - `status` (string, optional): Filter by attendance status: `waiting_client`, `waiting_attendance`, `triage`
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
 **Example:**
 ```json
 {
   "user_id": 7,
-  "status": "triage"
+  "status": "triage",
+  "created_at_start": "2026-06-15T00:00:00Z"
 }
 ```
 
 ### list_archived_chats
-Listar chats arquivados (finalizados ou cancelados) com filtros opcionais. Exibe avaliação do atendimento e status de cancelamento.
+Listar chats arquivados (finalizados ou cancelados) com filtros opcionais de data de criação e finalização. Exibe avaliação do atendimento e status de cancelamento.
 
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
@@ -1203,11 +1212,18 @@ Listar chats arquivados (finalizados ou cancelados) com filtros opcionais. Exibe
 - `origins` (string, optional): Comma-separated origin channels (see list_inbox_chats)
 - `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
 - `canceled` (boolean, optional): `true` = only canceled chats, `false` = only normally finished, omitted = all archived chats
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
+- `finished_at_start` (string, optional): Filter chats finished on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Only applicable to archived chats
+- `finished_at_end` (string, optional): Filter chats finished on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `finished_at_start`. Only applicable to archived chats
 
 **Example:**
 ```json
 {
   "canceled": false,
+  "created_at_start": "2026-06-01T00:00:00Z",
+  "created_at_end": "2026-06-30T23:59:59Z",
+  "finished_at_start": "2026-06-15T00:00:00Z",
   "limit": 50
 }
 ```

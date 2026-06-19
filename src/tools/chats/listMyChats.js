@@ -8,6 +8,8 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
+const { createdAtFilterSchemaProperties } = require('../_shared/schemaProps');
+const { commonChatListFilters } = require('../_shared/chatFilters');
 
 const schema = {
   name: 'list_my_chats',
@@ -46,7 +48,8 @@ const schema = {
       started_by: {
         type: 'string',
         description: 'Tipo de iniciador do chat: Client, Attendant, Campaign, API (opcional)'
-      }
+      },
+      ...createdAtFilterSchemaProperties()
     },
     required: []
   }
@@ -92,19 +95,11 @@ function formatChatsList(chats, offset, limit, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const { offset = 1, limit = 20, department_id, client_id, requestor_id, number, origins, started_by } = args;
+  const filters = commonChatListFilters(args);
+  const { offset, limit } = filters;
 
   try {
-    const response = await api.listMyChats({
-      offset,
-      limit,
-      department_id,
-      client_id,
-      requestor_id,
-      number,
-      origins,
-      started_by
-    });
+    const response = await api.listMyChats(filters);
 
     if (response.error) {
       return errorResponse(

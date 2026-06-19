@@ -30,6 +30,23 @@ function isUserActive(user) {
   return true;
 }
 
+/**
+ * Anexa os filtros de data dos endpoints de listagem de chats ao `params`.
+ * Repasse 1:1 para a API v2 (sem transformacao). `created_at_*` vale para os 4
+ * endpoints; `finished_at_*` so para `/chats/archived` (`includeFinished`).
+ * @param {URLSearchParams} params
+ * @param {object} filters
+ * @param {{ includeFinished?: boolean }} [opts]
+ */
+function appendChatDateFilters(params, filters, { includeFinished = false } = {}) {
+  if (filters.created_at_start != null) params.append('created_at_start', filters.created_at_start);
+  if (filters.created_at_end != null) params.append('created_at_end', filters.created_at_end);
+  if (includeFinished) {
+    if (filters.finished_at_start != null) params.append('finished_at_start', filters.finished_at_start);
+    if (filters.finished_at_end != null) params.append('finished_at_end', filters.finished_at_end);
+  }
+}
+
 class TiFluxAPI {
   /**
    * @param {string|null} apiKey - API key (ou via TIFLUX_API_KEY env)
@@ -1108,6 +1125,7 @@ class TiFluxAPI {
     if (filters.number != null) params.append('number', filters.number);
     if (filters.origins != null) params.append('origins', filters.origins);
     if (filters.started_by != null) params.append('started_by', filters.started_by);
+    appendChatDateFilters(params, filters);
 
     return await this.makeRequest(`/chats/inbox?${params.toString()}`);
   }
@@ -1130,6 +1148,7 @@ class TiFluxAPI {
     if (filters.number != null) params.append('number', filters.number);
     if (filters.origins != null) params.append('origins', filters.origins);
     if (filters.started_by != null) params.append('started_by', filters.started_by);
+    appendChatDateFilters(params, filters);
 
     return await this.makeRequest(`/chats/mine?${params.toString()}`);
   }
@@ -1154,6 +1173,7 @@ class TiFluxAPI {
     if (filters.started_by != null) params.append('started_by', filters.started_by);
     if (filters.user_id != null) params.append('user_id', filters.user_id);
     if (filters.status != null) params.append('status', filters.status);
+    appendChatDateFilters(params, filters);
 
     return await this.makeRequest(`/chats/in_attendance?${params.toString()}`);
   }
@@ -1177,6 +1197,7 @@ class TiFluxAPI {
     if (filters.origins != null) params.append('origins', filters.origins);
     if (filters.started_by != null) params.append('started_by', filters.started_by);
     if (filters.canceled != null) params.append('canceled', filters.canceled ? 'true' : 'false');
+    appendChatDateFilters(params, filters, { includeFinished: true });
 
     return await this.makeRequest(`/chats/archived?${params.toString()}`);
   }
