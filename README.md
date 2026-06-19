@@ -1558,15 +1558,17 @@ This heuristic is embedded in the `description` fields of `list_tickets`, `creat
 When using `desk_name` in any tool, the MCP server performs a two-step lookup:
 
 1. **Direct search:** `GET /desks?active=true&name={desk_name}` — fast, uses the API's built-in filter.
-2. **Fuzzy fallback (automatic):** If the direct search returns no results, the server fetches all active desks and applies client-side fuzzy matching with tokenization and normalization (trim, lowercase, accent-insensitive). This handles common patterns like:
+2. **Fuzzy fallback (automatic):** If the direct search returns no results, the server fetches **all** active desks (paginated, up to 200 per page) and applies client-side fuzzy matching with tokenization and normalization (trim, lowercase, accent-insensitive). Works correctly regardless of how many desks the organization has. This handles common patterns like:
    - **Partial name:** `"cansados"` resolves to `"Dev - Cansados"`
    - **Accent-insensitive:** `"comunicacao"` resolves to `"Comunicação"`
    - **Token match:** `"premium"` resolves to `"Dev - Premium"`
    - **Multi-word (tokens in any order, separator-insensitive):** `"dev experimentos"` resolves to `"DEV - Experimentos"`
 
+The fallback returns only the **highest-scoring group** of matches — so single-match terms resolve immediately, while ambiguous terms (multiple desks at equal score) return a disambiguation list.
+
 **Behavior:**
 - If exactly **1 desk** matches → auto-resolved, request proceeds normally.
-- If **multiple desks** match → returns a list so you can be more specific or use `desk_id` directly.
+- If **multiple desks** match at the same score → returns a list so you can be more specific or use `desk_id` directly.
 - If **no match** → returns a clear error message.
 
 This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage`, `search_catalog_item`, `get_desk`, `list_desk_priorities`, and `list_desk_services_catalogs`.

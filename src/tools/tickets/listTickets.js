@@ -39,7 +39,7 @@ const schema = {
     type: 'object',
     properties: {
       desk_ids: { type: 'string', description: 'IDs das mesas separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
-      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_ids). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_ids). Aceita nomes parciais ou multi-palavra (ex: "cansados" resolve para "Dev - Cansados", "dev experimentos" resolve para "DEV - Experimentos"). O fallback fuzzy lista todas as mesas ativas (paginado) para cobrir orgs com muitas mesas. **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
       client_ids: { type: 'string', description: 'IDs dos clientes (empresas) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar pela empresa contratante, nao pela pessoa que abriu o ticket.' },
       client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_ids). Use **apenas** quando o usuario disser explicitamente "cliente", "empresa" ou der um nome corporativo conhecido. Para pessoa fisica, prefira requestor_email.' },
       stage_ids: { type: 'string', description: 'IDs dos estágios separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },

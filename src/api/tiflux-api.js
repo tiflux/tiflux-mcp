@@ -360,9 +360,10 @@ class TiFluxAPI {
    *
    * 1. Tenta busca direta: GET /desks?active=true&name={deskName}
    * 2. Se retornar erro ou pelo menos 1 resultado → devolve como esta.
-   * 3. Senao, busca todas as mesas ativas (searchDesks('')) e aplica
+   * 3. Senao, pagina todas as mesas ativas via listAllActiveDesks() e aplica
    *    fuzzyMatchItems contra `name` + `display_name` de cada mesa.
-   * 4. Se fuzzy encontrou matches → retorna { data: items, status: 200 }.
+   * 4. Se fuzzy encontrou matches → retorna apenas o grupo de maior score
+   *    (top-score winners) como { data: items, status: 200 }.
    *    Senao → devolve o resultado vazio original da busca direta.
    */
   async smartSearchDesks(deskName) {
@@ -374,8 +375,8 @@ class TiFluxAPI {
     if (directResult.error) return directResult;
     if (directResult.data && directResult.data.length > 0) return directResult;
 
-    // Fallback: buscar todas as mesas ativas e aplicar fuzzy matching
-    const allDesksResult = await this.searchDesks('');
+    // Fallback: buscar TODAS as mesas ativas (paginado) e aplicar fuzzy matching
+    const allDesksResult = await this.listAllActiveDesks();
 
     if (allDesksResult.error) return directResult; // se falhou, devolve o vazio original
     if (!allDesksResult.data || allDesksResult.data.length === 0) return directResult;
@@ -388,7 +389,43 @@ class TiFluxAPI {
 
     if (matches.length === 0) return directResult;
 
-    return { data: matches.map(m => m.item), status: 200 };
+    // Devolver apenas o grupo de maior score (evita matches fracos / falsa disambiguacao)
+    const topScore = matches[0].score;
+    const winners = matches.filter(m => m.score === topScore);
+    return { data: winners.map(m => m.item), status: 200 };
+  }
+
+  /**
+   * Busca TODAS as mesas ativas, paginando automaticamente ate a ultima pagina.
+   *
+   * Usa limit=200 (maximo da API) para minimizar o numero de chamadas.
+   * Acumula os resultados de cada pagina e retorna o conjunto completo.
+   * Propaga qualquer erro de API encontrado durante a paginacao.
+   *
+   * @returns {{ data: Array, status: 200 } | { error: string, status: number }}
+   */
+  async listAllActiveDesks() {
+    const PAGE_SIZE = 200;
+    const MAX_PAGES = 50; // guarda contra loop infinito se a API repetir paginas cheias (10k mesas)
+    const accumulated = [];
+    let page = 1; // offset = numero de pagina (1-based), conforme API /desks
+
+    while (page <= MAX_PAGES) {
+      const result = await this.listDesks({ active: true, limit: PAGE_SIZE, offset: page });
+      if (result.error) return result; // propagate error from any page
+      const items = result.data || [];
+      accumulated.push(...items);
+      if (items.length < PAGE_SIZE) break; // last page (partial or empty)
+      page += 1;
+    }
+
+    if (page > MAX_PAGES) {
+      this.logger.warn('TiFlux API listAllActiveDesks atingiu MAX_PAGES', {
+        maxPages: MAX_PAGES, pageSize: PAGE_SIZE, accumulated: accumulated.length
+      });
+    }
+
+    return { data: accumulated, status: 200 };
   }
 
   /**
