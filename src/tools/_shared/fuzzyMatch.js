@@ -40,12 +40,18 @@ function tokenize(text) {
  *
  * Tabela de scores:
  *   100 — match exato (normalizado)
+ *    95 — termo multi-palavra: todos os tokens do termo casam exatamente com tokens do nome
  *    90 — nome comeca com o termo
  *    80 — algum token do nome e exatamente igual ao termo
+ *    75 — termo multi-palavra: todos os tokens do termo sao prefixo de algum token do nome
  *    70 — algum token do nome comeca com o termo
  *    60 — o nome contem o termo como substring
  *    50 — algum token do nome contem o termo como substring
  *     0 — sem match
+ *
+ * Termos multi-palavra (ex.: "dev experimentos") sao casados por conjunto de
+ * tokens — caso contrario um termo com separador diferente do nome (espaco vs
+ * hifen) nunca casaria como substring (ex.: "dev experimentos" vs "DEV - Experimentos").
  *
  * @param {string} searchTerm
  * @param {string} candidateName
@@ -66,6 +72,18 @@ function calculateMatchScore(searchTerm, candidateName) {
   if (normName.startsWith(normTerm)) return 90;
 
   const tokens = tokenize(normName);
+  const termTokens = tokenize(normTerm);
+
+  // --- termo multi-palavra (ex.: "dev experimentos" vs "DEV - Experimentos") ---
+  // Casa por conjunto de tokens (ordem-independente), pois separadores diferentes
+  // (espaco vs hifen) impedem o match por substring acima.
+  if (termTokens.length > 1) {
+    // 95 — todos os tokens do termo casam exatamente com tokens do nome
+    if (termTokens.every(tt => tokens.includes(tt))) return 95;
+    // 75 — todos os tokens do termo sao prefixo de algum token do nome
+    if (termTokens.every(tt => tokens.some(nt => nt.startsWith(tt)))) return 75;
+    // senao, cai nos checks de substring abaixo
+  }
 
   // 80 — algum token e exatamente igual
   if (tokens.some(t => t === normTerm)) return 80;

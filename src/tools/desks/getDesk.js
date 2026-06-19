@@ -23,7 +23,7 @@ const schema = {
       },
       desk_name: {
         type: 'string',
-        description: 'Nome (parcial ou exato) da mesa. Aceita abreviações — ex: "cansados" resolve para "Dev - Cansados". Alternativa ao desk_id.'
+        description: 'Nome (parcial, exato ou com multiplas palavras) da mesa. Aceita abreviações e tokens em qualquer ordem — ex: "cansados" ou "dev cansados" resolvem para "Dev - Cansados"; "dev experimentos" resolve para "DEV - Experimentos". Alternativa ao desk_id.'
       }
     },
     required: []

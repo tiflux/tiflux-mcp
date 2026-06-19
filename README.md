@@ -1299,11 +1299,10 @@ Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramen
 Explore and inspect desks (service queues) without leaving the chat. Use `list_desks` to discover available desks, `get_desk` to inspect full configuration, `list_desk_priorities` to discover priority IDs before creating tickets, and `list_desk_services_catalogs` to list service catalog containers linked to a desk.
 
 ### list_desks
-Listar mesas (desks) disponiveis no tenant para descoberta e exploracao. Retorna tabela com id, nome, display name, status ativo e tipo de atendimento. Use antes de criar tickets ou para explorar quais mesas existem.
+Listar mesas (desks) disponiveis no tenant para descoberta e exploracao. Retorna tabela com id, nome, display name, status ativo e tipo de atendimento. Use antes de criar tickets ou para explorar quais mesas existem. Para localizar uma mesa por nome (parcial/fuzzy), use `get_desk` com `desk_name`.
 
 **Parameters:**
 - `active` (boolean, optional): Filter active (`true`) or inactive (`false`) desks. Default: `true` (active only)
-- `name` (string, optional): Server-side filter by name or display_name (case-insensitive exact match)
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 - `offset` (number, optional): Page number (default: 1)
 
@@ -1324,7 +1323,7 @@ Accepts `desk_id` (direct) **or** `desk_name` (fuzzy, uses the same Smart Name R
 
 **Parameters:**
 - `desk_id` (number, optional): Numeric desk ID. If provided, used directly without name resolution
-- `desk_name` (string, optional): Partial or full desk name — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). Alternative to desk_id
+- `desk_name` (string, optional): Partial, full or multi-word desk name (tokens in any order) — e.g. `"cansados"` or `"dev cansados"` resolve to `"Dev - Cansados"`; `"dev experimentos"` resolves to `"DEV - Experimentos"` (see Smart Name Resolution). Alternative to desk_id
 
 **Note:** At least one of `desk_id` or `desk_name` is required.
 
@@ -1547,6 +1546,7 @@ When using `desk_name` in any tool, the MCP server performs a two-step lookup:
    - **Partial name:** `"cansados"` resolves to `"Dev - Cansados"`
    - **Accent-insensitive:** `"comunicacao"` resolves to `"Comunicação"`
    - **Token match:** `"premium"` resolves to `"Dev - Premium"`
+   - **Multi-word (tokens in any order, separator-insensitive):** `"dev experimentos"` resolves to `"DEV - Experimentos"`
 
 **Behavior:**
 - If exactly **1 desk** matches → auto-resolved, request proceeds normally.

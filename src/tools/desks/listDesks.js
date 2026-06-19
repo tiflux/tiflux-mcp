@@ -2,8 +2,9 @@
  * Slice: list_desks — lista mesas disponiveis no tenant.
  *
  * Endpoint: GET /desks
- * Suporta filtros opcionais: active (boolean), name (string), limit, offset.
+ * Suporta filtros opcionais: active (boolean), limit, offset.
  * Retorna tabela Markdown com id, name, display_name, active, appointment_type.
+ * Busca por nome (parcial/fuzzy) e responsabilidade do get_desk (desk_name).
  */
 
 const { textResponse } = require('../_shared/response');
@@ -11,17 +12,13 @@ const { errorResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_desks',
-  description: 'Listar mesas (desks) disponiveis no TiFlux para descoberta e exploracao. Use para saber quais mesas existem antes de criar/atualizar tickets ou para inspecionar configuracoes.',
+  description: 'Listar mesas (desks) disponiveis no TiFlux para descoberta e exploracao. Use para saber quais mesas existem antes de criar/atualizar tickets ou para inspecionar configuracoes. Para localizar uma mesa por nome (parcial/fuzzy), use get_desk com desk_name.',
   inputSchema: {
     type: 'object',
     properties: {
       active: {
         type: 'boolean',
         description: 'Filtrar mesas ativas (true) ou inativas (false). Padrao: true (apenas mesas ativas).'
-      },
-      name: {
-        type: 'string',
-        description: 'Filtro server-side por nome ou display_name da mesa (match exato, case-insensitive).'
       },
       limit: {
         type: 'number',
@@ -57,13 +54,12 @@ function formatDesksList(desks) {
 }
 
 async function execute(args, { api }) {
-  const { active, name, limit, offset } = args;
+  const { active, limit, offset } = args;
 
   try {
     const filters = {};
 
     if (active !== undefined) filters.active = active;
-    if (name !== undefined) filters.name = name;
     if (limit !== undefined) filters.limit = limit;
     if (offset !== undefined) filters.offset = offset;
 
