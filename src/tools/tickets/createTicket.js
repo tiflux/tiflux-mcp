@@ -135,10 +135,13 @@ async function execute(args, { api }) {
 
     let finalResponsibleId = responsible_id;
 
-    // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado
-    // (suporta admin via GET /users e nao-admin via fallback GET /technical-groups/{id}/users)
+    // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado.
+    // Repassa deskId/clientId para desambiguacao server-side via GET /technical-users.
     if (responsible_name && !responsible_id) {
-      const resolved = await resolveResponsibleName(api, responsible_name);
+      const resolved = await resolveResponsibleName(api, responsible_name, {
+        deskId: finalDeskId ? parseInt(finalDeskId) : undefined,
+        clientId: finalClientId ? parseInt(finalClientId) : undefined
+      });
       if (resolved.error) return resolved.response;
       finalResponsibleId = resolved.userId;
     }

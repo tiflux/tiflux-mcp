@@ -1633,6 +1633,42 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca atendentes tecnicos com filtros server-side.
+   * GET /technical-users
+   *
+   * Endpoint permissivo — nao exige permissao de gerenciamento de usuarios,
+   * apenas licenca de tickets ativa. Retorna array plano de { id, email, name }.
+   *
+   * Diferente de searchUsers/smartSearchUsers: suporta busca server-side por
+   * name/email e filtros de escopo desk_id/client_id (sem filtro client-side).
+   * desk_id e client_id devem ser inteiros — a API retorna 422 (error_code 42201)
+   * se nao forem.
+   *
+   * @param {object} filters - { name, email, desk_id, client_id, offset, limit }
+   */
+  async searchTechnicalUsers(filters = {}) {
+    const params = new URLSearchParams();
+
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    if (filters.name) params.append('name', filters.name);
+    if (filters.email) params.append('email', filters.email);
+    // Coerce para inteiro — API retorna 422 se receber string ou float.
+    // So envia se for inteiro valido: um valor nao-numerico (NaN) seria serializado
+    // como "desk_id=NaN" e causaria 422 (que nao e 404/403, logo nao aciona fallback).
+    // Nesse caso preferimos omitir o scope (busca sem filtro) a vazar erro ao usuario.
+    const deskId = parseInt(filters.desk_id, 10);
+    if (Number.isInteger(deskId)) params.append('desk_id', deskId);
+    const clientId = parseInt(filters.client_id, 10);
+    if (Number.isInteger(clientId)) params.append('client_id', clientId);
+
+    return await this.makeRequest(`/technical-users?${params.toString()}`);
+  }
+
+  /**
    * Busca itens de catalogo de servicos de uma mesa especifica
    * GET /desks/{id}/services-catalogs-items
    */

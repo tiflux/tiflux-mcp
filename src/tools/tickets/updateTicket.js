@@ -300,10 +300,12 @@ async function execute(args, { api }) {
     // O erro preventivo (1b) seria muito custoso (GET /desks/{id} sempre que ha troca).
     // Portanto: tratamento reativo via mapTransferError422 + mensagem do schema.
 
-    // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado
-    // (suporta admin via GET /users e nao-admin via fallback GET /technical-groups/{id}/users)
+    // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado.
+    // Repassa deskId para desambiguacao server-side via GET /technical-users (quando ha mesa).
     if (responsible_name && !responsible_id) {
-      const resolved = await resolveResponsibleName(api, responsible_name);
+      const resolved = await resolveResponsibleName(api, responsible_name, {
+        deskId: finalDeskId ? parseInt(finalDeskId) : undefined
+      });
       if (resolved.error) return resolved.response;
       finalResponsibleId = resolved.userId;
       // Captura nome real resolvido (pode diferir do nome parcial informado)

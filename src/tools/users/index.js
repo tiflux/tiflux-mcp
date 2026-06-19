@@ -8,7 +8,8 @@
 const TiFluxAPI = require('../../api/tiflux-api');
 
 const slices = [
-  require('./searchUser')
+  require('./searchUser'),
+  require('./searchTechnicalUser')
 ];
 
 class UserTools {

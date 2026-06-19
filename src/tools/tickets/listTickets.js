@@ -164,10 +164,13 @@ async function execute(args, { api, verbosity }) {
       finalClientIds = String(resolved.clientId);
     }
 
-    // Resolver responsible_name -> responsible_id se fornecido
+    // Resolver responsible_name -> responsible_id se fornecido.
+    // Repassa deskId quando disponivel para desambiguacao server-side.
     let finalResponsibleIds = responsible_ids;
     if (responsible_name && !responsible_ids) {
-      const resolved = await resolveResponsibleName(api, responsible_name);
+      const resolved = await resolveResponsibleName(api, responsible_name, {
+        deskId: finalDeskIds ? parseInt(finalDeskIds) : undefined
+      });
       if (resolved.error) return resolved.response;
       finalResponsibleIds = String(resolved.userId);
     }
