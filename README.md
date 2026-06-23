@@ -361,11 +361,14 @@ List tickets with filtering options.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200)
 - `is_closed` (boolean, optional): Include closed tickets (default: false)
+- `filter_by` (string, optional): Status mode with precedence over `is_closed`: "open" (only open), "closed" (only resolved/closed — does NOT include cancelled), "canceled" (only cancelled — robust even with custom status names), or "all" (every status in a single query). Use "canceled" when the user specifically asks for cancelled tickets, and "all" for tickets regardless of status.
 - `date_type` (string, optional): Date type for filtering: "created_at" (creation date, default) or "solved_in_time" (resolution/closing date)
+- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns.
+- `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 
-**Note:** At least one filter (desk_ids/desk_name, client_ids/client_name, stage_ids/stage_name, responsible_ids/responsible_name, requestor_ids, or requestor_email) is required.
+**Note:** At least one filter (desk_ids/desk_name, client_ids/client_name, stage_ids/stage_name, responsible_ids/responsible_name, requestor_ids, requestor_email, start_datetime, end_datetime, or is_closed) is required.
 
 **Example — filter by requestor email:**
 ```json

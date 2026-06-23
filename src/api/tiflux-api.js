@@ -175,7 +175,7 @@ class TiFluxAPI {
         retryCondition: this._retryConditionForMethod(method)
       });
 
-      return { data: response.data, status: response.statusCode };
+      return { data: response.data, status: response.statusCode, headers: response.headers };
     } catch (error) {
       return this._convertErrorToResponse(error, endpoint, method);
     }
@@ -519,7 +519,26 @@ class TiFluxAPI {
     params.append('offset', offset);
     params.append('limit', limit);
 
-    const isClosed = filters.is_closed !== undefined ? filters.is_closed : false;
+    // filter_by (open/closed/all) tem precedencia sobre is_closed nas versoes da
+    // API que o suportam. Enviamos SEMPRE os dois: a API que conhece filter_by
+    // ignora is_closed; a que ainda nao conhece (ex: producao atual) continua
+    // filtrando corretamente via is_closed. Sem isso, filter_by sozinho cairia
+    // no default is_closed=false e zeraria buscas por solved_in_time.
+    if (filters.filter_by) {
+      params.append('filter_by', filters.filter_by);
+    }
+    let isClosed;
+    if (filters.is_closed !== undefined) {
+      isClosed = filters.is_closed;
+    } else if (filters.filter_by === 'closed' || filters.filter_by === 'canceled') {
+      // cancelados sao tickets fechados (is_closed=true); derivamos para compat
+      // com APIs sem suporte a filter_by.
+      isClosed = true;
+    } else {
+      // 'open', 'all' ou ausente: 'all' nao tem equivalente em is_closed e
+      // degrada para abertos em APIs sem suporte a filter_by.
+      isClosed = false;
+    }
     params.append('is_closed', isClosed);
 
     const appendCsvIds = (key, value) => {
@@ -536,10 +555,22 @@ class TiFluxAPI {
 
     if (filters.requestor_email) params.append('requestor_email', filters.requestor_email);
     if (filters.date_type) params.append('date_type', filters.date_type);
+    if (filters.group_by) params.append('group_by', filters.group_by);
+    if (filters.sla_expiring_before) params.append('sla_expiring_before', filters.sla_expiring_before);
     if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
     if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);
 
-    return await this.makeRequest(`/tickets?${params.toString()}`);
+    const response = await this.makeRequest(`/tickets?${params.toString()}`);
+
+    // Surface o total real (header X-Total-Items) para a listagem distinguir
+    // "quantidade nesta pagina" de "total que satisfaz o filtro".
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
   }
 
   /**
@@ -779,7 +810,7 @@ class TiFluxAPI {
         retryCondition: this._retryConditionForMethod(method)
       });
 
-      return { data: response.data, status: response.statusCode };
+      return { data: response.data, status: response.statusCode, headers: response.headers };
     } catch (error) {
       return this._convertErrorToResponse(error, endpoint, method);
     }

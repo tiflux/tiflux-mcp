@@ -3,8 +3,10 @@
  *
  * Endpoint: GET /tickets (via api.listTickets).
  * Requer ao menos um filtro obrigatorio (desk_ids, desk_name, client_ids, client_name,
- * stage_ids, stage_name, responsible_ids, requestor_ids, requestor_email)
- * para evitar retorno massivo.
+ * stage_ids, stage_name, responsible_ids, responsible_name, requestor_ids, requestor_email,
+ * start_datetime, end_datetime ou is_closed) para evitar retorno massivo.
+ * Filtros temporais (start_datetime/end_datetime + date_type) sao repassados direto
+ * para a API, que filtra server-side por created_at ou solved_in_time.
  * Resolve desk_name -> desk_id via smartSearchDesks; stage_name -> stage_id via searchStages.
  * Resolve client_name -> client_id via resolveClientName.
  * Repassa requestor_ids e requestor_email diretamente para a API.
@@ -50,11 +52,25 @@ const schema = {
       requestor_email: { type: 'string', description: 'Email do solicitante (pessoa que abriu o ticket). Use quando o usuario referencia uma **pessoa fisica** ou der um email diretamente. Evita round-trip de resolucao de ID.' },
       offset: { type: 'number', description: 'Número da página (padrão: 1)' },
       limit: { type: 'number', description: 'Número de tickets por página (padrão: 20, máximo: 200)' },
-      is_closed: { type: 'boolean', description: 'Filtrar tickets fechados (padrão: false - apenas abertos)' },
+      is_closed: { type: 'boolean', description: 'Filtrar tickets fechados/cancelados (padrão: false - apenas abertos). A API força este filtro como true automaticamente quando date_type="solved_in_time". Para "qualquer status" prefira filter_by="all".' },
+      filter_by: {
+        type: 'string',
+        enum: ['open', 'closed', 'canceled', 'all'],
+        description: 'Modo de filtro por status, com PRECEDÊNCIA sobre is_closed. "open" = apenas abertos; "closed" = apenas FECHADOS (resolvidos, NÃO inclui cancelados); "canceled" = apenas CANCELADOS; "all" = TODOS os status numa única consulta. Use filter_by="canceled" quando o usuário pedir especificamente "cancelados" (distingue de fechados, mesmo com nomes de status customizados). Use filter_by="all" para "independente de status"/"abertos e fechados".'
+      },
       date_type: {
         type: 'string',
         enum: ['created_at', 'solved_in_time'],
-        description: 'Tipo de data para filtro: "created_at" (data de criação, padrão) ou "solved_in_time" (data de resolução/fechamento)'
+        description: 'Tipo de data para filtro temporal. "created_at" (padrão) filtra pela data de CRIAÇÃO. "solved_in_time" filtra pela data de FECHAMENTO/CANCELAMENTO/RESOLUÇÃO. Para buscar tickets fechados, cancelados ou resolvidos em um período (ex: "tickets cancelados hoje", "fechados esta semana"), use "solved_in_time" com start_datetime e/ou end_datetime. A API força is_closed=true automaticamente quando date_type="solved_in_time".'
+      },
+      group_by: {
+        type: 'string',
+        enum: ['day', 'week', 'month', 'desk'],
+        description: 'Agrupa a CONTAGEM de tickets em vez de listar. "day"/"week"/"month" agrupam por período (combine com date_type + start/end) para comparação/tendência. "desk" agrupa por mesa (ex: "tickets em aberto por mesa", "mesas com SLA em risco"). Retorna um resumo com a quantidade por grupo, não a lista.'
+      },
+      sla_expiring_before: {
+        type: 'string',
+        description: 'Filtra tickets ABERTOS (e não parados) cujo SLA de RESOLUÇÃO vence até a data/hora informada (ISO 8601), incluindo já vencidos. Use para "SLA em risco" / "o que pode estourar". Ex: para "hoje", passe o fim do dia. Combine com group_by="desk" para "mesas com SLA em risco".'
       },
       start_datetime: { type: 'string', description: 'Data/hora inicial do filtro no formato ISO 8601 (ex: "2024-05-15T00:00:00Z"). Filtra tickets com data >= start_datetime' },
       end_datetime: { type: 'string', description: 'Data/hora final do filtro no formato ISO 8601 (ex: "2024-05-15T23:59:59Z"). Filtra tickets com data <= end_datetime' }
@@ -79,13 +95,16 @@ async function execute(args, { api, verbosity }) {
     offset,
     limit,
     is_closed,
+    filter_by,
     date_type,
+    group_by,
+    sla_expiring_before,
     start_datetime,
     end_datetime
   } = args;
 
   // Validar se pelo menos um dos filtros obrigatorios foi informado
-  if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !responsible_name && !requestor_ids && !requestor_email) {
+  if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !responsible_name && !requestor_ids && !requestor_email && !start_datetime && !end_datetime && is_closed === undefined && !filter_by && !sla_expiring_before) {
     return errorResponse(
       `**⚠️ Filtro obrigatório não informado**\n\n` +
       `Você deve informar pelo menos um dos seguintes filtros:\n` +
@@ -98,7 +117,9 @@ async function execute(args, { api, verbosity }) {
       `• **responsible_ids** - IDs dos responsáveis (ex: "1,2,3")\n` +
       `• **responsible_name** - Nome do responsavel atribuido (ex: "Joao") — resolve automaticamente\n` +
       `• **requestor_ids** - IDs dos solicitantes/pessoas (ex: "1,2,3")\n` +
-      `• **requestor_email** - Email do solicitante (ex: "joao@empresa.com")\n\n` +
+      `• **requestor_email** - Email do solicitante (ex: "joao@empresa.com")\n` +
+      `• **start_datetime** - Data/hora inicial (ex: "2024-12-01T00:00:00Z")\n` +
+      `• **end_datetime** - Data/hora final (ex: "2024-12-31T23:59:59Z")\n\n` +
       `*Esta validação evita retornar uma quantidade excessiva de tickets.*`
     );
   }
@@ -187,7 +208,10 @@ async function execute(args, { api, verbosity }) {
     if (offset) filters.offset = parseInt(offset);
     if (limit) filters.limit = parseInt(limit);
     if (is_closed !== undefined) filters.is_closed = is_closed;
+    if (filter_by) filters.filter_by = filter_by;
     if (date_type) filters.date_type = date_type;
+    if (group_by) filters.group_by = group_by;
+    if (sla_expiring_before) filters.sla_expiring_before = sla_expiring_before;
     if (start_datetime) filters.start_datetime = start_datetime;
     if (end_datetime) filters.end_datetime = end_datetime;
 
@@ -203,7 +227,42 @@ async function execute(args, { api, verbosity }) {
       );
     }
 
+    // Modo agregado: API retorna { group_by, date_type, total, buckets } em vez de lista.
+    if (group_by) {
+      const payload = response.data || {};
+      const buckets = Array.isArray(payload.buckets) ? payload.buckets : [];
+      const agg = response.total ?? payload.total ?? buckets.reduce((s, b) => s + (b.count || 0), 0);
+      const isDesk = group_by === 'desk';
+      const unitLabel = { day: 'dia', week: 'semana', month: 'mês', desk: 'mesa' }[group_by] || group_by;
+      const colLabel = isDesk ? 'Mesa' : 'Período';
+      // Contexto de data só faz sentido em agrupamento temporal.
+      const dtSuffix = isDesk ? '' : ` (data de ${(payload.date_type || date_type) === 'solved_in_time' ? 'fechamento/resolução' : 'criação'})`;
+
+      if (buckets.length === 0) {
+        return textResponse(
+          `**📊 Contagem por ${unitLabel}**${dtSuffix}\n\n` +
+          `Nenhum ticket no período/filtros informados.`
+        );
+      }
+
+      if (v === 'compact') {
+        const line = buckets.map(b => `${b.period}:${b.count}`).join(' · ');
+        return textResponse(`Contagem por ${unitLabel} (total ${agg}): ${line}`);
+      }
+
+      let out = `**📊 Tickets por ${unitLabel}**${dtSuffix} — total: ${agg}\n\n`;
+      out += `| ${colLabel} | Quantidade |\n|---|---|\n`;
+      buckets.forEach(b => { out += `| ${b.period} | ${b.count} |\n`; });
+      const footerStr = footer(v);
+      return textResponse(footerStr ? `${out}\n${footerStr}` : out);
+    }
+
     const tickets = response.data || [];
+    const total = response.total;
+    // Quando o total (X-Total-Items) excede o que veio nesta pagina, deixa
+    // explicito "N de TOTAL" para nao subcontar buscas paginadas.
+    const hasTotal = total !== undefined && total !== null && total !== tickets.length;
+    const countLabel = hasTotal ? `${tickets.length} de ${total}` : `${tickets.length}`;
 
     if (tickets.length === 0) {
       return textResponse(
@@ -216,7 +275,10 @@ async function execute(args, { api, verbosity }) {
         (finalResponsibleIds ? `• Responsáveis: ${finalResponsibleIds}${responsible_name ? ` (${responsible_name})` : ''}\n` : '') +
         (requestor_ids ? `• Solicitantes: ${requestor_ids}\n` : '') +
         (requestor_email ? `• Email solicitante: ${requestor_email}\n` : '') +
-        `• Status: ${is_closed ? 'Fechados' : 'Abertos'}\n\n` +
+        (date_type ? `• Tipo de data: ${date_type}\n` : '') +
+        (start_datetime ? `• A partir de: ${start_datetime}\n` : '') +
+        (end_datetime ? `• Até: ${end_datetime}\n` : '') +
+        `• Status: ${filter_by ? ({ open: 'Abertos', closed: 'Fechados', canceled: 'Cancelados', all: 'Todos' }[filter_by]) : (is_closed ? 'Fechados' : 'Abertos')}\n\n` +
         `*Tente ajustar os filtros para encontrar tickets.*`
       );
     }
@@ -227,7 +289,7 @@ async function execute(args, { api, verbosity }) {
     let ticketsList;
     if (v === 'compact') {
       // compact: item ultra-terso — 1 linha por ticket
-      ticketsList = `Tickets (${tickets.length}):\n`;
+      ticketsList = `Tickets (${countLabel}):\n`;
       tickets.forEach(ticket => {
         const n = ticket.ticket_number || 'N/A';
         const title = ticket.title || '(sem título)';
@@ -239,7 +301,7 @@ async function execute(args, { api, verbosity }) {
       ticketsList += `(use get_ticket #N para detalhes)\n`;
     } else {
       // rich: saida atual
-      ticketsList = `**📋 Lista de Tickets** (${tickets.length} encontrados)\n\n`;
+      ticketsList = `**📋 Lista de Tickets** (${countLabel} encontrados)\n\n`;
 
       tickets.forEach((ticket, index) => {
         const ticketNumber = ticket.ticket_number || 'N/A';
@@ -271,7 +333,7 @@ async function execute(args, { api, verbosity }) {
       });
     }
 
-    const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, unit: 'tickets' }, v);
+    const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, total, unit: 'tickets' }, v);
     const footerStr = footer(v);
     const sep = footerStr ? '\n' : '';
     return textResponse(`${ticketsList}${paginationInfo}${sep}${footerStr}`);
