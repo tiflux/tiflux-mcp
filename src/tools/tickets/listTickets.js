@@ -25,7 +25,7 @@ const { footer, pagination } = require('../_shared/format');
 
 const schema = {
   name: 'list_tickets',
-  description: `Lista tickets do TiFlux com filtros. Requer pelo menos um filtro obrigatorio.
+  description: `Lista tickets do TiFlux com filtros. Filtrar so por status (filter_by/is_closed) NAO basta — exige MESA (desk) ou outro recorte forte (cliente, solicitante, responsavel, estagio, periodo, sla_expiring_before ou group_by). Em busca ampla sem recorte, PERGUNTE a mesa antes de chamar.
 
 **Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids. Para o atendente atribuido, use responsible_name (resolve automaticamente para todos os perfis, incluindo nao-admin). Em duvida, pergunte ao usuario.
 
@@ -103,24 +103,31 @@ async function execute(args, { api, verbosity }) {
     end_datetime
   } = args;
 
-  // Validar se pelo menos um dos filtros obrigatorios foi informado
-  if (!desk_ids && !desk_name && !client_ids && !client_name && !stage_ids && !stage_name && !responsible_ids && !responsible_name && !requestor_ids && !requestor_email && !start_datetime && !end_datetime && is_closed === undefined && !filter_by && !sla_expiring_before) {
+  // Validar o escopo da busca. Filtro de STATUS sozinho (filter_by / is_closed) NAO
+  // basta: "tickets abertos" sem mais nada traria um volume enorme e gastaria creditos
+  // a toa. Exigimos a MESA (desk) ou outro recorte forte (cliente, solicitante,
+  // responsavel, estagio, periodo, SLA vencendo ou agrupamento por contagem).
+  const hasDesk = desk_ids || desk_name;
+  const hasOtherScope =
+    client_ids || client_name || stage_ids || stage_name ||
+    responsible_ids || responsible_name || requestor_ids || requestor_email ||
+    start_datetime || end_datetime || sla_expiring_before || group_by;
+
+  if (!hasDesk && !hasOtherScope) {
     return errorResponse(
-      `**⚠️ Filtro obrigatório não informado**\n\n` +
-      `Você deve informar pelo menos um dos seguintes filtros:\n` +
+      `**⚠️ Busca muito ampla — informe a mesa**\n\n` +
+      `Filtrar apenas por status traria tickets demais. Informe ao menos a **mesa/equipe** ` +
+      `(o recorte mais comum) ou outro filtro que delimite a busca:\n` +
+      `• **desk_name** - Nome da mesa/equipe (ex: "tuitui") — **preferencial; use quando o usuario der um nome sem qualificar**\n` +
       `• **desk_ids** - IDs das mesas (ex: "1,2,3")\n` +
-      `• **desk_name** - Nome da mesa/equipe (ex: "tuitui") — **use quando o usuario der um nome sem qualificar**\n` +
-      `• **client_ids** - IDs dos clientes/empresas (ex: "1,2,3")\n` +
-      `• **client_name** - Nome do cliente/empresa (ex: "ACME")\n` +
-      `• **stage_ids** - IDs dos estágios (ex: "1,2,3")\n` +
-      `• **stage_name** - Nome do estágio (deve usar junto com desk_name, ex: "to do")\n` +
-      `• **responsible_ids** - IDs dos responsáveis (ex: "1,2,3")\n` +
-      `• **responsible_name** - Nome do responsavel atribuido (ex: "Joao") — resolve automaticamente\n` +
-      `• **requestor_ids** - IDs dos solicitantes/pessoas (ex: "1,2,3")\n` +
-      `• **requestor_email** - Email do solicitante (ex: "joao@empresa.com")\n` +
-      `• **start_datetime** - Data/hora inicial (ex: "2024-12-01T00:00:00Z")\n` +
-      `• **end_datetime** - Data/hora final (ex: "2024-12-31T23:59:59Z")\n\n` +
-      `*Esta validação evita retornar uma quantidade excessiva de tickets.*`
+      `• **client_name** / **client_ids** - Cliente/empresa (ex: "ACME")\n` +
+      `• **requestor_email** / **requestor_ids** - Solicitante (ex: "joao@empresa.com")\n` +
+      `• **responsible_name** / **responsible_ids** - Responsavel atribuido (ex: "Joao")\n` +
+      `• **stage_ids** / **stage_name** - Estagio (stage_name junto com desk_name)\n` +
+      `• **start_datetime** + **end_datetime** - Periodo (ex: "desta semana", "hoje")\n` +
+      `• **sla_expiring_before** - SLA vencendo (para "SLA em risco")\n` +
+      `• **group_by="desk"** - Para contagem por mesa, sem listar\n\n` +
+      `*Pergunte ao usuario qual mesa ele quer consultar antes de prosseguir.*`
     );
   }
 
