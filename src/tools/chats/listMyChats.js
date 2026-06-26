@@ -27,7 +27,7 @@ const schema = {
       },
       department_id: {
         type: 'number',
-        description: 'Filtrar por ID do departamento (opcional)'
+        description: 'Filtrar por ID do departamento (opcional). Para descobrir o ID a partir de um nome, use list_departments (ex: list_departments name:"financeiro").'
       },
       client_id: {
         type: 'number',

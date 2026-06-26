@@ -20,7 +20,7 @@ So e possivel atualizar um chat que NAO esteja cancelado ou encerrado.
 
 **user_name (conveniencia):** resolve o atendente por nome via busca de usuarios; user_id tem precedencia. **Caveat (BL-007):** GET /users retorna 403 para contas nao-admin — a resolucao por nome so funciona com API key de admin; nesse caso use user_id diretamente.
 
-**Sem department_name / catalog_item_name:** a API v2 nao expoe busca de departamento; informe department_id diretamente.
+**Sem department_name:** para descobrir o department_id a partir de um nome, use list_departments (ex: list_departments name:"financeiro") antes de chamar update_chat.
 
 Informe pelo menos um de: user_id, user_name, department_id, ticket_number.`,
   inputSchema: {

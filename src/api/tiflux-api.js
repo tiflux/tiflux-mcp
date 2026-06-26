@@ -452,6 +452,33 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista departamentos da organizacao com filtro opcional por nome.
+   *
+   * Admin: todos os departamentos ativos.
+   * Tecnico (nao-admin): apenas os vinculados ao seu grupo de atendentes.
+   *
+   * @param {object} filters
+   * @param {string} [filters.name] - Busca parcial por nome (case-insensitive)
+   * @param {number} [filters.limit] - Itens por pagina (1-200, padrao 20)
+   * @param {number} [filters.offset] - Pagina a retornar (>=1, padrao 1)
+   */
+  async listDepartments(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(filters.limit || 20, 200);
+    const offset = filters.offset || 1;
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.name) {
+      params.append('name', filters.name);
+    }
+
+    return await this.makeRequest(`/departments?${params.toString()}`);
+  }
+
+  /**
    * Retorna dados completos de uma mesa por ID.
    *
    * @param {number} deskId - ID da mesa

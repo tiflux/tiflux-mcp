@@ -9,6 +9,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Internal Communications**: Create and list internal communications for tickets with file attachments
 - **Time Tracking (Appointments)**: Create and list work-hour appointments on tickets
 - **Chat Management**: List inbox/mine/in-attendance/archived chats, fetch chat details, transfer/link chats, send WhatsApp messages and finish chats
+- **Department Discovery**: List organization departments with optional name search — resolves department names to IDs for chat filtering (`list_departments`)
 - **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
 - **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
 - **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
@@ -1133,7 +1134,7 @@ Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
 - `limit` (number, optional): Chats per page (default: 20, max: 200)
-- `department_id` (number, optional): Filter by department ID
+- `department_id` (number, optional): Filter by department ID. To discover the ID from a name, use `list_departments` (e.g. `list_departments name:"financeiro"`)
 - `client_id` (number, optional): Filter by client ID
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
@@ -1158,7 +1159,7 @@ Listar chats assumidos pelo usuário autenticado (dono da API key) com filtros o
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
 - `limit` (number, optional): Chats per page (default: 20, max: 200)
-- `department_id` (number, optional): Filter by department ID
+- `department_id` (number, optional): Filter by department ID. To discover the ID from a name, use `list_departments` (e.g. `list_departments name:"financeiro"`)
 - `client_id` (number, optional): Filter by client ID
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
@@ -1182,7 +1183,7 @@ Listar todos os chats em atendimento da organização com filtros opcionais de r
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
 - `limit` (number, optional): Chats per page (default: 20, max: 200)
-- `department_id` (number, optional): Filter by department ID
+- `department_id` (number, optional): Filter by department ID. To discover the ID from a name, use `list_departments` (e.g. `list_departments name:"financeiro"`)
 - `client_id` (number, optional): Filter by client ID
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
@@ -1208,7 +1209,7 @@ Listar chats arquivados (finalizados ou cancelados) com filtros opcionais de dat
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
 - `limit` (number, optional): Chats per page (default: 20, max: 200)
-- `department_id` (number, optional): Filter by department ID
+- `department_id` (number, optional): Filter by department ID. To discover the ID from a name, use `list_departments` (e.g. `list_departments name:"financeiro"`)
 - `client_id` (number, optional): Filter by client ID
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
@@ -1238,7 +1239,7 @@ Atualizar um chat existente: transferir o atendente (`user_id`), transferir o de
 - `id` (number, required): Chat ID (accepts numeric string — handler runs `parseInt`)
 - `user_id` (number, optional): Attendant the chat will be transferred to
 - `user_name` (string, optional): Attendant name for automatic lookup (alternative to `user_id`; `user_id` takes precedence). **Caveat (BL-007):** requires an admin API key — `GET /users` returns 403 for non-admin accounts; in that case use `user_id` directly.
-- `department_id` (number, optional): Department the chat will be transferred to. **No `department_name`** — the v2 API has no department search endpoint.
+- `department_id` (number, optional): Department the chat will be transferred to. **No `department_name`** — to find the ID from a name, use `list_departments` first (e.g. `list_departments name:"financeiro"`).
 - `ticket_number` (number, optional): Ticket number to link to the chat
 
 **Note:** At least one of `user_id` / `user_name` / `department_id` / `ticket_number` is required. If none is provided, the tool returns a friendly warning without calling the API.
@@ -1447,6 +1448,38 @@ Accepts `desk_id` (direct) **or** `desk_name` (fuzzy). If both are provided, `de
 | 7 | Catalogo 2 |
 ```
 
+## Department Tools
+
+Discover department IDs by name — required for filtering chats by department. The two-step flow: `list_departments(name:"financeiro")` → get `id` → `list_my_chats(department_id:...)`.
+
+### list_departments
+Listar departamentos da organização com filtro opcional de busca parcial por nome. Use para descobrir o `department_id` a partir de um nome antes de filtrar chats. Retorna tabela `ID | Nome`.
+
+**Permissions:** Admin API keys return all active departments. Technical (non-admin) keys return only departments linked to their attendant group.
+
+**Parameters:**
+- `name` (string, optional): Partial name search, case-insensitive (e.g. `"financeiro"`, `"suporte"`). Max 255 characters.
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+- `offset` (number, optional): Page number (default: 1)
+
+**Returns:** Markdown table with `ID` and `Nome` columns.
+
+**Example:**
+```json
+{
+  "name": "financeiro"
+}
+```
+
+**Example response:**
+```
+| ID | Nome |
+|---|---|
+| 3 | Financeiro |
+```
+
+Use the `id` as `department_id` in `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, or `list_archived_chats`.
+
 ### list_entities
 List custom field groups (entities) available in the TiFlux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
@@ -1610,6 +1643,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /technical-users` - Search technical attendants with server-side filtering by name, email, desk_id, client_id (`search_technical_user`). **Does not require user management permission** — works for admin and non-admin. **Primary path** for `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, `list_tickets`. Note: absent from the public swagger.json as of 2026-06-18 but live in production.
 - `GET /technical-groups` - List attendant groups (used by `search_user` non-admin fallback and as fallback for `responsible_name` resolution when `/technical-users` returns 404/403)
 - `GET /technical-groups/{id}/users` - List users in an attendant group (non-admin fallback for `search_user` — deduplicated, fuzzy-matched)
+- `GET /departments` - List organization departments with optional name search (`list_departments`). Admin: all active; non-admin: only linked to attendant group
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
 - `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`, `update_ticket` priority_name resolution)
