@@ -10,6 +10,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Time Tracking (Appointments)**: Create and list work-hour appointments on tickets
 - **Chat Management**: List inbox/mine/in-attendance/archived chats, fetch chat details, transfer/link chats, send WhatsApp messages and finish chats
 - **Department Discovery**: List organization departments with optional name search — resolves department names to IDs for chat filtering (`list_departments`)
+- **Knowledge Base**: List and create knowledge base articles — search by title/tags/description and filter by folder (`list_knowledges`, `create_knowledge`)
 - **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
 - **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
 - **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
@@ -1480,6 +1481,84 @@ Listar departamentos da organização com filtro opcional de busca parcial por n
 
 Use the `id` as `department_id` in `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, or `list_archived_chats`.
 
+## Knowledge Base Tools
+
+Search and manage the organization's knowledge base articles. Without the "Gerenciar base de conhecimento" permission, only public articles and those from the user's attendant group are returned.
+
+### list_knowledges
+List knowledge base articles with optional search and folder filters. Returns a Markdown table with ID, title, visibility, folders, tags, and last updated date.
+
+**Permissions:** Without "Gerenciar base de conhecimento" — only public articles and those from the user's attendant group. With the permission — all articles.
+
+**Note:** The `description` field returned by the API is truncated at 300 characters (preview only — partial content).
+
+**Parameters:**
+- `search` (string, optional): Search by title, tags, or beginning of the description (case-insensitive).
+- `knowledge_folder_ids` (array of numbers, optional): Filter by folder IDs. Example: `[1, 2]`.
+- `limit` (number, optional): Results per page (default: 20, max: 200).
+- `offset` (number, optional): Page number (default: 1).
+
+**Returns:** Markdown table with columns `ID | Titulo | Privado | Pastas | Tags | Atualizado`.
+
+**Example:**
+```json
+{
+  "search": "VPN",
+  "knowledge_folder_ids": [1],
+  "limit": 10
+}
+```
+
+**Example response:**
+```
+| ID | Titulo | Privado | Pastas | Tags | Atualizado |
+|---|---|---|---|---|---|
+| 101 | Como configurar VPN | Sim | 1, 2 | VPN, acesso remoto | 01/06/2026 |
+```
+
+*A descricao e exibida truncada em ate 300 caracteres pela API (preview parcial).*
+
+### create_knowledge
+Create a new knowledge base article. Requires the "Gerenciar conhecimento" permission.
+
+**Required fields:**
+- `title` (string): Article title.
+- `description` (string): Article body in HTML (e.g. `"<p>Content here.</p>"`).
+- `knowledge_folder_ids` (array of numbers, min 1): IDs of the folders where the article will be published. Example: `[12, 34]`.
+
+**Optional fields:**
+- `tags` (array of strings): Tags for the article. Tags must not contain commas. Example: `["VPN", "remote access"]`.
+- `private` (boolean): Whether the article is private (default: `true`). If `false`, the article is public.
+- `client_ids` (array of numbers): Client IDs with access — only relevant when `private: true`. Example: `[100, 200]`.
+- `technical_group_ids` (array of numbers): Technical group IDs with access — only relevant when `private: true`. Example: `[5, 10]`.
+- `services_catalogs_item_ids` (array of numbers): Related service catalog item IDs. Example: `[301, 302]`.
+
+**Returns:** Confirmation with the created article's ID, title, visibility, folders, tags, and related IDs.
+
+**Example:**
+```json
+{
+  "title": "How to configure VPN",
+  "description": "<p>Step-by-step VPN setup guide for remote access.</p>",
+  "knowledge_folder_ids": [1, 2],
+  "tags": ["VPN", "remote access"],
+  "private": true,
+  "technical_group_ids": [5]
+}
+```
+
+**Example response:**
+```
+Conhecimento criado com sucesso!
+
+**ID:** 201
+**Titulo:** How to configure VPN
+**Visibilidade:** Privado
+**Pastas:** 1, 2
+**Tags:** VPN, remote access
+**Grupos tecnicos vinculados:** 5
+```
+
 ### list_entities
 List custom field groups (entities) available in the TiFlux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
@@ -1672,6 +1751,8 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /entities` - List custom field groups (`list_entities`)
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
+- `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
+- `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Requires "Gerenciar conhecimento" permission
 
 ## Telemetry
 

@@ -1802,6 +1802,59 @@ class TiFluxAPI {
 
     return await this.makeRequest(`/desks/${deskId}/services-catalogs-items?${params.toString()}`);
   }
+
+  /**
+   * Lista conhecimentos da base de conhecimento com filtros opcionais.
+   * GET /knowledges
+   *
+   * @param {object} filters - { limit, offset, search, knowledge_folder_ids (array de int) }
+   * @returns {Promise<{data, status, error}>}
+   */
+  async listKnowledges(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(filters.limit || 20, 200);
+    const offset = Math.max(filters.offset || 1, 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.search) {
+      params.append('search', filters.search);
+    }
+
+    if (Array.isArray(filters.knowledge_folder_ids) && filters.knowledge_folder_ids.length > 0) {
+      params.append('knowledge_folder_ids', filters.knowledge_folder_ids.join(','));
+    }
+
+    const response = await this.makeRequest(`/knowledges?${params.toString()}`);
+
+    // Surface o total real (header X-Total-Items) para a listagem distinguir
+    // "quantidade nesta pagina" de "total que satisfaz o filtro".
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
+   * Cria um novo conhecimento na base de conhecimento.
+   * POST /knowledges
+   *
+   * @param {object} body - { title, description, knowledge_folder_ids, tags?, private?, client_ids?, technical_group_ids?, services_catalogs_item_ids? }
+   * @returns {Promise<{data, status, error}>}
+   */
+  async createKnowledge(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest('/knowledges', 'POST', jsonData, headers);
+  }
 }
 
 module.exports = TiFluxAPI;
