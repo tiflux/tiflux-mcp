@@ -32,56 +32,64 @@
 const { errorResponse } = require('./errors');
 
 /**
- * Resolve um nome de solicitante para requestor_id usando searchRequestors (GET /requestors).
+ * Miolo compartilhado da resolucao de solicitante (por nome OU por e-mail).
+ *
+ * Cascata: busca global GET /requestors → fallback escopado GET /clients/{id}/requestors
+ * em 403 → 0/1/N matches. 0 matches NAO e erro fatal (retorna requestorId: null);
+ * N matches e erro (precisa desambiguar).
  *
  * @param {object} api - instancia de TiFluxAPI
- * @param {string} requestorName - nome (parcial ou exato) do solicitante
+ * @param {object} filter - { name } ou { email } — o filtro de busca repassado a API
  * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
+ * @param {{ term: string, label: string }} desc - termo e rotulo para mensagens de erro
  * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
  */
-async function resolveRequestorName(api, requestorName, clientId) {
-  let userSearchResponse = await api.searchRequestors({
-    name: requestorName,
-    limit: 10
-  });
+async function resolveRequestor(api, filter, clientId, desc) {
+  const searchFilter = { ...filter, limit: 10 };
+
+  let userSearchResponse = await api.searchRequestors(searchFilter);
 
   // Fallback atendente: /requestors global e admin-only (403). Com clientId, tenta
   // a rota escopada por cliente (clientes ja vem filtrados pela permissao do atendente).
   if (userSearchResponse.status === 403 && clientId) {
-    userSearchResponse = await api.searchClientRequestors(clientId, {
-      name: requestorName,
-      limit: 10
-    });
+    userSearchResponse = await api.searchClientRequestors(clientId, searchFilter);
   }
 
   // Sem permissao para resolver (403 mesmo apos fallback): NAO e erro fatal — o caller
-  // segue com requestor_name cru e a API resolve/cria o solicitante no POST /tickets.
+  // segue com o valor cru e a API resolve/cria o solicitante no POST /tickets.
   if (userSearchResponse.status === 403) {
-    return {
-      error: false,
-      requestorId: null
-    };
+    return { error: false, requestorId: null };
   }
 
   if (userSearchResponse.error) {
     return {
       error: true,
       response: errorResponse(
-        `**❌ Erro ao buscar solicitante "${requestorName}"**\n\n` +
+        `**❌ Erro ao buscar solicitante "${desc.term}"** (${desc.label})\n\n` +
         `**Erro:** ${userSearchResponse.error}\n\n` +
-        `*Verifique se o nome esta correto ou use requestor_id diretamente.*`
+        `*Verifique o ${desc.label} informado ou use requestor_id diretamente.*`
       )
     };
   }
 
-  const requestors = userSearchResponse.data || [];
+  let requestors = userSearchResponse.data || [];
 
-  // 0 matches: NAO e erro — retorna requestorId: null para que o caller use requestor_name cru
+  // Guard de correspondencia exata para e-mail: a API filtra e-mail como busca ampla
+  // (mesma semantica de "nome"), entao um unico resultado pode ser substring — "a@b.com"
+  // casando so com "aa@b.com". Vincular um ticket por substring ligaria ao solicitante
+  // errado e suprimiria o e-mail correto do payload. Para e-mail, so aceitamos match
+  // exato (case-insensitive); o restante cai no fluxo de 0-match (valor cru) ou
+  // desambiguacao N-match. Match por nome continua parcial (intencional).
+  if (filter.email) {
+    const target = String(filter.email).trim().toLowerCase();
+    requestors = requestors.filter(
+      (r) => String(r.email || '').trim().toLowerCase() === target
+    );
+  }
+
+  // 0 matches: NAO e erro — retorna requestorId: null para que o caller use o valor cru
   if (requestors.length === 0) {
-    return {
-      error: false,
-      requestorId: null
-    };
+    return { error: false, requestorId: null };
   }
 
   if (requestors.length > 1) {
@@ -93,9 +101,9 @@ async function resolveRequestorName(api, requestorName, clientId) {
     return {
       error: true,
       response: errorResponse(
-        `**⚠️ Múltiplos solicitantes encontrados para "${requestorName}"**\n\n` +
+        `**⚠️ Múltiplos solicitantes encontrados para "${desc.term}"** (${desc.label})\n\n` +
         `${requestorsList}\n` +
-        `*Use requestor_id específico ou seja mais específico no requestor_name.*`
+        `*Use requestor_id específico para desambiguar.*`
       )
     };
   }
@@ -107,4 +115,29 @@ async function resolveRequestorName(api, requestorName, clientId) {
   };
 }
 
-module.exports = { resolveRequestorName };
+/**
+ * Resolve um nome de solicitante para requestor_id usando searchRequestors (GET /requestors).
+ *
+ * @param {object} api - instancia de TiFluxAPI
+ * @param {string} requestorName - nome (parcial ou exato) do solicitante
+ * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
+ * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
+ */
+async function resolveRequestorName(api, requestorName, clientId) {
+  return resolveRequestor(api, { name: requestorName }, clientId, { term: requestorName, label: 'nome' });
+}
+
+/**
+ * Resolve um e-mail de solicitante para requestor_id usando searchRequestors (GET /requestors).
+ * Mesma semantica de retorno de resolveRequestorName.
+ *
+ * @param {object} api - instancia de TiFluxAPI
+ * @param {string} requestorEmail - e-mail (exato) do solicitante
+ * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
+ * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
+ */
+async function resolveRequestorEmail(api, requestorEmail, clientId) {
+  return resolveRequestor(api, { email: requestorEmail }, clientId, { term: requestorEmail, label: 'e-mail' });
+}
+
+module.exports = { resolveRequestorName, resolveRequestorEmail };

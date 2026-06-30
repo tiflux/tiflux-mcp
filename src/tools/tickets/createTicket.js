@@ -21,7 +21,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
-const { resolveRequestorName } = require('../_shared/requestorResolver');
+const { resolveRequestorName, resolveRequestorEmail } = require('../_shared/requestorResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
@@ -34,7 +34,7 @@ const schema = {
 
 **Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_name se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa que vai abrir o ticket, use requestor_name ou requestor_email.
 
-**Auto-resolve de solicitante:** Se requestor_name for fornecido sem requestor_id e sem requestor_email, o MCP tenta encontrar o solicitante ja existente no tenant automaticamente (evita criar solicitante fantasma). Se encontrar mais de um match, retorna lista para escolha. Se nao encontrar, cria com o nome informado.`,
+**Solicitante (requestor):** o vinculo canonico e o requestor_id (solicitante cadastrado no cliente). O MCP resolve automaticamente requestor_email e requestor_name para requestor_id quando o cadastro existe — prioridade: requestor_id > requestor_email > requestor_name. Se encontrar mais de um match, retorna lista para desambiguacao. Se nao encontrar, usa o email/nome cru (a API resolve/cria). Prefira fornecer requestor_id quando ja o tiver.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -48,9 +48,9 @@ const schema = {
       services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo (opcional - usa TIFLUX_DEFAULT_CATALOG_ITEM_ID se não informado)' },
       catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)' },
       status_id: { type: 'number', description: 'ID do status (opcional)' },
-      requestor_id: { type: 'number', description: 'ID do solicitante (pessoa fisica que abre o ticket). Use quando ja tem o ID do solicitante existente no tenant. O solicitante deve pertencer ao cliente selecionado.' },
-      requestor_name: { type: 'string', description: 'Nome do solicitante (pessoa fisica). O MCP tenta resolver automaticamente para requestor_id se o solicitante ja existir no tenant (evita criar solicitante fantasma). Se preferir nao resolver automaticamente, passe requestor_id diretamente.' },
-      requestor_email: { type: 'string', description: 'Email do solicitante. Use quando voce ja tem o email exato — o MCP nao tentara resolver para requestor_id (o email e identificador suficiente).' },
+      requestor_id: { type: 'number', description: 'ID do solicitante (pessoa fisica que abre o ticket). Vinculo CANONICO — prefira este campo quando ja tiver o ID. O solicitante deve pertencer ao cliente selecionado. Tem prioridade maxima: se informado, e usado direto sem resolucao.' },
+      requestor_name: { type: 'string', description: 'Nome do solicitante (pessoa fisica). O MCP tenta resolver automaticamente para requestor_id se o solicitante ja existir no cliente (evita criar solicitante fantasma). So e usado quando requestor_id e requestor_email nao foram informados.' },
+      requestor_email: { type: 'string', description: 'Email do solicitante. O MCP tenta resolver automaticamente para requestor_id buscando o email entre os solicitantes do cliente (vinculo canonico). Se 1 cadastro for encontrado, usa o requestor_id; se nenhum, mantem o email cru como fallback; se varios, pede desambiguacao. Tem prioridade sobre requestor_name.' },
       requestor_telephone: { type: 'string', description: 'Telefone do solicitante (opcional)' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
@@ -146,22 +146,38 @@ async function execute(args, { api }) {
       finalResponsibleId = resolved.userId;
     }
 
-    // Auto-resolver requestor_name -> requestor_id se sem requestor_id e sem requestor_email
+    // Resolucao priorizada do solicitante: requestor_id > requestor_email > requestor_name.
+    // requestor_id e o vinculo canonico — quando resolvido (por email ou nome), suprimimos
+    // os campos individuais (name/email/telephone) para evitar campos orfaos e duplicata fantasma.
     let finalRequestorId = requestor_id;
     let finalRequestorName = requestor_name;
+    let finalRequestorEmail = requestor_email;
     let finalRequestorTelephone = requestor_telephone;
 
-    if (requestor_name && !requestor_id && !requestor_email) {
-      // Passa o client_id (explicito, resolvido por nome, ou default de env) para habilitar
-      // o fallback escopado GET /clients/{id}/requestors quando o /requestors global da 403.
-      const requestorClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
+    // client_id (explicito, resolvido por nome, ou default de env) habilita o fallback
+    // escopado GET /clients/{id}/requestors quando o /requestors global da 403.
+    const requestorClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
+
+    if (requestor_email && !requestor_id) {
+      // Branch de e-mail (prioridade sobre nome): tenta resolver o email -> requestor_id.
+      const resolved = await resolveRequestorEmail(api, requestor_email, requestorClientId);
+      if (resolved.error) return resolved.response;
+
+      if (resolved.requestorId !== null) {
+        // 1 cadastro encontrado: usa o requestor_id e suprime email/name/telephone.
+        finalRequestorId = resolved.requestorId;
+        finalRequestorName = undefined;
+        finalRequestorEmail = undefined;
+        finalRequestorTelephone = undefined;
+      }
+      // 0 matches: mantem requestor_email cru (fallback — comportamento anterior).
+    } else if (requestor_name && !requestor_id) {
+      // Branch de nome (so quando nao ha id nem email).
       const resolved = await resolveRequestorName(api, requestor_name, requestorClientId);
       if (resolved.error) return resolved.response;
 
       if (resolved.requestorId !== null) {
-        // Solicitante encontrado: usar ID e suprimir os campos individuais
-        // (requestor_id substitui name/telephone — evita campos orfaos no payload e
-        // duplicata fantasma). requestor_email ja e ausente nesta branch.
+        // Solicitante encontrado: usar ID e suprimir os campos individuais.
         finalRequestorId = resolved.requestorId;
         finalRequestorName = undefined;
         finalRequestorTelephone = undefined;
@@ -239,7 +255,7 @@ async function execute(args, { api }) {
       status_id: status_id ? parseInt(status_id) : undefined,
       requestor_id: finalRequestorId ? parseInt(finalRequestorId) : undefined,
       requestor_name: finalRequestorName,
-      requestor_email,
+      requestor_email: finalRequestorEmail,
       requestor_telephone: finalRequestorTelephone,
       responsible_id: finalResponsibleId ? parseInt(finalResponsibleId) : undefined,
       followers,

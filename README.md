@@ -16,6 +16,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
 - **Attendant Search (non-admin)**: Search technical attendants (responsible candidates) via `GET /technical-users` — no admin permission required. Supports server-side filtering by name, email, `desk_id`, and `client_id`. `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, and `list_tickets` now uses this endpoint as the **primary path** (1 round-trip, works for all profiles including non-admin).
 - **Requestor Search**: Search ticket openers (requestors) by name, email, or telephone via dedicated `GET /requestors` endpoint with server-side filtering (no 200-record limit). Includes an automatic fallback chain that works for non-admin attendants and finds people who only exist as users: `GET /requestors` → client-scoped `GET /clients/{id}/requestors` → `GET /users` (email used as `requestor_email`) → `GET /users/me` (open as yourself). Triggers on 403 or zero results
+- **Requestor CRUD**: Manage a client's requestors end to end — list, get, create, update, and update custom fields (`list_requestors`, `get_requestor`, `create_requestor`, `update_requestor`, `update_requestor_entities`). In `create_ticket`, the canonical link is `requestor_id`: the MCP resolves email and name to an existing `requestor_id` automatically (precedence `requestor_id` > `requestor_email` > `requestor_name`), only sending a raw email when no registration matches.
 - **File Upload Support**: Attach up to 10 files (25MB each) to internal communications
 - **API Integration**: Direct integration with TiFlux API v2
 - **Environment Configuration**: Secure configuration with environment variables
@@ -218,10 +219,12 @@ Create a new ticket in TiFlux.
 - `services_catalogs_item_id` (number, optional): Service catalog item ID
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 - `status_id` (number, optional): Status ID
-- `requestor_id` (number, optional): Requestor ID (person who opens the ticket, must belong to the selected client). Pass this directly if you already know the ID — skips the auto-resolve lookup.
-- `requestor_name` (string, optional): Requestor name. If provided without `requestor_id` and without `requestor_email`, the MCP automatically attempts to resolve this to an existing `requestor_id` (avoids creating a "ghost" requestor) via `GET /requestors`, falling back to the client-scoped `GET /clients/{id}/requestors` if the global endpoint returns 403. If multiple matches are found, returns a list to disambiguate. If no match — or if the user lacks permission to search requestors — falls back to the previous behavior (sends name as-is, and the API resolves/creates the requestor).
-- `requestor_email` (string, optional): Requestor email. When provided, the MCP does **not** attempt to auto-resolve the name to an ID — the email is an exact enough identifier.
+- `requestor_id` (number, optional): Requestor ID (person who opens the ticket, must belong to the selected client). This is the **canonical link** — prefer it when you know the ID. Highest precedence: if provided, it is used directly with no resolution.
+- `requestor_name` (string, optional): Requestor name. Used **only** when neither `requestor_id` nor `requestor_email` is provided. The MCP attempts to resolve it to an existing `requestor_id` (avoids creating a "ghost" requestor) via `GET /requestors`, falling back to the client-scoped `GET /clients/{id}/requestors` on 403. Multiple matches → returns a list to disambiguate; no match → sends the name as-is (the API resolves/creates the requestor).
+- `requestor_email` (string, optional): Requestor email. The MCP automatically attempts to resolve it to an existing `requestor_id` by searching the client's requestors (the canonical link). **One match → uses the `requestor_id` and drops the raw email; zero matches → keeps the raw email as a fallback; multiple matches → returns a list to disambiguate.** Has precedence over `requestor_name`.
 - `requestor_telephone` (string, optional): Requestor phone
+
+> **Requestor precedence (v2.18.0):** the canonical link is `requestor_id`. The MCP resolves email and name to `requestor_id` automatically when a matching registration exists, in the order **`requestor_id` > `requestor_email` > `requestor_name`**. When email or name resolves to an ID, the individual fields (name/email/telephone) are dropped from the payload so the registered requestor is linked instead of a loose/ghost entry. A raw email is only sent when no registration matches.
 - `responsible_id` (number, optional): Responsible user ID
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
@@ -707,6 +710,115 @@ A non-`403` hard error (e.g. 5xx) on the primary endpoint is surfaced instead of
 ```json
 {
   "email": "joao@empresa.com"
+}
+```
+
+### list_requestors
+List the requestors of a specific client (canonical per-client listing — `GET /clients/{id}/requestors`, aligned with `list_clients`). Use `search_requestor` when you need a cross-client search with the fallback chain; use `list_requestors` for the requestor catalog of a known client.
+
+**Parameters:**
+- `client_id` (number, required): Client whose requestors will be listed
+- `name` (string, optional): Filter by name (partial match)
+- `email` (string, optional): Filter by email
+- `telephone` (string, optional): Filter by phone (digits only, no country code)
+- `extension` (string, optional): Filter by extension
+- `can_open_ticket` (boolean, optional): Filter requestors who can (true) or cannot (false) open tickets by email
+- `include_entity_fields` (boolean, optional): Include each requestor's custom fields (entities) in the response (default: false)
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Requestors per page (default: 20, max: 200)
+
+**Returns:** A paginated list of requestors with id, name, email, telephone, extension, and can_open_ticket.
+
+**Example:**
+```json
+{
+  "client_id": 123,
+  "name": "João"
+}
+```
+
+### get_requestor
+Get full details of a requestor of a client by ID (`GET /clients/{id}/requestors/{requestor_id}`). Returns registration data and optional custom fields (entities, `applied_in: "solicitant"`).
+
+**Parameters:**
+- `client_id` (number, required): Client the requestor belongs to
+- `requestor_id` (number, required): Requestor ID (obtained via `list_requestors` or `search_requestor`)
+- `show_entities` (boolean, optional): Include custom fields (entities) in the response (default: false)
+
+**Example:**
+```json
+{
+  "client_id": 123,
+  "requestor_id": 555,
+  "show_entities": true
+}
+```
+
+### create_requestor
+Create a new requestor in a client (`POST /clients/{id}/requestors`). Required fields: `client_id`, `name`, `telephone`. Other fields are optional and only sent if provided.
+
+**Parameters:**
+- `client_id` (number, required): Client to link the requestor to
+- `name` (string, required): Requestor name
+- `telephone` (string, required): Requestor phone (digits only)
+- `email` (string, optional): Requestor email
+- `can_open_ticket` (boolean, optional): Whether the requestor can open tickets by email
+- `extension` (string, optional): Requestor extension
+- `country` (string, optional): Requestor country
+
+**Returns:** The created requestor's id, name, email, and telephone.
+
+**Example:**
+```json
+{
+  "client_id": 123,
+  "name": "João Silva",
+  "telephone": "47999999999",
+  "email": "joao@empresa.com"
+}
+```
+
+### update_requestor
+Update an existing requestor (`PUT /clients/{id}/requestors/{requestor_id}`). Partial update — only the provided fields are sent. Use `get_requestor` to see the current state before updating.
+
+**Parameters:**
+- `client_id` (number, required): Client the requestor belongs to
+- `requestor_id` (number, required): Requestor ID to update
+- `name` (string, optional): Requestor name
+- `telephone` (string, optional): Requestor phone (digits only)
+- `email` (string, optional): Requestor email
+- `can_open_ticket` (boolean, optional): Whether the requestor can open tickets by email
+- `extension` (string, optional): Requestor extension
+
+If no updatable field is provided, returns a friendly error.
+
+**Example:**
+```json
+{
+  "client_id": 123,
+  "requestor_id": 555,
+  "can_open_ticket": true
+}
+```
+
+### update_requestor_entities
+Update a requestor's custom fields (entities) (`PUT /clients/{id}/requestors/{requestor_id}/entities`). Supports up to 50 fields per request. For checkbox fields with multiple options, send one item per option with `entity_field_id` + `entity_field_option_id` + `value: "true"/"false"`.
+
+**Prefer IDs when known** to avoid resolution round-trips. Use `entity_name`/`entity_field_name`/`entity_field_option_name` for automatic resolution when you don't have the IDs — resolution is scoped to requestor entities (`applied_in: "solicitant"`).
+
+**Parameters:**
+- `client_id` (number, required): Client the requestor belongs to
+- `requestor_id` (number, required): Requestor ID to update
+- `entities` (array, required): List of custom fields (see `update_client_entities` for the item shape)
+
+**Example:**
+```json
+{
+  "client_id": 123,
+  "requestor_id": 555,
+  "entities": [
+    { "entity_field_id": 88, "value": "Premium" }
+  ]
 }
 ```
 
@@ -1716,7 +1828,12 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /clients/{id}/users` - Create a portal user for a client (`create_client_user`)
 - `POST /clients/{id}/email_tickets_permissions` - Add authorized email/domain for a client (`add_client_email_permission`)
 - `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name` auto-resolve in `create_ticket`). Admin/global permission required — returns 403 for non-admin attendants, handled by the client-scoped fallback below.
-- `GET /clients/{client_id}/requestors` - Client-scoped requestor search; automatic fallback for `search_requestor` and `create_ticket` when `GET /requestors` returns 403 (attendant with permission on that client).
+- `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`; automatic fallback for `search_requestor` and `create_ticket` (name and email resolution) when `GET /requestors` returns 403 (attendant with permission on that client).
+- `GET /clients/{client_id}/requestors/{id}` - Get a single requestor of a client (`get_requestor`; `include_entity_fields` for custom fields).
+- `POST /clients/{client_id}/requestors` - Create a requestor in a client (`create_requestor`).
+- `PUT /clients/{client_id}/requestors/{id}` - Update a requestor (`update_requestor`, partial).
+- `PUT /clients/{client_id}/requestors/{id}/entities` - Update a requestor's custom fields (`update_requestor_entities`).
+- `DELETE /clients/{client_id}/requestors/{id}` - Delete a requestor (mapped; **not yet implemented** as an MCP tool — out of current scope).
 - `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and as level 3 of the `search_requestor` fallback chain — the matched user's email becomes `requestor_email`). Returns 403 for non-admin users — handled automatically by the fallback below.
 - `GET /users/me` - Current authenticated user (used as the final level of the `search_requestor` chain — suggests opening the ticket as yourself via `requestor_email`).
 - `GET /technical-users` - Search technical attendants with server-side filtering by name, email, desk_id, client_id (`search_technical_user`). **Does not require user management permission** — works for admin and non-admin. **Primary path** for `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, `list_tickets`. Note: absent from the public swagger.json as of 2026-06-18 but live in production.

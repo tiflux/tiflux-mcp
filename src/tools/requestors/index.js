@@ -8,7 +8,12 @@
 const TiFluxAPI = require('../../api/tiflux-api');
 
 const slices = [
-  require('./searchRequestor')
+  require('./searchRequestor'),
+  require('./listRequestors'),
+  require('./getRequestor'),
+  require('./createRequestor'),
+  require('./updateRequestor'),
+  require('./updateRequestorEntities')
 ];
 
 class RequestorTools {

@@ -1040,9 +1040,76 @@ class TiFluxAPI {
     if (filters.name) params.append('name', filters.name);
     if (filters.email) params.append('email', filters.email);
     if (filters.telephone) params.append('telephone', filters.telephone);
+    if (filters.extension) params.append('extension', filters.extension);
     if (filters.can_open_ticket !== undefined) params.append('can_open_ticket', filters.can_open_ticket);
+    if (filters.include_entity_fields) params.append('include_entity_fields', 'true');
 
     return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/requestors?${params.toString()}`);
+  }
+
+  /**
+   * Busca um solicitante especifico de um cliente pelo ID
+   * GET /clients/{client_id}/requestors/{id}
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {number|string} id - ID do solicitante
+   * @param {object} options - { showEntities (boolean) } → include_entity_fields=true
+   */
+  async getRequestor(clientId, id, options = {}) {
+    const params = new URLSearchParams();
+    if (options.showEntities) params.append('include_entity_fields', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/requestors/${encodeURIComponent(id)}${qs}`);
+  }
+
+  /**
+   * Cria um novo solicitante em um cliente
+   * POST /clients/{client_id}/requestors
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {object} body - { name*, telephone*, email, can_open_ticket, extension, country }
+   */
+  async createRequestor(clientId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/requestors`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um solicitante existente (atualizacao parcial — so envia campos informados)
+   * PUT /clients/{client_id}/requestors/{id}
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {number|string} id - ID do solicitante
+   * @param {object} body - campos a atualizar
+   */
+  async updateRequestor(clientId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/requestors/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Atualiza campos personalizados (entities) de um solicitante
+   * PUT /clients/{client_id}/requestors/{id}/entities
+   *
+   * @param {number|string} clientId - ID do cliente
+   * @param {number|string} id - ID do solicitante
+   * @param {object} entitiesData - { entities[] }
+   */
+  async updateRequestorEntities(clientId, id, entitiesData) {
+    const jsonData = JSON.stringify(entitiesData);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/requestors/${encodeURIComponent(id)}/entities`, 'PUT', jsonData, headers);
   }
 
   /**

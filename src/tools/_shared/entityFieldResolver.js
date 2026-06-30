@@ -83,9 +83,11 @@ function resolutionError(kind, term, fieldNum, resolution) {
  *
  * @param {Array} entities - itens do args
  * @param {object} api - cliente TiFlux
+ * @param {object} [opts] - { appliedIn } — quando informado, escopa a listagem de entities
+ *   por tipo (`applied_in`, ex: 'solicitant') para nao confundir entidades de outros tipos.
  * @returns {Promise<{ resolvedEntities: Array } | { error: string }>}
  */
-async function resolveEntities(entities, api) {
+async function resolveEntities(entities, api, opts = {}) {
   const resolvedEntities = [];
   const fieldsCache = new Map();   // entityId -> fields list
   let entitiesListCache = null;    // lista de entities (evita N+1 entre itens)
@@ -122,7 +124,9 @@ async function resolveEntities(entities, api) {
 
       if (entity.entity_name) {
         if (entitiesListCache === null) {
-          const entitiesResp = await api.listEntities({ limit: RESOLVE_LIMIT });
+          const listFilters = { limit: RESOLVE_LIMIT };
+          if (opts.appliedIn) listFilters.applied_in = opts.appliedIn;
+          const entitiesResp = await api.listEntities(listFilters);
           if (entitiesResp.error) {
             return {
               error:

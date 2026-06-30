@@ -1,6 +1,6 @@
 {
   "name": "@tiflux/mcp",
-  "version": "2.17.0",
+  "version": "2.18.0",
   "description": "TiFlux MCP Server - Model Context Protocol integration for Claude Code and other AI clients",
   "main": "server-sdk.js",
   "bin": {
