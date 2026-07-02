@@ -4,16 +4,23 @@
  * Endpoint: GET /tickets (via api.listTickets).
  * Requer ao menos um filtro obrigatorio (desk_ids, desk_name, client_ids, client_name,
  * stage_ids, stage_name, responsible_ids, responsible_name, requestor_ids, requestor_email,
- * start_datetime, end_datetime ou is_closed) para evitar retorno massivo.
+ * start_datetime, end_datetime, is_closed, services_catalogs_item_ids, catalog_query,
+ * priority_ids ou priority_name) para evitar retorno massivo.
  * Filtros temporais (start_datetime/end_datetime + date_type) sao repassados direto
  * para a API, que filtra server-side por created_at ou solved_in_time.
  * Resolve desk_name -> desk_id via smartSearchDesks; stage_name -> stage_id via searchStages.
  * Resolve client_name -> client_id via resolveClientName.
  * Repassa requestor_ids e requestor_email diretamente para a API.
+ * Resolve priority_name -> priority_id via fuzzy match em GET /desks/{id}/priorities (requer mesa).
+ * Resolve catalog_query -> services_catalogs_item_ids via catalogFilterResolver (requer mesa).
  *
  * Heuristica mesa-first: quando o usuario referencia um nome sem qualificar a entidade,
  * use desk_name. So use client_name quando o usuario disser explicitamente "cliente" ou
  * "empresa". Para pessoas que abriram tickets, use requestor_email ou requestor_ids.
+ *
+ * Exibicao (Phase 1, custo zero de API):
+ * - rich: card do ticket inclui Prioridade e Catalogo (catalog_name > area_name > item_name).
+ * - compact: linha do ticket inclui prioridade e catalogo de forma terse.
  */
 
 const { textResponse } = require('../_shared/response');
@@ -22,12 +29,37 @@ const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { footer, pagination } = require('../_shared/format');
+const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
+const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
+
+// Contrato de GET /tickets (Swagger): services_catalogs_item_ids e priority_ids aceitam
+// no maximo 15 IDs, sem duplicados (erro 42201 "cannot have more than 15 items").
+const MAX_FILTER_IDS = 15;
+// Piso de confianca para aceitar um match de priority_name sem pedir desambiguacao.
+// Ver tabela de scores em _shared/fuzzyMatch.js (70 = algum token comeca com o termo).
+const MIN_PRIORITY_SCORE = 70;
+
+// Dedup + cap 15 num CSV de IDs. Retorna { ids: string, capped: boolean, total: number }.
+function capFilterIds(csv) {
+  const ids = [...new Set(String(csv).split(',').map(s => s.trim()).filter(Boolean))];
+  return { ids: ids.slice(0, MAX_FILTER_IDS).join(','), capped: ids.length > MAX_FILTER_IDS, total: ids.length };
+}
 
 const schema = {
   name: 'list_tickets',
-  description: `Lista tickets do TiFlux com filtros. Filtrar so por status (filter_by/is_closed) NAO basta — exige MESA (desk) ou outro recorte forte (cliente, solicitante, responsavel, estagio, periodo, sla_expiring_before ou group_by). Em busca ampla sem recorte, PERGUNTE a mesa antes de chamar.
+  description: `Lista tickets do TiFlux com filtros. Filtrar so por status (filter_by/is_closed) NAO basta — exige MESA (desk) ou outro recorte forte (cliente, solicitante, responsavel, estagio, periodo, sla_expiring_before, catalogo, prioridade ou group_by). Em busca ampla sem recorte, PERGUNTE a mesa antes de chamar.
 
 **Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids. Para o atendente atribuido, use responsible_name (resolve automaticamente para todos os perfis, incluindo nao-admin). Em duvida, pergunte ao usuario.
+
+**Filtro por catalogo:**
+- Termo livre → \`catalog_query\`: faz match parcial server-side contra catalogo/area/item ao mesmo tempo — um termo como "segurança" retorna todos os itens de areas/catalogos cujo nome contém "segurança". Requer mesa (desk_id/desk_name).
+- IDs precisos → \`services_catalogs_item_ids\` (passthrough direto, sem mesa obrigatoria). Para descobrir IDs, use search_catalog_item.
+
+**Filtro por prioridade:**
+- Nome → \`priority_name\`: resolve via fuzzy match em GET /desks/{id}/priorities. Requer mesa.
+- IDs → \`priority_ids\` (passthrough direto, sem mesa obrigatoria).
+
+**Exibicao:** catálogo e prioridade aparecem automaticamente no card de cada ticket (dados ja presentes no retorno do GET /tickets — sem custo extra de API).
 
 | Entrada do usuario | Filtro a usar |
 |---|---|
@@ -36,7 +68,9 @@ const schema = {
 | "tickets do cliente Z" ou "empresa ACME" | client_name |
 | "tickets do Joao" (nome de pessoa) | requestor_email ou requestor_ids |
 | "tickets atribuidos ao Joao" | responsible_name="Joao" (ou responsible_ids se tiver o ID) |
-| "tickets aberto por joao@empresa.com" | requestor_email |`,
+| "tickets aberto por joao@empresa.com" | requestor_email |
+| "tickets do catalogo de infraestrutura" | catalog_query="infraestrutura" + desk_name |
+| "tickets com prioridade alta" | priority_name="alta" + desk_name |`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -50,6 +84,10 @@ const schema = {
       responsible_name: { type: 'string', description: 'Nome do responsavel (atendente atribuido) para busca automatica. Resolve o ID via GET /users (admin) ou via grupos de atendimento (nao-admin). Use quando o usuario disser "atribuido a", "responsavel" ou der um nome de atendente.' },
       requestor_ids: { type: 'string', description: 'IDs dos solicitantes (pessoa fisica que abriu o ticket) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar por **pessoa** (nao empresa). Resolva o ID via search_requestor.' },
       requestor_email: { type: 'string', description: 'Email do solicitante (pessoa que abriu o ticket). Use quando o usuario referencia uma **pessoa fisica** ou der um email diretamente. Evita round-trip de resolucao de ID.' },
+      services_catalogs_item_ids: { type: 'string', description: 'IDs de itens de catálogo de serviço separados por vírgula (ex: "11,12,13"). Passthrough direto para a API — máximo 15 IDs (limite da API /tickets); acima disso, apenas os 15 primeiros são aplicados com aviso. Use quando ja souber os IDs precisos (via search_catalog_item). Para busca por nome/área/catálogo, use catalog_query.' },
+      catalog_query: { type: 'string', description: 'Termo de busca livre para filtrar por catálogo de serviço. Faz match parcial server-side contra nome de catálogo, área e item ao mesmo tempo — ex: "infraestrutura" retorna itens de todas as áreas/catálogos que contenham esse termo. Requer mesa (desk_id ou desk_name). Para IDs precisos, use services_catalogs_item_ids.' },
+      priority_ids: { type: 'string', description: 'IDs de prioridade separados por vírgula (ex: "17,18"). Passthrough direto para a API — máximo 15 IDs (limite da API /tickets). Use quando ja souber os IDs (via list_desk_priorities). Para busca por nome, use priority_name.' },
+      priority_name: { type: 'string', description: 'Nome da prioridade para busca automática via fuzzy match (ex: "alta", "high", "baixa"). Requer mesa (desk_id ou desk_name). Para IDs diretos, use priority_ids.' },
       offset: { type: 'number', description: 'Número da página (padrão: 1)' },
       limit: { type: 'number', description: 'Número de tickets por página (padrão: 20, máximo: 200)' },
       is_closed: { type: 'boolean', description: 'Filtrar tickets fechados/cancelados (padrão: false - apenas abertos). A API força este filtro como true automaticamente quando date_type="solved_in_time". Para "qualquer status" prefira filter_by="all".' },
@@ -92,6 +130,10 @@ async function execute(args, { api, verbosity }) {
     responsible_name,
     requestor_ids,
     requestor_email,
+    services_catalogs_item_ids,
+    catalog_query,
+    priority_ids,
+    priority_name,
     offset,
     limit,
     is_closed,
@@ -106,12 +148,13 @@ async function execute(args, { api, verbosity }) {
   // Validar o escopo da busca. Filtro de STATUS sozinho (filter_by / is_closed) NAO
   // basta: "tickets abertos" sem mais nada traria um volume enorme e gastaria creditos
   // a toa. Exigimos a MESA (desk) ou outro recorte forte (cliente, solicitante,
-  // responsavel, estagio, periodo, SLA vencendo ou agrupamento por contagem).
+  // responsavel, estagio, periodo, SLA vencendo, catalogo, prioridade ou agrupamento).
   const hasDesk = desk_ids || desk_name;
   const hasOtherScope =
     client_ids || client_name || stage_ids || stage_name ||
     responsible_ids || responsible_name || requestor_ids || requestor_email ||
-    start_datetime || end_datetime || sla_expiring_before || group_by;
+    start_datetime || end_datetime || sla_expiring_before || group_by ||
+    services_catalogs_item_ids || catalog_query || priority_ids || priority_name;
 
   if (!hasDesk && !hasOtherScope) {
     return errorResponse(
@@ -126,6 +169,9 @@ async function execute(args, { api, verbosity }) {
       `• **stage_ids** / **stage_name** - Estagio (stage_name junto com desk_name)\n` +
       `• **start_datetime** + **end_datetime** - Periodo (ex: "desta semana", "hoje")\n` +
       `• **sla_expiring_before** - SLA vencendo (para "SLA em risco")\n` +
+      `• **catalog_query** - Catalogo de servico (requer mesa)\n` +
+      `• **services_catalogs_item_ids** - IDs de itens de catalogo (direto)\n` +
+      `• **priority_name** / **priority_ids** - Prioridade\n` +
       `• **group_by="desk"** - Para contagem por mesa, sem listar\n\n` +
       `*Pergunte ao usuario qual mesa ele quer consultar antes de prosseguir.*`
     );
@@ -133,6 +179,7 @@ async function execute(args, { api, verbosity }) {
 
   try {
     let finalDeskIds = desk_ids;
+    let finalDeskId = desk_ids ? parseInt(desk_ids.split(',')[0]) : undefined;
     let finalClientIds = client_ids;
     let finalStageIds = stage_ids;
 
@@ -141,6 +188,7 @@ async function execute(args, { api, verbosity }) {
       const resolved = await resolveDeskName(api, desk_name);
       if (resolved.error) return resolved.response;
       finalDeskIds = resolved.deskId.toString();
+      finalDeskId = resolved.deskId;
 
       // Se stage_name foi fornecido junto com desk_name, buscar o estagio
       if (stage_name && !stage_ids) {
@@ -197,10 +245,134 @@ async function execute(args, { api, verbosity }) {
     let finalResponsibleIds = responsible_ids;
     if (responsible_name && !responsible_ids) {
       const resolved = await resolveResponsibleName(api, responsible_name, {
-        deskId: finalDeskIds ? parseInt(finalDeskIds) : undefined
+        deskId: finalDeskId
       });
       if (resolved.error) return resolved.response;
       finalResponsibleIds = String(resolved.userId);
+    }
+
+    // Resolver catalog_query -> services_catalogs_item_ids (requer mesa)
+    let finalCatalogItemIds = services_catalogs_item_ids || null;
+    let catalogWarning = null;
+
+    if (catalog_query) {
+      if (!finalDeskId) {
+        return errorResponse(
+          `**❌ catalog_query requer mesa**\n\n` +
+          `O parâmetro \`catalog_query\` requer uma mesa para escopo — catálogos são configurados por mesa.\n\n` +
+          `Forneça **desk_id** ou **desk_name** junto com \`catalog_query\`.\n` +
+          `Para filtrar por IDs de catálogo sem mesa, use \`services_catalogs_item_ids\` diretamente.`
+        );
+      }
+
+      const resolved = await resolveCatalogItemIds(api, finalDeskId, catalog_query);
+      if (resolved.error) return resolved.response;
+
+      if (resolved.itemIds.length === 0) {
+        return errorResponse(
+          `**❌ Nenhum item de catálogo encontrado para "${catalog_query}"**\n\n` +
+          `A busca por catálogo não retornou itens correspondentes na mesa informada.\n\n` +
+          `*Verifique o termo ou use search_catalog_item para explorar os catálogos disponíveis.*`
+        );
+      }
+
+      // Unir com services_catalogs_item_ids explícito, se houver
+      const explicitIds = services_catalogs_item_ids
+        ? services_catalogs_item_ids.split(',').map(id => id.trim()).filter(Boolean)
+        : [];
+      const allCatalogIds = [...new Set([...resolved.itemIds.map(String), ...explicitIds])];
+      finalCatalogItemIds = allCatalogIds.join(',');
+
+      if (resolved.warning) {
+        catalogWarning = resolved.warning;
+      }
+    }
+
+    // Enforce o contrato da API /tickets (max 15 IDs, sem duplicados) tanto para
+    // catalog_query expandido quanto para services_catalogs_item_ids cru. Enviar >15
+    // resultaria em 422 (erro 42201); aqui cortamos com aviso honesto ao usuario.
+    if (finalCatalogItemIds) {
+      const { ids, capped, total } = capFilterIds(finalCatalogItemIds);
+      finalCatalogItemIds = ids;
+      if (capped) {
+        catalogWarning =
+          `O filtro de catálogo resolveu ${total} itens, mas a API /tickets aceita no máximo ${MAX_FILTER_IDS} por consulta — ` +
+          `apenas os primeiros ${MAX_FILTER_IDS} foram aplicados. O resultado pode estar incompleto; ` +
+          `refine o catalog_query ou use services_catalogs_item_ids com IDs específicos.`;
+      }
+    }
+
+    // Resolver priority_name -> priority_ids via fuzzy match (requer mesa)
+    let finalPriorityIds = priority_ids || null;
+    let priorityWarning = null;
+
+    if (priority_name && !priority_ids) {
+      if (!finalDeskId) {
+        return errorResponse(
+          `**❌ priority_name requer mesa**\n\n` +
+          `O parâmetro \`priority_name\` requer uma mesa para escopo — prioridades são configuradas por mesa.\n\n` +
+          `Forneça **desk_id** ou **desk_name** junto com \`priority_name\`.\n` +
+          `Para filtrar por IDs de prioridade sem mesa, use \`priority_ids\` diretamente.`
+        );
+      }
+
+      const prioritiesResponse = await api.listDeskPriorities(finalDeskId, { limit: 200 });
+      if (prioritiesResponse.error) {
+        return errorResponse(
+          `**❌ Erro ao buscar prioridades da mesa**\n\n` +
+          `**Erro:** ${prioritiesResponse.error}\n\n` +
+          `*Verifique se a mesa existe e tem prioridades configuradas. Use priority_ids diretamente se souber o ID.*`
+        );
+      }
+
+      const priorities = prioritiesResponse.data || [];
+      const { matches, bestMatch } = fuzzyMatchItems(priority_name, priorities, p => p.name);
+
+      if (!bestMatch) {
+        const availableList = priorities.map(p => `• ${p.name} (ID ${p.id})`).join('\n');
+        return errorResponse(
+          `**❌ Prioridade "${priority_name}" não encontrada na mesa**\n\n` +
+          `**Prioridades disponíveis:**\n${availableList || '(nenhuma configurada)'}\n\n` +
+          `*Use priority_ids diretamente ou ajuste o priority_name.*`
+        );
+      }
+
+      // Piso de confianca: so aceita match com score >= MIN_PRIORITY_SCORE (70).
+      // Abaixo disso (ex.: substring fraco como "ta" casando "Alta" = 50), retorna
+      // erro listando as prioridades disponiveis em vez de filtrar por um match fraco.
+      const topScore = matches[0]?.score ?? 0;
+      if (topScore < MIN_PRIORITY_SCORE) {
+        const availableList = priorities.map(p => `• ${p.name} (ID ${p.id})`).join('\n');
+        return errorResponse(
+          `**❌ "${priority_name}" não casou com nenhuma prioridade com confiança suficiente**\n\n` +
+          `**Prioridades disponíveis:**\n${availableList || '(nenhuma configurada)'}\n\n` +
+          `*Seja mais específico no priority_name ou use priority_ids diretamente.*`
+        );
+      }
+
+      const sameTierMatches = matches.filter(m => m.score === topScore);
+
+      if (sameTierMatches.length > 1) {
+        const list = sameTierMatches.map((m, i) => `${i + 1}. **${m.item.name}** (ID ${m.item.id})`).join('\n');
+        return errorResponse(
+          `**⚠️ Múltiplas prioridades encontradas para "${priority_name}"**\n\n` +
+          `${list}\n\n` +
+          `*Use priority_ids específico ou seja mais específico no priority_name.*`
+        );
+      }
+
+      finalPriorityIds = String(bestMatch.id);
+    }
+
+    // Enforce o contrato da API /tickets para priority_ids (max 15, sem duplicados).
+    if (finalPriorityIds) {
+      const { ids, capped, total } = capFilterIds(finalPriorityIds);
+      finalPriorityIds = ids;
+      if (capped) {
+        priorityWarning =
+          `O filtro de prioridade recebeu ${total} IDs, mas a API /tickets aceita no máximo ${MAX_FILTER_IDS} — ` +
+          `apenas os primeiros ${MAX_FILTER_IDS} foram aplicados.`;
+      }
     }
 
     // Preparar filtros para a API
@@ -212,6 +384,8 @@ async function execute(args, { api, verbosity }) {
     if (finalResponsibleIds) filters.responsible_ids = finalResponsibleIds;
     if (requestor_ids) filters.requestor_ids = requestor_ids;
     if (requestor_email) filters.requestor_email = requestor_email;
+    if (finalCatalogItemIds) filters.services_catalogs_item_ids = finalCatalogItemIds;
+    if (finalPriorityIds) filters.priority_ids = finalPriorityIds;
     if (offset) filters.offset = parseInt(offset);
     if (limit) filters.limit = parseInt(limit);
     if (is_closed !== undefined) filters.is_closed = is_closed;
@@ -282,16 +456,31 @@ async function execute(args, { api, verbosity }) {
         (finalResponsibleIds ? `• Responsáveis: ${finalResponsibleIds}${responsible_name ? ` (${responsible_name})` : ''}\n` : '') +
         (requestor_ids ? `• Solicitantes: ${requestor_ids}\n` : '') +
         (requestor_email ? `• Email solicitante: ${requestor_email}\n` : '') +
+        (finalCatalogItemIds ? `• Catálogo (IDs): ${finalCatalogItemIds}${catalog_query ? ` (query: "${catalog_query}")` : ''}\n` : '') +
+        (finalPriorityIds ? `• Prioridade (IDs): ${finalPriorityIds}${priority_name ? ` (${priority_name})` : ''}\n` : '') +
         (date_type ? `• Tipo de data: ${date_type}\n` : '') +
         (start_datetime ? `• A partir de: ${start_datetime}\n` : '') +
         (end_datetime ? `• Até: ${end_datetime}\n` : '') +
         `• Status: ${filter_by ? ({ open: 'Abertos', closed: 'Fechados', canceled: 'Cancelados', all: 'Todos' }[filter_by]) : (is_closed ? 'Fechados' : 'Abertos')}\n\n` +
+        (catalogWarning ? `**⚠️ Aviso:** ${catalogWarning}\n\n` : '') +
+        (priorityWarning ? `**⚠️ Aviso:** ${priorityWarning}\n\n` : '') +
         `*Tente ajustar os filtros para encontrar tickets.*`
       );
     }
 
     const currentOffset = filters.offset || 1;
     const currentLimit = filters.limit || 20;
+
+    // Helper para formatar o catalogo de servico de um ticket
+    function formatCatalog(servicesCatalog) {
+      if (!servicesCatalog) return '—';
+      const parts = [
+        servicesCatalog.catalog_name,
+        servicesCatalog.area_name,
+        servicesCatalog.item_name
+      ].filter(Boolean);
+      return parts.length > 0 ? parts.join(' › ') : '—';
+    }
 
     let ticketsList;
     if (v === 'compact') {
@@ -303,11 +492,13 @@ async function execute(args, { api, verbosity }) {
         const status = ticket.status?.name || 'N/A';
         const stage = ticket.stage?.name || 'N/A';
         const responsible = ticket.responsible?.name || 'N/A';
-        ticketsList += `#${n} ${title} | ${status} | ${stage} | ${responsible}\n`;
+        const priority = ticket.priority?.name || '—';
+        const catalog = formatCatalog(ticket.services_catalog);
+        ticketsList += `#${n} ${title} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog}\n`;
       });
       ticketsList += `(use get_ticket #N para detalhes)\n`;
     } else {
-      // rich: saida atual
+      // rich: saida com catalogo + prioridade
       ticketsList = `**📋 Lista de Tickets** (${countLabel} encontrados)\n\n`;
 
       tickets.forEach((ticket, index) => {
@@ -318,6 +509,8 @@ async function execute(args, { api, verbosity }) {
         const stageName = ticket.stage?.name || 'Estágio não informado';
         const responsibleName = ticket.responsible?.name || 'Não atribuído';
         const status = ticket.status?.name || 'Status não informado';
+        const priority = ticket.priority?.name || '—';
+        const catalog = formatCatalog(ticket.services_catalog);
         const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : 'Data não informada';
 
         // Resumo da descricao (primeiras 100 caracteres)
@@ -336,14 +529,20 @@ async function execute(args, { api, verbosity }) {
                       `   🗂️ **Mesa:** ${deskName}\n` +
                       `   📊 **Estágio:** ${stageName}\n` +
                       `   🚨 **Status:** ${status}\n` +
+                      `   🔴 **Prioridade:** ${priority}\n` +
+                      `   🗃️ **Catálogo:** ${catalog}\n` +
                       `   📅 **Criado em:** ${createdAt}${descriptionSummary}\n\n`;
       });
     }
 
+    // Propagar warning de expansao de catalogo na saida
+    const warningBlock =
+      (catalogWarning ? `\n**⚠️ Aviso de catálogo:** ${catalogWarning}\n` : '') +
+      (priorityWarning ? `\n**⚠️ Aviso de prioridade:** ${priorityWarning}\n` : '');
     const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, total, unit: 'tickets' }, v);
     const footerStr = footer(v);
     const sep = footerStr ? '\n' : '';
-    return textResponse(`${ticketsList}${paginationInfo}${sep}${footerStr}`);
+    return textResponse(`${ticketsList}${warningBlock}${paginationInfo}${sep}${footerStr}`);
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar tickets**\n\n` +

@@ -613,6 +613,19 @@ class TiFluxAPI {
     if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
     if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);
 
+    // services_catalogs_item_ids e priority_ids: a Swagger de GET /tickets documenta
+    // "maximo 15 itens, sem duplicados" (erro 42201 "cannot have more than 15 items").
+    // Aqui fica a rede de seguranca do contrato (dedup + cap 15); o aviso honesto ao
+    // usuario sobre o corte e emitido em listTickets. Nunca enviar >15 para nao tomar 422.
+    if (filters.services_catalogs_item_ids) {
+      const ids = [...new Set(filters.services_catalogs_item_ids.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
+      if (ids.length > 0) params.append('services_catalogs_item_ids', ids.join(','));
+    }
+    if (filters.priority_ids) {
+      const ids = [...new Set(filters.priority_ids.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
+      if (ids.length > 0) params.append('priority_ids', ids.join(','));
+    }
+
     const response = await this.makeRequest(`/tickets?${params.toString()}`);
 
     // Surface o total real (header X-Total-Items) para a listagem distinguir

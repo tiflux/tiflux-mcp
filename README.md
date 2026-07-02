@@ -351,7 +351,7 @@ Cancel a specific ticket in TiFlux.
 ```
 
 ### list_tickets
-List tickets with filtering options.
+List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response).
 
 **Parameters:**
 - `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3")
@@ -364,6 +364,10 @@ List tickets with filtering options.
 - `responsible_name` (string, optional): Responsible user name for automatic resolution. Works for both admin (via `GET /users`) and non-admin users (via attendant groups fallback). Use when the user says "assigned to" / "responsible" and gives a name.
 - `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_requestor`.
 - `requestor_email` (string, optional): Email of the requestor (person who opened the ticket). Use when the user references a **person** or provides an email directly. Avoids a round-trip to resolve the ID.
+- `services_catalogs_item_ids` (string, optional): Comma-separated service catalog item IDs (e.g., "11,12,13"). Passthrough directly to the API — **max 15 IDs** (the `GET /tickets` limit; beyond that only the first 15 are applied, with a warning). Duplicates are removed. Use when you already know the IDs (via `search_catalog_item`). For name/area/catalog text search, use `catalog_query`.
+- `catalog_query` (string, optional): Free-text search term to filter by service catalog. Matches partially against catalog name, area name, and item name server-side — a single term like `"security"` returns items from all areas/catalogs whose name contains that term. **Requires a desk** (`desk_id` or `desk_name`). For precise IDs, use `services_catalogs_item_ids`.
+- `priority_ids` (string, optional): Comma-separated priority IDs (e.g., "17,18"). Passthrough directly to the API — **max 15 IDs** (the `GET /tickets` limit; duplicates removed). Use when you already know the IDs (via `list_desk_priorities`). For name-based search, use `priority_name`.
+- `priority_name` (string, optional): Priority name for automatic fuzzy resolution (e.g., "high", "baixa"). **Requires a desk** (`desk_id` or `desk_name`). For direct IDs, use `priority_ids`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200)
 - `is_closed` (boolean, optional): Include closed tickets (default: false)
@@ -374,7 +378,26 @@ List tickets with filtering options.
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 
-**Note:** At least one filter (desk_ids/desk_name, client_ids/client_name, stage_ids/stage_name, responsible_ids/responsible_name, requestor_ids, requestor_email, start_datetime, end_datetime, or is_closed) is required.
+**Note:** At least one filter is required (desk, client, requestor, responsible, stage, date range, SLA, catalog, or priority).
+
+**Catalog filter note:** `catalog_query` uses server-side partial matching against catalog, area, and item names simultaneously — one term matches items from multiple areas. The MCP paginates all results and resolves to item IDs before calling `GET /tickets`. Because `GET /tickets` accepts **at most 15** `services_catalogs_item_ids` (Swagger error `42201` otherwise), if the query resolves to more than 15 items only the first 15 are applied and a warning is returned (the result may be incomplete). For surgical precision, discover IDs via `search_catalog_item` and pass a narrow set via `services_catalogs_item_ids`.
+
+**Example — filter by catalog query:**
+```json
+{
+  "desk_name": "Support",
+  "catalog_query": "security"
+}
+```
+
+**Example — filter by priority and catalog (IDs):**
+```json
+{
+  "desk_ids": "1",
+  "priority_ids": "17",
+  "services_catalogs_item_ids": "11,12"
+}
+```
 
 **Example — filter by requestor email:**
 ```json
@@ -1850,7 +1873,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `DELETE /tickets/{ticket_number}/answers/{id}` - Remove a ticket answer (`delete_ticket_answer`)
 - `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
-- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email` query params)
+- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; response includes `services_catalog` and `priority` per ticket)
 - `GET /clients` - Search/list clients (`search_client`, `list_clients`, and `client_name` auto-resolve in `list_tickets` and `create_ticket`)
 - `GET /clients/{id}` - Get client details (`get_client`)
 - `POST /clients` - Create a new client (`create_client`)
@@ -1875,10 +1898,10 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /departments` - List organization departments with optional name search (`list_departments`). Admin: all active; non-admin: only linked to attendant group
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
-- `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`, `update_ticket` priority_name resolution)
+- `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`, `update_ticket` priority_name resolution, `list_tickets` priority_name resolution)
 - `GET /desks/{id}/services-catalogs` - Get desk service catalogs (`list_desk_services_catalogs`)
 - `GET /desks/{id}/stages` - Get desk stages
-- `GET /desks/{id}/services-catalogs-items` - Get service catalog items (supports `?name` for server-side search by catalog/area/item name)
+- `GET /desks/{id}/services-catalogs-items` - Get service catalog items (supports `?name` for server-side search by catalog/area/item name; used by `search_catalog_item` and `list_tickets` `catalog_query` resolver)
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
