@@ -11,6 +11,7 @@ Model Context Protocol (MCP) server for TiFlux integration with Claude Code and 
 - **Chat Management**: List inbox/mine/in-attendance/archived chats, fetch chat details, transfer/link chats, send WhatsApp messages and finish chats
 - **Department Discovery**: List organization departments with optional name search — resolves department names to IDs for chat filtering (`list_departments`)
 - **Knowledge Base**: List and create knowledge base articles — search by title/tags/description and filter by folder (`list_knowledges`, `create_knowledge`)
+- **Contracts**: List the organization's contracts (read-only) with client/type/status filters, showing modality, status, expiration and total value (`list_contracts`)
 - **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
 - **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
 - **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
@@ -1671,6 +1672,38 @@ Conhecimento criado com sucesso!
 **Grupos tecnicos vinculados:** 5
 ```
 
+### list_contracts
+List the organization's contracts (read-only). Returns a Markdown table with ID, name, client, contract type, modality, status, expiration date, and total value for each contract.
+
+**Note:** Only the `GET /contracts` endpoint exists in the API v2 (there is no `GET /contracts/{id}`), so this is the single contracts tool — the listing already returns the full contract object.
+
+**Permissions:** The monetary fields (`total_value`, `rider_tax`, `rider_value`) are only shown to users with the "Visualizar valores dos tickets" permission. Without it, the API returns `"--"` for those fields (rendered as-is).
+
+**Parameters (all optional):**
+- `client_ids` (string, CSV): Filter by clients, IDs separated by commas (e.g. `"982,2,1024"`).
+- `contract_type_ids` (string, CSV): Filter by contract types, IDs separated by commas (e.g. `"3,27"`).
+- `status` (string, CSV): Filter by status — `actives`, `readjust`, `expired`, separated by commas (e.g. `"actives,expired"`). **By default the API lists only `actives`.**
+- `limit` (number, optional): Results per page (default: 20, max: 200).
+- `offset` (number, optional): Page number (default: 1).
+
+**Returns:** Markdown table with columns `ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Valor total`. Modality and status are translated to PT-BR (unknown enum values fall back to the raw API value). Monetary values are formatted as `R$ x,yy`.
+
+**Example:**
+```json
+{
+  "client_ids": "44",
+  "status": "actives,expired",
+  "limit": 10
+}
+```
+
+**Example response:**
+```
+| ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Valor total |
+|---|---|---|---|---|---|---|---|
+| 101 | Contrato Mensal Ouro | Acme Corp | Suporte Mensal | Horas | Ativo | 2027-01-31 | R$ 1500,00 |
+```
+
 ### list_entities
 List custom field groups (entities) available in the TiFlux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
@@ -1870,6 +1903,7 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Requires "Gerenciar conhecimento" permission
+- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Optional filters: `client_ids`, `contract_type_ids`, `status` (CSV). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`)
 
 ## Telemetry
 

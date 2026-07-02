@@ -479,6 +479,32 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista contratos da organizacao.
+   * GET /contracts
+   *
+   * Filtros opcionais (todos CSV quando arrays, style form/explode:false):
+   *   - client_ids, contract_type_ids, status (actives|readjust|expired)
+   *   - limit (default 20, max 200), offset (default 1)
+   *
+   * @param {object} filters
+   */
+  async listContracts(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.client_ids) params.append('client_ids', filters.client_ids);
+    if (filters.contract_type_ids) params.append('contract_type_ids', filters.contract_type_ids);
+    if (filters.status) params.append('status', filters.status);
+
+    return await this.makeRequest(`/contracts?${params.toString()}`);
+  }
+
+  /**
    * Retorna dados completos de uma mesa por ID.
    *
    * @param {number} deskId - ID da mesa
