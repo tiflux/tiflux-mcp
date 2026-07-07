@@ -1,66 +1,71 @@
-# TiFlux MCP Server
+# Tiflux MCP Server
 
-Model Context Protocol (MCP) server for TiFlux integration with Claude Code and other AI clients.
+Conecte **Claude**, **ChatGPT** e outros clientes de IA à sua conta Tiflux para abrir, atualizar e consultar tickets em seu nome — sem instalar nada. Servidor MCP (Model Context Protocol) hospedado em `https://mcp.tiflux.com`.
 
-## Features
+> **English:** this README is primarily in Portuguese (pt-BR). The full tool catalog ([Available Tools](#available-tools)) is in English, and local usage via `npx` is documented under [Avançado: execução local](#avançado-execução-local-sdk-via-npx).
 
-- **Ticket Management**: Get, create, update, close and list tickets with comprehensive filtering. Supports desk transfer — when `desk_id`/`desk_name` is informed, the MCP auto-resolves the first stage of the destination desk.
-- **Stages & SLA History**: Inspect the full history of ticket stages with per-stage SLA outcomes
-- **Internal Communications**: Create and list internal communications for tickets with file attachments
-- **Time Tracking (Appointments)**: Create and list work-hour appointments on tickets
-- **Chat Management**: List inbox/mine/in-attendance/archived chats, fetch chat details, transfer/link chats, send WhatsApp messages and finish chats
-- **Department Discovery**: List organization departments with optional name search — resolves department names to IDs for chat filtering (`list_departments`)
-- **Knowledge Base**: List and create knowledge base articles — search by title/tags/description and filter by folder (`list_knowledges`, `create_knowledge`)
-- **Contracts**: List the organization's contracts (read-only) with client/type/status filters, showing modality, status, expiration and total value (`list_contracts`)
-- **Desk Exploration**: List available desks and inspect full desk configurations (SLA, fields, behavior) without leaving the chat
-- **Custom Field Discovery**: Discover custom fields (entities) at all three levels — entity → field → option — enabling LLMs to correctly fill checkbox/single_select fields using the right option IDs
-- **Client CRUD**: Full CRUD for clients — get, create, update, list with filters, related desks/technical groups, portal users, and email permissions
-- **Attendant Search (non-admin)**: Search technical attendants (responsible candidates) via `GET /technical-users` — no admin permission required. Supports server-side filtering by name, email, `desk_id`, and `client_id`. `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, and `list_tickets` now uses this endpoint as the **primary path** (1 round-trip, works for all profiles including non-admin).
-- **Requestor Search**: Search ticket openers (requestors) by name, email, or telephone via dedicated `GET /requestors` endpoint with server-side filtering (no 200-record limit). Includes an automatic fallback chain that works for non-admin attendants and finds people who only exist as users: `GET /requestors` → client-scoped `GET /clients/{id}/requestors` → `GET /users` (email used as `requestor_email`) → `GET /users/me` (open as yourself). Triggers on 403 or zero results
-- **Requestor CRUD**: Manage a client's requestors end to end — list, get, create, update, and update custom fields (`list_requestors`, `get_requestor`, `create_requestor`, `update_requestor`, `update_requestor_entities`). In `create_ticket`, the canonical link is `requestor_id`: the MCP resolves email and name to an existing `requestor_id` automatically (precedence `requestor_id` > `requestor_email` > `requestor_name`), only sending a raw email when no registration matches.
-- **File Upload Support**: Attach up to 10 files (25MB each) to internal communications
-- **API Integration**: Direct integration with TiFlux API v2
-- **Environment Configuration**: Secure configuration with environment variables
-- **Comprehensive Testing**: Automated tests with 100% mock isolation
+## Pré-requisitos e modelo de uso
 
-## Installation
+- **Licença API ativa** na sua conta Tiflux — é o único pré-requisito para usar o MCP.
+
+**Como gerar sua chave de API:**
+
+1. Acesse o Tiflux e faça login em [app.tiflux.com](https://app.tiflux.com/)
+2. Clique na sua foto no canto superior direito → **Minha conta**
+3. Abra a aba **Sessões**
+4. Em **Sessões API**, clique em **"Gerar novo token de sessão"**
+5. Copie a chave gerada — é ela que você vai usar para conectar
+
+> [!IMPORTANT]
+> Todas as ações feitas via MCP — abrir e movimentar tickets, responder, criar apontamentos etc. — são **registradas em nome do usuário dono da chave de API**. Para uso operacional no dia a dia, **cada pessoa da equipe deve ter sua própria licença API e sua própria chave**. Não compartilhe uma mesma chave entre vários usuários.
+
+## Como conectar
+
+O caminho recomendado é o **servidor hospedado** (`https://mcp.tiflux.com`): sempre atualizado, sem instalação e com autenticação segura via OAuth 2.0 ou chave de API.
+
+### Claude (claude.ai — web)
+
+1. Acesse [claude.ai](https://claude.ai) → **Configurações** → **Conectores**
+2. Clique em **Adicionar conector personalizado**
+3. Cole a URL do servidor:
+
+   ```
+   https://mcp.tiflux.com
+   ```
+
+   > ⚠️ Sem `/mcp` no final — o conector usa a URL raiz.
+
+4. Clique em **Conectar** — a página de autorização do Tiflux abre automaticamente
+5. Cole sua chave de API e clique em **Autorizar**
+
+Pronto: por trás, a plataforma recebe um token OAuth 2.0 e o usa em todas as requisições seguintes — você não precisa manusear a chave novamente.
+
+### ChatGPT (web)
+
+1. Acesse **Configurações** → **Conectores** (ou, ao criar um GPT, **Adicionar** um conector)
+2. Adicione um conector personalizado apontando para:
+
+   ```
+   https://mcp.tiflux.com
+   ```
+
+3. Conclua a autorização colando sua chave de API na página do Tiflux
+
+> A disponibilidade de conectores MCP no ChatGPT depende do plano e do modo da sua conta.
+
+### Claude Desktop
+
+Mesmo fluxo do claude.ai: **Configurações** → **Conectores** → **Adicionar conector personalizado** → colar `https://mcp.tiflux.com` → **Conectar** → autorizar com a chave de API. Veja o passo a passo em [Claude (claude.ai — web)](#claude-claudeai--web).
+
+### Claude Code
+
+Adicione o servidor remoto com um único comando:
 
 ```bash
-npm install -g @tiflux/mcp
+claude mcp add tiflux --transport http https://mcp.tiflux.com/mcp --header "x-tiflux-api-key:SUA_CHAVE" -s project
 ```
 
-## Usage
-
-### With Claude Code
-
-Add to your MCP configuration:
-
-```json
-{
-  "tiflux": {
-    "command": "npx",
-    "args": ["@tiflux/mcp@latest"]
-  }
-}
-```
-
-### With Other MCP Clients
-
-```bash
-npx @tiflux/mcp@latest
-```
-
-### Via URL (HTTP Transport)
-
-**Endpoint:** `https://mcp.tiflux.com/mcp`
-
-```bash
-claude mcp add tiflux-lambda --transport http https://mcp.tiflux.com/mcp --header "x-tiflux-api-key:APIKEY" -s project
-```
-
-#### Manual Configuration
-
-Add to `.claude/settings.json` or `~/.claude.json`:
+Ou configure manualmente em `.claude/settings.json` ou `~/.claude.json`:
 
 ```json
 {
@@ -69,117 +74,111 @@ Add to `.claude/settings.json` or `~/.claude.json`:
       "type": "url",
       "url": "https://mcp.tiflux.com/mcp",
       "headers": {
-        "x-tiflux-api-key": "YOUR_API_KEY"
+        "x-tiflux-api-key": "SUA_CHAVE"
       }
     }
   }
 }
 ```
 
-#### Endpoints
+> ⚠️ Aqui a URL **tem** `/mcp` no final (`https://mcp.tiflux.com/mcp`) — diferente do conector web, que usa a URL raiz.
 
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/mcp` | GET | No | Server info |
-| `/mcp` | POST | Yes | MCP operations |
-| `/health` | GET | No | Health check |
+Alternativa para cenários específicos: execução local via `npx` — veja [Avançado: execução local (SDK via npx)](#avançado-execução-local-sdk-via-npx).
 
-### Via Web (OAuth 2.0) — Claude web & ChatGPT connectors
+### n8n
 
-Use TiFlux as a **connector** in any AI platform that supports MCP over OAuth 2.0 — such as
-**Claude (claude.ai / desktop)** and **ChatGPT** — with no local install. You just add a
-custom connector pointing to the TiFlux MCP server URL.
+Use o node **MCP Client Tool** apontando para o servidor hospedado:
 
-**MCP Server URL (paste this in the connector):**
+1. Adicione o node **MCP Client Tool** ao seu workflow
+2. **Endpoint:** `https://mcp.tiflux.com/mcp` (transporte HTTP Streamable)
+3. **Autenticação:** credencial do tipo **Header Auth** com nome `x-tiflux-api-key` e valor igual à sua chave de API
 
-```
-https://mcp.tiflux.com
-```
+### Manus AI
 
-**Add the connector:**
+1. Nas configurações do Manus, adicione um novo conector MCP — abre a tela **Configuração do MCP**
+2. Preencha os campos:
+   - **Nome do servidor:** `Tiflux`
+   - **Tipo de transporte:** `HTTP`
+   - **URL do servidor:**
 
-- **Claude (claude.ai / desktop):** Settings → **Connectors** → **Add custom connector** →
-  paste `https://mcp.tiflux.com` → Connect.
-- **ChatGPT:** Settings → **Connectors** (or when building a GPT, **Add** a connector) →
-  paste `https://mcp.tiflux.com` → Connect.
+     ```
+     https://mcp.tiflux.com
+     ```
 
-**How the authorization works:**
+3. Em **Cabeçalhos personalizados**, clique em **Adicionar cabeçalho personalizado** e preencha:
+   - **Nome do cabeçalho:** `x-tiflux-api-key`
+   - **Valor do cabeçalho:** sua chave de API
+4. Clique em **Salvar** — use **Experimente** para testar a conexão
 
-1. After adding the connector, the platform opens the TiFlux authorization page automatically.
-2. The page shows a step-by-step guide to generate your TiFlux API Key:
-   - Log in at [app.tiflux.com](https://app.tiflux.com/)
-   - Click your profile photo → **Minha conta**
-   - Open the **Sessões** tab
-   - Under **Sessões API**, click **"Gerar novo token de sessão"**
-   - Copy the generated key and paste it into the authorization form
-3. After authorizing, the platform receives a Bearer token and uses it for all subsequent
-   MCP requests — no need to handle the key again.
+### Outros clientes MCP
 
-> For Claude Code or local/script usage with a direct API key header, see
-> [Via URL (HTTP Transport)](#via-url-http-transport) above.
+Qualquer cliente MCP funciona com o servidor hospedado:
 
-**Authentication methods supported:**
+- **Cliente com transporte HTTP + headers:** URL `https://mcp.tiflux.com/mcp` + header `x-tiflux-api-key: SUA_CHAVE`
+- **Cliente com suporte a OAuth 2.0 (conectores):** URL raiz `https://mcp.tiflux.com`
 
-| Method | Header | When to use |
+**Endpoints:**
+
+| Endpoint | Método | Auth | Descrição |
+|----------|--------|------|-----------|
+| `/mcp` | GET | Não | Informações do servidor |
+| `/mcp` | POST | Sim | Operações MCP |
+| `/health` | GET | Não | Health check |
+
+**Métodos de autenticação:**
+
+| Método | Header | Quando usar |
 |--------|--------|-------------|
-| API key (direct) | `x-tiflux-api-key: YOUR_API_KEY` | Claude Code, local SDK, scripts |
-| Bearer token (OAuth) | `Authorization: Bearer <token>` | Claude.ai, ChatGPT, web connectors |
+| Chave de API (direta) | `x-tiflux-api-key: SUA_CHAVE` | Claude Code, n8n, Manus AI, scripts, SDK local |
+| Bearer token (OAuth) | `Authorization: Bearer <token>` | Claude.ai, ChatGPT, conectores web |
 
-**OAuth 2.0 endpoints:**
+## Funcionalidades
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /.well-known/oauth-authorization-server` | OAuth server metadata (RFC 8414) |
-| `POST /register` | Dynamic client registration (RFC 7591) |
-| `GET /authorize` | Authorization page (user enters API key) |
-| `POST /authorize` | Form submit — issues auth code |
-| `POST /token` | Token exchange and refresh |
+- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA
+- **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada)
+- **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets
+- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, transferir e vincular chats, enviar mensagens e finalizar atendimentos
+- **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
+- **Solicitantes**: buscar, criar, atualizar e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
+- **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat
+- **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente
+- **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
+- **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
 
-## Configuration
+O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
-Create a `.env` file with your TiFlux API credentials:
+## Configuração avançada
 
-```bash
-# TiFlux API Configuration
-TIFLUX_API_KEY=your_api_key_here
+### Verbosidade das respostas
 
-# Default values for ticket creation
-TIFLUX_DEFAULT_CLIENT_ID=1
-TIFLUX_DEFAULT_DESK_ID=1
-TIFLUX_DEFAULT_PRIORITY_ID=1
-TIFLUX_DEFAULT_CATALOG_ITEM_ID=1
-```
+O servidor suporta dois modos de verbosidade para controlar o consumo de tokens:
 
-### Response Verbosity
+| Modo | Descrição |
+|------|-----------|
+| `rich` | Saída completa em Markdown com emojis, rodapés e blocos de paginação detalhados (padrão) |
+| `compact` | Saída enxuta — sem rodapé decorativo, resumo de paginação em uma linha, `get_ticket` omite flags de baixo valor e trunca descrições longas, `list_tickets` usa linhas ultracompactas por ticket |
 
-The server supports two verbosity modes to control token consumption:
-
-| Mode | Description |
-|------|-------------|
-| `rich` | Full Markdown output with emojis, footers, and verbose pagination blocks (default) |
-| `compact` | Terse output — no decorative footer, one-line pagination summary, `get_ticket` omits low-value flags and truncates long descriptions, `list_tickets` uses ultra-terse per-ticket rows |
-
-**SDK (stdio) — environment variable:**
+**SDK (stdio) — variável de ambiente:**
 
 ```bash
 TIFLUX_MCP_VERBOSITY=compact npx @tiflux/mcp@latest
 ```
 
-**Server (HTTP/Lambda) — per-request header:**
+**Server (HTTP/Lambda) — header por requisição:**
 
 ```
 x-tiflux-verbosity: compact
 ```
 
-> Default is `rich` in both modes. Existing integrations are unaffected unless the env var or header is set.
+> O padrão é `rich` nos dois modos. Integrações existentes não são afetadas a menos que a variável de ambiente ou o header seja definido.
 
-### Token-reduction tips for API integrations
+### Dicas para reduzir consumo de tokens
 
-When building applications that call this MCP server programmatically, token costs matter. Follow these guidelines:
+Ao construir aplicações que chamam este servidor MCP programaticamente, o custo de tokens importa. Siga estas orientações:
 
-- **Pass IDs when you already have them.** Every tool that accepts a `_name` param for auto-resolution (e.g. `desk_name`, `stage_name`, `entity_field_name`) will make one or more extra API calls to resolve the name. If you stored the ID from a previous call, pass it directly (e.g. `desk_id`, `stage_id`, `entity_field_id`) — this is always faster and cheaper.
-- **Use `compact` verbosity** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) or `x-tiflux-verbosity: compact` header (Server). Compact mode cuts `get_ticket` and `list_tickets` output by ~50%.
-- **Paginate deliberately.** `list_tickets` with a wide date range on a busy desk can return hundreds of items. Pass `limit` and `offset` intentionally — when a full page comes back, compact mode appends a next-page hint (`→ offset: N`) so the model knows there may be more to fetch.
+- **Passe IDs quando já os tiver.** Toda ferramenta que aceita um parâmetro `_name` para auto-resolução (ex.: `desk_name`, `stage_name`, `entity_field_name`) fará uma ou mais chamadas extras à API para resolver o nome. Se você guardou o ID de uma chamada anterior, passe-o diretamente (ex.: `desk_id`, `stage_id`, `entity_field_id`) — é sempre mais rápido e barato.
+- **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). O modo compact corta a saída de `get_ticket` e `list_tickets` em ~50%.
+- **Pagine deliberadamente.** `list_tickets` com um intervalo de datas amplo em uma mesa movimentada pode retornar centenas de itens. Passe `limit` e `offset` intencionalmente — quando uma página cheia retorna, o modo compact acrescenta uma dica de próxima página (`→ offset: N`) para o modelo saber que pode haver mais a buscar.
 
 ## Available Tools
 
@@ -207,7 +206,7 @@ Comprehensive ticket information including:
 **New in v1.4.0:** Expanded fields for complete ticket metadata in a single call.
 
 ### create_ticket
-Create a new ticket in TiFlux.
+Create a new ticket in Tiflux.
 
 **Parameters:**
 - `title` (string, required): Ticket title
@@ -237,7 +236,7 @@ Create a new ticket in TiFlux.
 > **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
 ### update_ticket
-Update an existing ticket in TiFlux. Supports transferring a ticket to another desk — when `desk_id`/`desk_name` is provided without an explicit `stage_id`/`stage_name`, the MCP automatically resolves the first stage of the destination desk (the stage with `first_stage: true`, or the one with the lowest index as a fallback), preventing invalid-stage errors.
+Update an existing ticket in Tiflux. Supports transferring a ticket to another desk — when `desk_id`/`desk_name` is provided without an explicit `stage_id`/`stage_name`, the MCP automatically resolves the first stage of the destination desk (the stage with `first_stage: true`, or the one with the lowest index as a fallback), preventing invalid-stage errors.
 
 **Parameters:**
 - `ticket_number` (string, required): Number of the ticket to update (e.g. "123", "456")
@@ -261,7 +260,7 @@ Update an existing ticket in TiFlux. Supports transferring a ticket to another d
 **Note:** At least one optional field must be provided along with the `ticket_number`.
 
 **Desk Transfer Prerequisites:**
-1. **Desk relationship** — origin and destination desks must be **linked** in TiFlux settings. Without this the API rejects the transfer with a `42202` error.
+1. **Desk relationship** — origin and destination desks must be **linked** in Tiflux settings. Without this the API rejects the transfer with a `42202` error.
 2. **Catalog item for destination desk** — desks that require a service catalog reject the transfer without `services_catalogs_item_id`/`catalog_item_name` of the destination desk.
 3. **Priority is not preserved** — priority is scoped per desk and is **lost** on transfer (becomes `null`). Provide `priority_name`/`priority_id` to preserve it. Status is automatically reallocated by the API.
 
@@ -272,7 +271,7 @@ Update an existing ticket in TiFlux. Supports transferring a ticket to another d
 **Error messages:** Common `42202` transfer errors (missing desk relationship, required catalog) are returned as actionable messages instead of raw API text.
 
 ### update_ticket_entities
-Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields per request. For checkbox fields with multiple named options, send one item per option with `entity_field_option_id`. Use `list_entity_field_options` to discover option IDs.
+Update custom fields (entities) of a ticket in Tiflux. Supports up to 50 fields per request. For checkbox fields with multiple named options, send one item per option with `entity_field_option_id`. Use `list_entity_field_options` to discover option IDs.
 
 > **Tip:** Prefer `entity_field_id` (numeric) when available — it avoids extra API calls. Use the `_name` params only when you don't have the ID yet.
 
@@ -338,7 +337,7 @@ Update custom fields (entities) of a ticket in TiFlux. Supports up to 50 fields 
 ```
 
 ### cancel_ticket
-Cancel a specific ticket in TiFlux.
+Cancel a specific ticket in Tiflux.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number to be cancelled (e.g., "37", "123")
@@ -429,7 +428,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 ```
 
 ### close_ticket
-Close a specific ticket in TiFlux.
+Close a specific ticket in Tiflux.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number to be closed (e.g., "37", "123")
@@ -447,7 +446,7 @@ Close a specific ticket in TiFlux.
 
 **Mensagem:** Ticket 84429 closed successfully
 
-*Ticket fechado via API TiFlux*
+*Ticket fechado via API Tiflux*
 ```
 
 ### create_ticket_answer
@@ -514,7 +513,7 @@ Get full details of a client by ID.
 ```
 
 ### create_client
-Create a new client in TiFlux. Only `name` and `social` are required; all other fields are optional and only sent if provided.
+Create a new client in Tiflux. Only `name` and `social` are required; all other fields are optional and only sent if provided.
 
 **Parameters:**
 - `name` (string, required): Client trade name (nome fantasia)
@@ -664,7 +663,7 @@ Search for users by name to use as responsible in tickets.
 If the API key belongs to a non-admin user, `GET /users` returns 403. In this case, the tool automatically falls back to enumerating attendant groups (`GET /technical-groups`) and their members (`GET /technical-groups/{id}/users`), then applies fuzzy matching by name. The result is identical to the admin path — no parameter change needed. A note is added to the output when the fallback was used.
 
 **Implementation Note:**
-For admin users, the TiFlux API does not support name-based filtering in the `/users` endpoint — the tool fetches up to 200 users and filters client-side. For non-admin users, the tool uses the technical-groups chain and deduplicates users that appear in multiple groups.
+For admin users, the Tiflux API does not support name-based filtering in the `/users` endpoint — the tool fetches up to 200 users and filters client-side. For non-admin users, the tool uses the technical-groups chain and deduplicates users that appear in multiple groups.
 
 **Example:**
 ```json
@@ -676,7 +675,7 @@ For admin users, the TiFlux API does not support name-based filtering in the `/u
 ```
 
 ### search_technical_user
-Search for technical attendants (users who can be assigned as responsible) in TiFlux by name, email, desk, or client. Uses the `GET /technical-users` endpoint — **does not require user management permission** (works for both admin and non-admin attendants). Use the returned `id` as `responsible_id` when creating or updating a ticket.
+Search for technical attendants (users who can be assigned as responsible) in Tiflux by name, email, desk, or client. Uses the `GET /technical-users` endpoint — **does not require user management permission** (works for both admin and non-admin attendants). Use the returned `id` as `responsible_id` when creating or updating a ticket.
 
 **Note on `responsible_name` auto-resolve:** When `responsible_name` is passed to `create_ticket`, `update_ticket`, or `list_tickets`, the MCP now uses `GET /technical-users` as the **primary** resolution path (fast, 1 round-trip, works for all profiles). The old fallback via `GET /technical-groups` is only triggered if the primary path returns an unexpected error (404/403), preserving compatibility with orgs where the endpoint may not be available.
 
@@ -699,7 +698,7 @@ Search for technical attendants (users who can be assigned as responsible) in Ti
 **Returns:** List of attendants with `id`, `name`, and `email`. Use the `id` in `responsible_id`.
 
 ### search_requestor
-Search for requestors (ticket openers) in TiFlux by name, email, or telephone. Uses the dedicated `GET /requestors` endpoint with server-side filtering — no client-side limit.
+Search for requestors (ticket openers) in Tiflux by name, email, or telephone. Uses the dedicated `GET /requestors` endpoint with server-side filtering — no client-side limit.
 
 **Automatic fallback chain (triggers on `403` OR on zero results — no questions asked):** the tool tries each source in order and returns the first that finds someone, so it also works for non-admin attendants and for searches where the term exists only as a user (not as a registered requestor):
 
@@ -950,7 +949,7 @@ List of files with details including:
 ```
 
 ### upload_ticket_files
-Upload files to an existing ticket in TiFlux. Files must be provided as base64-encoded content.
+Upload files to an existing ticket in Tiflux. Files must be provided as base64-encoded content.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number where files will be attached (e.g., "123", "456")
@@ -969,10 +968,10 @@ Upload files to an existing ticket in TiFlux. Files must be provided as base64-e
 
 **Returns:** Confirmation with list of uploaded files.
 
-**Note:** Uploaded text files (`.md`, `.txt`, `.csv`, `.json`) are sent with the appropriate `charset=utf-8` content type, which prevents character encoding issues (mojibake) in the TiFlux portal.
+**Note:** Uploaded text files (`.md`, `.txt`, `.csv`, `.json`) are sent with the appropriate `charset=utf-8` content type, which prevents character encoding issues (mojibake) in the Tiflux portal.
 
 ### delete_ticket_file
-Remove a file attached to a ticket in TiFlux.
+Remove a file attached to a ticket in Tiflux.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number from which the file will be removed (e.g., "123", "456")
@@ -1060,7 +1059,7 @@ Get the full detail of a specific answer from a ticket, including attached files
 ```
 
 ### delete_ticket_answer
-Remove an answer (client communication) from a ticket in TiFlux.
+Remove an answer (client communication) from a ticket in Tiflux.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number from which the answer will be removed (e.g., "123", "456")
@@ -1077,7 +1076,7 @@ Remove an answer (client communication) from a ticket in TiFlux.
 **Returns:** Confirmation that the answer was removed.
 
 ### delete_ticket_answer_file
-Remove a file attached to a specific ticket answer in TiFlux.
+Remove a file attached to a specific ticket answer in Tiflux.
 
 **Parameters:**
 - `answer_id` (string, required): ID of the answer from which the file will be removed (obtained via `list_ticket_answers` or `get_ticket_answer`)
@@ -1162,10 +1161,10 @@ Update the text of an existing internal communication in a ticket. Only the auth
 
 **Returns:** Confirmation with updated communication content.
 
-**Note:** The TiFlux API only allows the author of the communication to edit it. A 403 error will be returned if the authenticated user did not create the communication.
+**Note:** The Tiflux API only allows the author of the communication to edit it. A 403 error will be returned if the authenticated user did not create the communication.
 
 ### delete_internal_communication
-Remove an internal communication from a ticket in TiFlux.
+Remove an internal communication from a ticket in Tiflux.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number from which the communication will be removed (e.g., "123", "456")
@@ -1506,7 +1505,7 @@ Or using fuzzy name resolution:
 ```
 
 ### list_desk_priorities
-Listar prioridades configuradas em uma mesa do TiFlux. Use para descobrir os IDs de prioridade antes de criar ou atualizar tickets (ex: "alta prioridade" → `priority_id`). O filtro `priority_name` e feito client-side com fuzzy match apos buscar os registros da API.
+Listar prioridades configuradas em uma mesa do Tiflux. Use para descobrir os IDs de prioridade antes de criar ou atualizar tickets (ex: "alta prioridade" → `priority_id`). O filtro `priority_name` e feito client-side com fuzzy match apos buscar os registros da API.
 
 Accepts `desk_id` (direct) **or** `desk_name` (fuzzy). If both are provided, `desk_id` takes precedence.
 
@@ -1546,7 +1545,7 @@ Accepts `desk_id` (direct) **or** `desk_name` (fuzzy). If both are provided, `de
 ```
 
 ### list_desk_services_catalogs
-Listar catalogos de servicos vinculados a uma mesa do TiFlux. Catalogos sao os containers pai — diferentes dos itens de catalogo (use `search_catalog_item` para itens selecionaveis em tickets). O filtro `catalog_name` e feito client-side com fuzzy match.
+Listar catalogos de servicos vinculados a uma mesa do Tiflux. Catalogos sao os containers pai — diferentes dos itens de catalogo (use `search_catalog_item` para itens selecionaveis em tickets). O filtro `catalog_name` e feito client-side com fuzzy match.
 
 Accepts `desk_id` (direct) **or** `desk_name` (fuzzy). If both are provided, `desk_id` takes precedence.
 
@@ -1728,7 +1727,7 @@ List the organization's contracts (read-only). Returns a Markdown table with ID,
 ```
 
 ### list_entities
-List custom field groups (entities) available in the TiFlux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
+List custom field groups (entities) available in the Tiflux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
 **Parameters:**
 
@@ -1758,7 +1757,7 @@ List custom field groups (entities) available in the TiFlux organization. Use to
 ```
 
 ### list_entity_fields
-List subfields (entity_fields) of a custom field group in TiFlux. Returns name, type, required status, and indicates which fields have selectable options (single_select/checkbox) — use `list_entity_field_options` in those cases.
+List subfields (entity_fields) of a custom field group in Tiflux. Returns name, type, required status, and indicates which fields have selectable options (single_select/checkbox) — use `list_entity_field_options` in those cases.
 
 **Parameters:**
 
@@ -1858,7 +1857,7 @@ This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage
 
 ## API Endpoints Used
 
-The MCP server integrates with the following TiFlux API v2 endpoints:
+The MCP server integrates with the following Tiflux API v2 endpoints:
 
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
@@ -1928,30 +1927,53 @@ The MCP server integrates with the following TiFlux API v2 endpoints:
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Requires "Gerenciar conhecimento" permission
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Optional filters: `client_ids`, `contract_type_ids`, `status` (CSV). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`)
 
-## Telemetry
+## Avançado: execução local (SDK via npx)
 
-Every request sent to the TiFlux API v2 includes a `User-Agent` header with basic technical metadata:
+> [!NOTE]
+> Recomendamos o **servidor hospedado** (`https://mcp.tiflux.com` — veja [Como conectar](#como-conectar)): sempre atualizado, sem instalação e com mais controle e segurança. A execução local existe para cenários específicos (desenvolvimento, restrições de rede, ambientes offline).
 
+Requisitos: Node.js >= 16.0.0.
+
+Execute diretamente via `npx`:
+
+```bash
+npx @tiflux/mcp@latest
 ```
-TiFlux-MCP-sdk/2.3.0                     # local / npx mode
-TiFlux-MCP-server/2.3.0 (node/v20.11.0)  # Lambda / hosted mode
+
+Ou instale globalmente:
+
+```bash
+npm install -g @tiflux/mcp
 ```
 
-**What is collected:** mode (`sdk` or `server`) and package version. The Node.js version is **only** sent in `server` mode (TiFlux-hosted infrastructure) — in local `sdk` mode it is intentionally omitted, so no detail about your local environment is collected.
+Configuração no cliente MCP (stdio):
 
-**What is NOT collected:** tool names, arguments, responses, user data, or any personally identifiable information.
+```json
+{
+  "tiflux": {
+    "command": "npx",
+    "args": ["@tiflux/mcp@latest"]
+  }
+}
+```
 
-This telemetry is always enabled and requires no configuration. It is used exclusively to understand which package versions are in use. No separate telemetry endpoint is used — the data is carried as a standard HTTP header on every API v2 request.
+A chave de API é lida da variável de ambiente `TIFLUX_API_KEY`. Crie um arquivo `.env` (ou exporte as variáveis) com suas credenciais:
 
-## Requirements
+```bash
+# Tiflux API Configuration
+TIFLUX_API_KEY=your_api_key_here
 
-- Node.js >= 16.0.0
-- Valid TiFlux API credentials
+# Default values for ticket creation
+TIFLUX_DEFAULT_CLIENT_ID=1
+TIFLUX_DEFAULT_DESK_ID=1
+TIFLUX_DEFAULT_PRIORITY_ID=1
+TIFLUX_DEFAULT_CATALOG_ITEM_ID=1
+```
 
-## License
+## Licença
 
 MIT
 
-## Support
+## Suporte
 
-For support, please contact the TiFlux development team or create an issue on GitHub.
+Para suporte, entre em contato com o time Tiflux ou abra uma issue no [repositório público](https://github.com/tiflux/tiflux-mcp/issues).

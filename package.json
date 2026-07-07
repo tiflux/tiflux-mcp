@@ -1,7 +1,7 @@
 {
   "name": "@tiflux/mcp",
   "version": "2.20.0",
-  "description": "TiFlux MCP Server - Model Context Protocol integration for Claude Code and other AI clients",
+  "description": "Tiflux MCP Server - Model Context Protocol integration for Claude Code and other AI clients",
   "main": "server-sdk.js",
   "bin": {
     "tiflux-mcp": "./server-sdk.js"
@@ -19,7 +19,7 @@
     "test:silent": "jest --silent",
     "mock:start": "node tests/mocks/server.js"
   },
-  "author": "TiFlux <dev@tiflux.com>",
+  "author": "Tiflux <dev@tiflux.com>",
   "license": "MIT",
   "homepage": "https://github.com/tiflux/tiflux-mcp#readme",
   "repository": {
