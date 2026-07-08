@@ -139,6 +139,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, transferir e vincular chats, enviar mensagens e finalizar atendimentos
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
+- **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
 - **Solicitantes**: buscar, criar, atualizar e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
 - **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat
 - **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente
@@ -783,6 +784,86 @@ Search for technical attendants (users who can be assigned as responsible) in Ti
 ```
 
 **Returns:** List of attendants with `id`, `name`, and `email`. Use the `id` in `responsible_id`.
+
+### create_user
+Create a new user/agent in Tiflux (**requires administrator permission** — returns 403 for non-admin keys). Required fields: `name`, `email`, and either `technical_group_id` or `technical_group_name`. License fields are optional and only sent if provided.
+
+> **Admin-only:** This tool uses `POST /users`, which the API restricts to admin keys. Non-admin API keys will receive a clear error message indicating administrator permission is required.
+
+**Parameters:**
+- `name` (string, required): User name
+- `email` (string, required): User email
+- `technical_group_id` (number, optional): ID of the technical group to assign the user to (required if `technical_group_name` not provided)
+- `technical_group_name` (string, optional): Name of the technical group — fuzzy match; if ambiguous, lists available groups and asks for clarification
+- `whatsapp_license` (boolean, optional): WhatsApp license
+- `tickets_license` (boolean, optional): Tickets license
+- `remote_access_license` (boolean, optional): Remote access license
+- `api_license` (boolean, optional): API license
+- `splashtop_license` (boolean, optional): Splashtop license
+
+**`technical_group_name` semantics:** If the name resolves to exactly 1 group, it proceeds. If 0 or N groups match (or no name is provided), the tool lists all available groups (`id — name`) and asks you to specify — no silent failure.
+
+**Example:**
+```json
+{
+  "name": "Ana Silva",
+  "email": "ana.silva@empresa.com",
+  "technical_group_name": "Suporte",
+  "tickets_license": true
+}
+```
+
+**Returns:** Confirmation with the created user's ID and name. Use the ID as `responsible_id` in tickets.
+
+### get_user
+Retrieve full details of a user/agent by ID (**requires administrator permission**).
+
+> **Admin-only:** This tool uses `GET /users/{id}`, which the API restricts to admin keys.
+
+**Parameters:**
+- `id` (number, required): User ID
+
+**Example:**
+```json
+{
+  "id": 42
+}
+```
+
+**Returns:** User details including: `id`, `name`, `email`, type (`_type`), active status, `technical_group_id`, `telephone`, `extension`, `client_ids`, `last_login_at`, Google Auth status (`gauth_enabled`), and `signature`.
+
+### update_user
+Update an existing user/agent (partial update — **requires administrator permission**). The `id` field is required; at least one data field must be provided.
+
+> **Admin-only:** This tool uses `PUT /users/{id}`, which the API restricts to admin keys.
+
+**Parameters:**
+- `id` (number, required): User ID
+- `name` (string, optional): New user name
+- `email` (string, optional): New user email
+- `technical_group_id` (number, optional): New technical group ID
+- `technical_group_name` (string, optional): New technical group name — fuzzy match (see `create_user` semantics above)
+- `active` (boolean, optional): Activate (`true`) or deactivate (`false`) the user
+- `extension` (string, optional): User extension
+- `telephone` (string, optional): User telephone
+- `client_ids` (array of numbers, optional): Client IDs linked to this user
+- `country_code` (string, optional): Country code
+- `whatsapp_license` (boolean, optional): WhatsApp license
+- `tickets_license` (boolean, optional): Tickets license
+- `remote_access_license` (boolean, optional): Remote access license
+- `api_license` (boolean, optional): API license
+- `splashtop_license` (boolean, optional): Splashtop license
+
+**Example:**
+```json
+{
+  "id": 42,
+  "active": false,
+  "technical_group_name": "Dev"
+}
+```
+
+**Returns:** Confirmation with user ID, updated name, and list of updated fields.
 
 ### search_requestor
 Search for requestors (ticket openers) in Tiflux by name, email, or telephone. Uses the dedicated `GET /requestors` endpoint with server-side filtering — no client-side limit.
@@ -1976,6 +2057,9 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `PUT /clients/{client_id}/requestors/{id}` - Update a requestor (`update_requestor`, partial).
 - `PUT /clients/{client_id}/requestors/{id}/entities` - Update a requestor's custom fields (`update_requestor_entities`).
 - `DELETE /clients/{client_id}/requestors/{id}` - Delete a requestor (mapped; **not yet implemented** as an MCP tool — out of current scope).
+- `POST /users` - Create a new user/agent (`create_user`). Admin-only — returns 403 for non-admin keys.
+- `GET /users/{id}` - Get user details (`get_user`). Admin-only.
+- `PUT /users/{id}` - Update user fields (`update_user`, partial). Admin-only.
 - `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and as level 3 of the `search_requestor` fallback chain — the matched user's email becomes `requestor_email`). Returns 403 for non-admin users — handled automatically by the fallback below.
 - `GET /users/me` - Current authenticated user (used as the final level of the `search_requestor` chain — suggests opening the ticket as yourself via `requestor_email`).
 - `GET /technical-users` - Search technical attendants with server-side filtering by name, email, desk_id, client_id (`search_technical_user`). **Does not require user management permission** — works for admin and non-admin. **Primary path** for `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, `list_tickets`. Note: absent from the public swagger.json as of 2026-06-18 but live in production.

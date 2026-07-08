@@ -1153,6 +1153,49 @@ class TiFluxAPI {
   }
 
   /**
+   * Cria um novo usuario (admin-only)
+   * POST /users
+   *
+   * @param {object} body - { name*, email*, technical_group_id*, whatsapp_license, tickets_license,
+   *                          remote_access_license, api_license, splashtop_license }
+   */
+  async createUser(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest('/users', 'POST', jsonData, headers);
+  }
+
+  /**
+   * Exibe detalhes de um usuario (admin-only)
+   * GET /users/{id}
+   *
+   * @param {number|string} id - ID do usuario
+   * @param {object} [options={}] - opcoes adicionais (reservado para expansao futura)
+   */
+  async getUser(id, options = {}) {
+    return await this.makeRequest(`/users/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Atualiza um usuario existente (admin-only, atualizacao parcial)
+   * PUT /users/{id}
+   *
+   * @param {number|string} id - ID do usuario
+   * @param {object} body - campos a atualizar (somente os informados)
+   */
+  async updateUser(id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/users/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
    * Busca dados do usuario autenticado incluindo feature flags
    * GET /users/me
    */
