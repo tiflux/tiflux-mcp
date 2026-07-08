@@ -268,6 +268,7 @@ class TiFluxAPI {
     if (ticketData.stage_id !== undefined) ticketObject.stage_id = ticketData.stage_id;
     if (ticketData.services_catalogs_item_id !== undefined) ticketObject.services_catalogs_item_id = ticketData.services_catalogs_item_id;
     if (ticketData.followers !== undefined) ticketObject.followers = ticketData.followers;
+    if (ticketData.requestor_id !== undefined) ticketObject.requestor_id = ticketData.requestor_id;
 
     if (ticketData.responsible_id !== undefined) {
       ticketObject.responsible_id = ticketData.responsible_id;

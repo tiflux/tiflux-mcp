@@ -30,7 +30,8 @@ const FIELD_TYPES_WITH_OPTIONS = new Set(['single_select', 'checkbox']);
 
 function formatEntityField(field) {
   const value = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
-  let text = `  • ${field.name} (${field.field_type}): ${value}\n`;
+  const requiredSuffix = field.required === true ? ' (obrigatório)' : '';
+  let text = `  • ${field.name}${requiredSuffix} (${field.field_type}): ${value}\n`;
   text += `    - entity_field_id: ${field.entity_field_id}\n`;
 
   if (FIELD_TYPES_WITH_OPTIONS.has(field.field_type)) {
@@ -96,6 +97,11 @@ function formatTicket(ticketNumber, ticket, v) {
     const entityFields = ticket.entity_fields || [];
 
     if (entities.length > 0) {
+      // Decisao de design (2026-07-07): quando entities[] esta presente e nao-vazio, ele
+      // ja agrupa os campos em menus (entity.entity_fields[]). Nesse caso, entity_fields[]
+      // root e ignorado para evitar duplicacao — a API os trata como mutuamente exclusivos
+      // (entities populado = entity_fields root vazio, e vice-versa). Validado empiricamente
+      // contra GET /tickets/{n}: a API nunca retorna ambos preenchidos simultaneamente.
       entitiesText = '\n\n**Campos Personalizados (entities):**\n';
       entities.forEach(entity => {
         entitiesText += `\n**${entity.name || 'Menu'}** (ID: ${entity.id})\n`;
@@ -105,7 +111,18 @@ function formatTicket(ticketNumber, ticket, v) {
           });
         }
       });
+      // Falha ruidosa > silenciosa: o descarte de entity_fields[] root acima assume um
+      // invariante empirico da API (mutuamente exclusivos). Se esse invariante quebrar
+      // (nova versao da API, ticket de borda), avisamos em vez de sumir com os dados.
+      if (entityFields.length > 0) {
+        entitiesText += `\n⚠️ _A API retornou ${entityFields.length} campo(s) em \`entity_fields\` root simultaneamente a \`entities\` — exibidos abaixo por precaucao:_\n`;
+        entityFields.forEach(field => {
+          entitiesText += formatEntityField(field);
+        });
+      }
     } else if (entityFields.length > 0) {
+      // entity_fields[] root: formato alternativo retornado pela API quando entities[] esta vazio.
+      // Campos incluem options[] tipadas e flag required (exibida como sufixo no nome do campo).
       entitiesText = '\n\n**Campos Personalizados (entity_fields):**\n';
       entityFields.forEach(field => {
         entitiesText += formatEntityField(field);

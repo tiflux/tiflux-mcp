@@ -203,6 +203,7 @@ Comprehensive ticket information including:
 - Audit (created by ID, origin, created/updated dates)
 - SLA (status, expirations, deadlines)
 - Additional info (followers, worked hours, reopens, internal/external URLs)
+- Custom fields: when present, includes field type, current value, `required` flag (shown as `(obrigatório)` suffix), and options already set for `single_select`/`checkbox` fields (with IDs for `list_entity_field_options`)
 
 **New in v1.4.0:** Expanded fields for complete ticket metadata in a single call.
 
@@ -254,7 +255,9 @@ Update an existing ticket in Tiflux. Supports transferring a ticket to another d
 - `status_id` (number, optional): Status ID. There is no status listing endpoint in the API v2 — provide the ID directly (no `status_name`).
 - `responsible_id` (number, optional): Responsible user ID (use null to unassign)
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
-- `followers` (string, optional): Comma-separated follower emails
+- `requestor_id` (number, optional): New requestor (ticket opener) ID. The requestor must belong to the same client linked to the ticket. When provided together with `requestor_name`, `requestor_id` takes precedence.
+- `requestor_name` (string, optional): Requestor name for automatic resolution (alternative to `requestor_id`). The MCP tries `GET /requestors` (global) and falls back to `GET /clients/{id}/requestors` on 403. Single match → uses the ID; multiple matches → lists candidates to disambiguate; no match → error suggesting `search_requestor`. If both endpoints return 403, returns a clear message suggesting `requestor_id` directly.
+- `followers` (string, optional): Comma-separated follower emails. **⚠️ REPLACES the full followers list** — to add without removing, fetch current followers via `get_ticket` first and send the complete list (existing + new). Empty string `""` removes all followers.
 - `services_catalogs_item_id` (number, optional): Catalog item ID for updating desk with specific item
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 
@@ -1945,7 +1948,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
-- `PUT /tickets/{id}` - Update existing tickets
+- `PUT /tickets/{id}` - Update existing tickets (supports `requestor_id` to change the ticket's requestor; `followers` replaces the full list)
 - `PUT /tickets/{id}/entities` - Update ticket custom fields
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
 - `PUT /tickets/{ticket_number}/close` - Close specific ticket
@@ -1966,8 +1969,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /clients/{id}/technical-groups` - List technical groups associated with a client (`get_client_technical_groups`)
 - `POST /clients/{id}/users` - Create a portal user for a client (`create_client_user`)
 - `POST /clients/{id}/email_tickets_permissions` - Add authorized email/domain for a client (`add_client_email_permission`)
-- `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name` auto-resolve in `create_ticket`). Admin/global permission required — returns 403 for non-admin attendants, handled by the client-scoped fallback below.
-- `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`; automatic fallback for `search_requestor` and `create_ticket` (name and email resolution) when `GET /requestors` returns 403 (attendant with permission on that client).
+- `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name` auto-resolve in `create_ticket` and `update_ticket`). Admin/global permission required — returns 403 for non-admin attendants, handled by the client-scoped fallback below.
+- `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`; automatic fallback for `search_requestor`, `create_ticket`, and `update_ticket` (name resolution) when `GET /requestors` returns 403 (attendant with permission on that client).
 - `GET /clients/{client_id}/requestors/{id}` - Get a single requestor of a client (`get_requestor`; `include_entity_fields` for custom fields).
 - `POST /clients/{client_id}/requestors` - Create a requestor in a client (`create_requestor`).
 - `PUT /clients/{client_id}/requestors/{id}` - Update a requestor (`update_requestor`, partial).

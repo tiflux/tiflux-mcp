@@ -30,7 +30,7 @@ const schema = {
 
 **Mudar prioridade sem transferir:** Use priority_id diretamente (sem desk) — priority_change_reason e OBRIGATORIO nesse caso. priority_name NAO serve para a mesa atual (exige informar mesa, que a API trata como transferencia).
 
-**Nota:** A API v2 nao permite alterar o solicitante (requestor) em um ticket existente via update. Para vincular solicitante, use create_ticket. Tambem nao existe status_name — use status_id diretamente (nao ha endpoint de listagem de status por mesa na API v2).`,
+**Solicitante (requestor):** Use requestor_id para trocar o solicitante do ticket (o solicitante deve pertencer ao mesmo cliente do ticket). Alternativamente use requestor_name para busca por nome — o MCP tenta GET /requestors e, em caso de 403, faz fallback para GET /clients/{id}/requestors. Conflito requestor_id + requestor_name: requestor_id tem prioridade. Tambem nao existe status_name — use status_id diretamente (nao ha endpoint de listagem de status por mesa na API v2).`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -48,7 +48,9 @@ const schema = {
       status_id: { type: 'number', description: 'ID do status do ticket (opcional). Não há endpoint de listagem de status por mesa na API v2 — informe o ID diretamente (sem status_name).' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional - use null ou omita para remover responsável)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
-      followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' },
+      requestor_id: { type: 'number', description: 'ID do novo solicitante do ticket (opcional). O solicitante deve pertencer ao mesmo cliente vinculado ao ticket. Conflito com requestor_name: requestor_id tem prioridade.' },
+      requestor_name: { type: 'string', description: 'Nome do solicitante para busca automática (alternativa ao requestor_id). Busca em GET /requestors (global) com fallback para GET /clients/{id}/requestors em caso de 403. Multiplos candidatos listam opções para desambiguação; zero → sugerir search_requestor. Conflito com requestor_id: requestor_id vence.' },
+      followers: { type: 'string', description: 'E-mails dos seguidores separados por vírgula. ATENÇÃO: o valor enviado SUBSTITUI a lista atual de seguidores — para adicionar sem remover, consulte os seguidores atuais via get_ticket e envie a lista completa (atuais + novos). String vazia "" remove todos os seguidores.' },
       services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo para atualizar mesa com item específico (opcional)' },
       catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)' }
     },
@@ -111,6 +113,8 @@ async function execute(args, { api }) {
     status_id,
     responsible_id,
     responsible_name,
+    requestor_id,
+    requestor_name,
     followers,
     services_catalogs_item_id,
     catalog_item_name
@@ -124,6 +128,7 @@ async function execute(args, { api }) {
   let resolvedPriorityName = priority_name || null;
   let resolvedResponsibleName = responsible_name || null;
   let resolvedCatalogItemName = catalog_item_name || null;
+  let resolvedRequestorName = requestor_name || null;
 
   try {
     let finalDeskId = desk_id;
@@ -375,6 +380,115 @@ async function execute(args, { api }) {
       resolvedCatalogItemName = matchingItems[0].name;
     }
 
+    // Resolver requestor_name → ID (apenas quando requestor_name fornecido e requestor_id nao)
+    // requestor_id tem prioridade sobre requestor_name (conflito → requestor_id vence).
+    // Cadeia: GET /requestors (global) → fallback GET /clients/{id}/requestors em 403.
+    // Degradacao graciosa: se ambas as fontes retornam 403, orienta usar requestor_id diretamente.
+    let finalRequestorId = requestor_id !== undefined ? parseInt(requestor_id, 10) : undefined;
+
+    if (requestor_name && requestor_id === undefined) {
+      // Helper: detecta 403 no response de erro. Sinal primario e o status HTTP;
+      // o texto 'forbidden' e fallback para respostas sem status estruturado.
+      // (Evitamos casar o substring cru '403', que geraria falso-positivo em
+      // mensagens de erro nao relacionadas a permissao que apenas contenham "403".)
+      const isForbidden = (r) => r.status === 403 ||
+        (typeof r.error === 'string' && r.error.toLowerCase().includes('forbidden'));
+
+      // Tentativa 1: busca global GET /requestors
+      const globalResponse = await api.searchRequestors({ name: requestor_name, limit: 20 });
+
+      let candidates = null;
+      let allForbidden = false;
+
+      if (globalResponse.error) {
+        if (isForbidden(globalResponse)) {
+          // Tentativa 2 (fallback): GET /clients/{id}/requestors
+          let resolvedClientId = client_id;
+          let ticketFetchError = null;
+          if (!resolvedClientId) {
+            // Obter client_id do ticket atual (chamada extra somente nesse caminho)
+            const ticketResp = await api.fetchTicket(ticket_number);
+            if (!ticketResp.error && ticketResp.data) {
+              resolvedClientId = ticketResp.data.client && ticketResp.data.client.id;
+            } else {
+              // fetchTicket falhou (rede/404/500): NAO e sinal de permissao. Guardamos o
+              // erro real para nao mascara-lo como um 403 que pode nunca ter ocorrido.
+              ticketFetchError = ticketResp.error || 'ticket sem client_id vinculado';
+            }
+          }
+
+          if (resolvedClientId) {
+            const clientResponse = await api.searchClientRequestors(resolvedClientId, { name: requestor_name, limit: 20 });
+            if (clientResponse.error) {
+              if (isForbidden(clientResponse)) {
+                allForbidden = true;
+              } else {
+                return errorResponse(
+                  `**Erro ao buscar solicitante "${requestor_name}"**\n\n` +
+                  `**Erro:** ${clientResponse.error}\n\n` +
+                  `*Use \`requestor_id\` diretamente ou verifique as permissões.*`
+                );
+              }
+            } else {
+              candidates = clientResponse.data || [];
+            }
+          } else if (ticketFetchError) {
+            // Distingue "nao consegui buscar o ticket p/ tentar o fallback por cliente"
+            // de "sem permissao" — a mensagem antiga afirmava 403 mesmo quando o problema
+            // era outro (rede, ticket inexistente), mascarando a causa real.
+            return errorResponse(
+              `**Erro ao resolver solicitante "${requestor_name}"**\n\n` +
+              `A busca global de solicitantes retornou 403 e não foi possível obter o \`client_id\` do ticket #${ticket_number} para tentar a busca por cliente.\n\n` +
+              `**Detalhe:** ${ticketFetchError}\n\n` +
+              `*Use \`requestor_id\` diretamente, ou informe \`client_id\` para tentar a busca por cliente.*`
+            );
+          } else {
+            // Sem client_id disponivel: nao e possivel tentar fallback
+            allForbidden = true;
+          }
+        } else {
+          // Erro nao-403 na fonte global
+          return errorResponse(
+            `**Erro ao buscar solicitante "${requestor_name}"**\n\n` +
+            `**Erro:** ${globalResponse.error}\n\n` +
+            `*Use \`requestor_id\` diretamente ou verifique as permissões.*`
+          );
+        }
+      } else {
+        candidates = globalResponse.data || [];
+      }
+
+      if (allForbidden) {
+        return errorResponse(
+          `**Erro: sem permissão para buscar solicitantes por nome**\n\n` +
+          `Sua chave de API não tem acesso aos endpoints de solicitantes (HTTP 403).\n\n` +
+          `**Alternativa:** use \`requestor_id\` diretamente — obtenha o ID via \`search_requestor\` com outra conta ou pela interface do TiFlux.`
+        );
+      }
+
+      if (candidates.length === 0) {
+        return errorResponse(
+          `**Solicitante "${requestor_name}" não encontrado**\n\n` +
+          `*Verifique o nome ou use \`search_requestor\` com \`client_id\` para listar solicitantes válidos e copie o ID.*`
+        );
+      }
+
+      if (candidates.length > 1) {
+        let candidatesList = '**Candidatos encontrados:**\n';
+        candidates.forEach((c, i) => {
+          candidatesList += `${i + 1}. **ID:** ${c.id} | **Nome:** ${c.name} | **E-mail:** ${c.email || 'N/A'}\n`;
+        });
+        return errorResponse(
+          `**Múltiplos solicitantes encontrados para "${requestor_name}"**\n\n` +
+          `${candidatesList}\n` +
+          `*Use \`requestor_id\` com o ID específico.*`
+        );
+      }
+
+      finalRequestorId = candidates[0].id;
+      resolvedRequestorName = candidates[0].name;
+    }
+
     // isDeskTransfer = mesa foi informada (desk_id/desk_name) — mesmo criterio usado p/ auto-resolver estagio.
     const isDeskTransfer = finalDeskId !== undefined;
 
@@ -417,12 +531,16 @@ async function execute(args, { api }) {
       updateData.responsible_id = finalResponsibleId ? parseInt(finalResponsibleId) : null;
     }
 
+    // finalRequestorId ja e numerico (parseInt do requestor_id ou candidates[0].id da API);
+    // normalizamos com radix 10 sem reparsear redundantemente.
+    if (finalRequestorId !== undefined) updateData.requestor_id = parseInt(finalRequestorId, 10);
+
     // Verificar se ha campos para atualizar
     if (Object.keys(updateData).length === 0) {
       return errorResponse(
         `**⚠️ Nenhum campo informado para atualização**\n\n` +
         `**Ticket ID:** #${ticket_number}\n\n` +
-        `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, priority_id, priority_name, status_id, responsible_id, followers*`
+        `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, priority_id, priority_name, status_id, responsible_id, requestor_id, requestor_name, followers*`
       );
     }
 
@@ -435,6 +553,20 @@ async function execute(args, { api }) {
       const friendlyError = mapTransferError422(response.error, deskRef);
       if (friendlyError) {
         return errorResponse(`**❌ Erro ao atualizar ticket #${ticket_number}**\n\n${friendlyError}`);
+      }
+
+      // Requestor not found (422 detail.requestor_id → "requestor not found")
+      if (typeof response.error === 'string' &&
+          response.error.includes('requestor_id') &&
+          response.error.toLowerCase().includes('requestor not found')) {
+        const clientRef = client_id ? `client_id=${client_id}` : 'o client_id do ticket';
+        return errorResponse(
+          `**❌ Erro ao atualizar ticket #${ticket_number}**\n\n` +
+          `**Erro: solicitante não encontrado ou não pertence ao cliente deste ticket.**\n\n` +
+          `O \`requestor_id\` informado não existe ou não está vinculado ao cliente do ticket.\n\n` +
+          `Use \`search_requestor\` com ${clientRef} para localizar solicitantes válidos.\n\n` +
+          `**Detalhe da API:** ${response.error}`
+        );
       }
 
       return errorResponse(
@@ -477,7 +609,21 @@ async function execute(args, { api }) {
         changesText += `• Responsável: ${respLabel}\n`;
       }
     }
-    if (followers !== undefined) changesText += `• Seguidores: ${followers}\n`;
+    if (finalRequestorId !== undefined) {
+      // requestor_name resolvido → mostra nome + ID; requestor_id direto → mostra só ID
+      const resolvedViaName = requestor_name && requestor_id === undefined;
+      const requestorLabel = resolvedViaName && resolvedRequestorName
+        ? `${resolvedRequestorName} (ID ${finalRequestorId})`
+        : `ID ${finalRequestorId}`;
+      changesText += `• Solicitante: ${requestorLabel}\n`;
+    }
+    if (followers !== undefined) {
+      if (followers === '') {
+        changesText += `• Seguidores: todos removidos\n`;
+      } else {
+        changesText += `• Seguidores (lista substituída): ${followers}\n`;
+      }
+    }
     if (finalCatalogItemId !== undefined) {
       const catalogLabel = resolvedCatalogItemName ? `${resolvedCatalogItemName} (ID ${finalCatalogItemId})` : `ID ${finalCatalogItemId}`;
       changesText += `• Item de Catálogo: ${catalogLabel}\n`;
