@@ -38,6 +38,13 @@ const MAX_FILTER_IDS = 15;
 // Piso de confianca para aceitar um match de priority_name sem pedir desambiguacao.
 // Ver tabela de scores em _shared/fuzzyMatch.js (70 = algum token comeca com o termo).
 const MIN_PRIORITY_SCORE = 70;
+// Guard de volume: quando total de tickets supera este limiar na listagem normal
+// (sem group_by), a saida inclui instrucao dura para nao paginar em analises.
+const LIST_TOTAL_WARN_THRESHOLD = 500;
+// Nome da tool de comparacao. Literal (nao require) para evitar acoplamento em
+// load-time entre slices — um require no topo viraria dependencia circular
+// silenciosa se getTicketsComparison passasse a importar listTickets.
+const COMPARISON_TOOL_NAME = 'get_tickets_comparison';
 
 // Dedup + cap 15 num CSV de IDs. Retorna { ids: string, capped: boolean, total: number }.
 function capFilterIds(csv) {
@@ -47,7 +54,7 @@ function capFilterIds(csv) {
 
 const schema = {
   name: 'list_tickets',
-  description: `Lista tickets do TiFlux com filtros. Filtrar so por status (filter_by/is_closed) NAO basta — exige MESA (desk) ou outro recorte forte (cliente, solicitante, responsavel, estagio, periodo, sla_expiring_before, catalogo, prioridade ou group_by). Em busca ampla sem recorte, PERGUNTE a mesa antes de chamar.
+  description: `Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` (agrupado) ou \`get_tickets_comparison\` (dois períodos, sem paginar). Para VER itens individualmente, use a listagem abaixo. Filtrar so por status (filter_by/is_closed) NAO basta — exige MESA (desk) ou outro recorte forte (cliente, solicitante, responsavel, estagio, periodo, sla_expiring_before, catalogo, prioridade ou group_by). Em busca ampla sem recorte, PERGUNTE a mesa antes de chamar.
 
 **Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids. Para o atendente atribuido, use responsible_name (resolve automaticamente para todos os perfis, incluindo nao-admin). Em duvida, pergunte ao usuario.
 
@@ -161,6 +168,7 @@ async function execute(args, { api, verbosity }) {
       `**⚠️ Busca muito ampla — informe a mesa**\n\n` +
       `Filtrar apenas por status traria tickets demais. Informe ao menos a **mesa/equipe** ` +
       `(o recorte mais comum) ou outro filtro que delimite a busca:\n` +
+      `• **group_by** + **start/end** - Para CONTAR/COMPARAR/TENDÊNCIA (ex: group_by="month" para evolução mensal); para dois períodos use \`${COMPARISON_TOOL_NAME}\`\n` +
       `• **desk_name** - Nome da mesa/equipe (ex: "tuitui") — **preferencial; use quando o usuario der um nome sem qualificar**\n` +
       `• **desk_ids** - IDs das mesas (ex: "1,2,3")\n` +
       `• **client_name** / **client_ids** - Cliente/empresa (ex: "ACME")\n` +
@@ -171,8 +179,7 @@ async function execute(args, { api, verbosity }) {
       `• **sla_expiring_before** - SLA vencendo (para "SLA em risco")\n` +
       `• **catalog_query** - Catalogo de servico (requer mesa)\n` +
       `• **services_catalogs_item_ids** - IDs de itens de catalogo (direto)\n` +
-      `• **priority_name** / **priority_ids** - Prioridade\n` +
-      `• **group_by="desk"** - Para contagem por mesa, sem listar\n\n` +
+      `• **priority_name** / **priority_ids** - Prioridade\n\n` +
       `*Pergunte ao usuario qual mesa ele quer consultar antes de prosseguir.*`
     );
   }
@@ -542,7 +549,23 @@ async function execute(args, { api, verbosity }) {
     const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, total, unit: 'tickets' }, v);
     const footerStr = footer(v);
     const sep = footerStr ? '\n' : '';
-    return textResponse(`${ticketsList}${warningBlock}${paginationInfo}${sep}${footerStr}`);
+
+    // Guard de volume: quando o total real (X-Total-Items) supera o limiar e
+    // a listagem nao e agregada (sem group_by), emite instrucao dura para nao
+    // paginar em analises. O total vem do header via api.listTickets.
+    let volumeGuard = '';
+    if (!group_by && typeof total === 'number' && total > LIST_TOTAL_WARN_THRESHOLD) {
+      if (v === 'compact') {
+        volumeGuard = `\n⚠️ Volume alto: ${total} tickets no total — NAO pagine para analise. Use group_by ou ${COMPARISON_TOOL_NAME}, ou refine o recorte.`;
+      } else {
+        volumeGuard =
+          `\n**⚠️ Volume alto: ${total} tickets no total — NÃO pagine para análise.**` +
+          ` Para contar/comparar/tendência use \`group_by\` ou \`${COMPARISON_TOOL_NAME}\`, ou refine o recorte` +
+          ` (mesa, período, cliente). Só pagine se o usuário precisar dos itens individuais.`;
+      }
+    }
+
+    return textResponse(`${ticketsList}${warningBlock}${paginationInfo}${sep}${footerStr}${volumeGuard}`);
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar tickets**\n\n` +

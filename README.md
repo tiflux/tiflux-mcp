@@ -179,6 +179,7 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
 - **Passe IDs quando já os tiver.** Toda ferramenta que aceita um parâmetro `_name` para auto-resolução (ex.: `desk_name`, `stage_name`, `entity_field_name`) fará uma ou mais chamadas extras à API para resolver o nome. Se você guardou o ID de uma chamada anterior, passe-o diretamente (ex.: `desk_id`, `stage_id`, `entity_field_id`) — é sempre mais rápido e barato.
 - **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). O modo compact corta a saída de `get_ticket` e `list_tickets` em ~50%.
 - **Pagine deliberadamente.** `list_tickets` com um intervalo de datas amplo em uma mesa movimentada pode retornar centenas de itens. Passe `limit` e `offset` intencionalmente — quando uma página cheia retorna, o modo compact acrescenta uma dica de próxima página (`→ offset: N`) para o modelo saber que pode haver mais a buscar.
+- **Para análise comparativa, use `get_tickets_comparison`.** Em vez de chamar `list_tickets` paginada duas vezes para dois períodos (o que pode ultrapassar 100k tokens e o teto de 6 iterações do orquestrador), use `get_tickets_comparison`: uma chamada MCP, 2 requests à API, resposta de centenas de tokens com totais, Δ e buckets pareados prontos para gráfico.
 
 ## Available Tools
 
@@ -379,6 +380,8 @@ List tickets with filtering options. Catalog and priority are automatically show
 
 **Note:** At least one filter is required (desk, client, requestor, responsible, stage, date range, SLA, catalog, or priority).
 
+**Volume guard:** When the total (`X-Total-Items`) exceeds 500 tickets in a regular listing (without `group_by`), the response appends an instruction not to paginate for analysis — use `group_by` or `get_tickets_comparison` instead. This threshold is set at 500 in `LIST_TOTAL_WARN_THRESHOLD`.
+
 **Catalog filter note:** `catalog_query` uses server-side partial matching against catalog, area, and item names simultaneously — one term matches items from multiple areas. The MCP paginates all results and resolves to item IDs before calling `GET /tickets`. Because `GET /tickets` accepts **at most 15** `services_catalogs_item_ids` (Swagger error `42201` otherwise), if the query resolves to more than 15 items only the first 15 are applied and a warning is returned (the result may be incomplete). For surgical precision, discover IDs via `search_catalog_item` and pass a narrow set via `services_catalogs_item_ids`.
 
 **Example — filter by catalog query:**
@@ -425,6 +428,87 @@ List tickets with filtering options. Catalog and priority are automatically show
   "end_datetime": "2024-01-31T23:59:59Z",
   "is_closed": true
 }
+```
+
+### get_tickets_comparison
+Compare ticket COUNTS between two time periods in a single call. Returns totals, absolute delta (Δ), and percentage change (Δ%) for each bucket (day/week/month/desk).
+
+**When to use vs `list_tickets`:**
+- **To COUNT/COMPARE/TREND** → use `get_tickets_comparison`. One MCP call, 2 API requests, answer in hundreds of tokens.
+- **To VIEW individual items** → use `list_tickets` without `group_by`.
+
+**Default comparison period:** If `compare_start_datetime`/`compare_end_datetime` are not provided, the comparison period is the immediately preceding period of the same duration (`compare_end = start_datetime − 1s`; same duration in ms). Provide only `start_datetime` and `end_datetime` and the comparison window is calculated automatically.
+
+**Default `filter_by: "all"`:** Comparisons of past periods count all ticket statuses (open, closed, cancelled) by default.
+
+**Parameters:**
+- `start_datetime` (string, required): Start of the main period (ISO 8601, e.g., "2026-01-01T00:00:00Z")
+- `end_datetime` (string, required): End of the main period (ISO 8601, e.g., "2026-06-30T23:59:59Z")
+- `compare_start_datetime` (string, optional): Start of comparison period (ISO 8601). Must be provided with `compare_end_datetime` (complete pair). If omitted, the immediately preceding period of the same duration is used automatically.
+- `compare_end_datetime` (string, optional): End of comparison period (ISO 8601). Pair with `compare_start_datetime`.
+- `group_by` (string, optional): Granularity — "day", "week", "month" (temporal buckets) or "desk" (per-desk breakdown, useful for "which desk grew"). Default: "month".
+- `date_type` (string, optional): Time axis applied to both periods — "created_at" (creation date, default) or "solved_in_time" (resolution/closing date). Consistent across both calls automatically.
+- `filter_by` (string, optional): Status filter — "open", "closed", "canceled", or "all" (default). "all" is ideal for historical comparisons. Use "closed" for resolution analysis.
+- `desk_ids` (string, optional): Comma-separated desk IDs (max 15). Alternative to `desk_name`.
+- `desk_name` (string, optional): Desk/team name for automatic ID resolution. Accepts partial names.
+- `client_ids` (string, optional): Comma-separated client (company) IDs (max 15).
+- `client_name` (string, optional): Client (company) name for automatic resolution.
+- `responsible_ids` (string, optional): Comma-separated responsible user IDs (max 15). Passthrough.
+- `requestor_email` (string, optional): Requestor email filter. Passthrough.
+- `priority_ids` (string, optional): Comma-separated priority IDs (max 15). Passthrough.
+- `services_catalogs_item_ids` (string, optional): Comma-separated catalog item IDs (max 15). Passthrough.
+
+**Example — compare last 6 months vs the 6 before (automatic adjacent period):**
+```json
+{
+  "start_datetime": "2026-01-01T00:00:00Z",
+  "end_datetime": "2026-06-30T23:59:59Z",
+  "group_by": "month"
+}
+```
+
+**Example — compare two explicit periods for a specific desk:**
+```json
+{
+  "start_datetime": "2026-01-01T00:00:00Z",
+  "end_datetime": "2026-06-30T23:59:59Z",
+  "compare_start_datetime": "2025-07-01T00:00:00Z",
+  "compare_end_datetime": "2025-12-31T23:59:59Z",
+  "group_by": "month",
+  "desk_name": "Support"
+}
+```
+
+**Example — which desk grew the most (group_by=desk):**
+```json
+{
+  "start_datetime": "2026-01-01T00:00:00Z",
+  "end_datetime": "2026-06-30T23:59:59Z",
+  "group_by": "desk",
+  "filter_by": "all"
+}
+```
+
+**Rich response example:**
+```markdown
+**📊 Comparação de tickets por mês** — por data de criação
+
+| | Período atual | Período anterior | Δ |
+|---|---|---|---|
+| **Total** | **15** | **12** | **+3 (+25%)** |
+
+| Período | Atual | Anterior | Δ | Δ% |
+|---|---|---|---|---|
+| 2026-01 | 10 | 8 | +2 | +25% |
+| 2026-02 | 5 | 4 | +1 | +25% |
+
+*✅ Dados obtidos da API TiFlux em tempo real*
+```
+
+**Compact response example:**
+```
+Comparação por mês — por data de criação: atual 15 vs anterior 12 → Δ +3 (+25%)
+Buckets (atual/anterior): 2026-01:10/8 · 2026-02:5/4
 ```
 
 ### close_ticket
@@ -1872,7 +1956,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `DELETE /tickets/{ticket_number}/answers/{id}` - Remove a ticket answer (`delete_ticket_answer`)
 - `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
-- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; response includes `services_catalog` and `priority` per ticket)
+- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; response includes `services_catalog` and `priority` per ticket). Also supports `group_by` (values: day/week/month/desk) for aggregated counts — returns `{ group_by, date_type, total, buckets: [{period, count}] }` instead of a ticket list. **Note:** `group_by` and the aggregated response shape are not documented in the public Swagger as of 2026-06-30; the feature was added in api_rails ticket #96694 and is live in production. Used internally by `get_tickets_comparison` (2 calls per invocation) and `list_tickets` (with `group_by` param). A documentation request has been registered with the API team.
 - `GET /clients` - Search/list clients (`search_client`, `list_clients`, and `client_name` auto-resolve in `list_tickets` and `create_ticket`)
 - `GET /clients/{id}` - Get client details (`get_client`)
 - `POST /clients` - Create a new client (`create_client`)
