@@ -13,6 +13,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'search_requestor',
@@ -40,14 +41,7 @@ const schema = {
         type: 'number',
         description: 'ID do cliente para escopar a busca. Habilita o fallback automatico GET /clients/{id}/requestors quando o endpoint global /requestors retorna 403 (atendente sem permissao global).'
       },
-      limit: {
-        type: 'number',
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
-      },
-      offset: {
-        type: 'number',
-        description: 'Numero da pagina (padrao: 1)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

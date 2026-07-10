@@ -16,6 +16,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_desk_priorities',
@@ -35,14 +36,7 @@ const schema = {
         type: 'string',
         description: 'Filtro opcional por nome de prioridade (fuzzy client-side). Ex: "alta" filtra prioridades cujo nome contem "alta".'
       },
-      limit: {
-        type: 'number',
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
-      },
-      offset: {
-        type: 'number',
-        description: 'Numero da pagina (padrao: 1)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

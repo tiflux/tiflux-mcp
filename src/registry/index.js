@@ -3,7 +3,7 @@
  *
  * Para adicionar uma tool nova: declare `static TOOLS` no handler. Se for
  * uma classe de handler nova, registre uma linha abaixo. Nao precisa mais
- * editar server-sdk.js, ServerFactory.js, Server.js nem PresentationBootstrap.js.
+ * editar server-sdk.js nem ServerFactory.js.
  */
 
 const HandlerRegistry = require('./HandlerRegistry');

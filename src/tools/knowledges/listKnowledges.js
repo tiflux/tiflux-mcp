@@ -15,6 +15,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_knowledges',
@@ -31,17 +32,7 @@ const schema = {
         items: { type: 'number' },
         description: 'Filtrar por IDs de pastas de conhecimento. Exemplo: [1, 2, 3].'
       },
-      limit: {
-        type: 'number',
-        minimum: 1,
-        maximum: 200,
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200).'
-      },
-      offset: {
-        type: 'number',
-        minimum: 1,
-        description: 'Numero da pagina (padrao: 1).'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

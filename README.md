@@ -2103,7 +2103,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 > [!NOTE]
 > Recomendamos o **servidor hospedado** (`https://mcp.tiflux.com` — veja [Como conectar](#como-conectar)): sempre atualizado, sem instalação e com mais controle e segurança. A execução local existe para cenários específicos (desenvolvimento, restrições de rede, ambientes offline).
 
-Requisitos: Node.js >= 16.0.0.
+Requisitos: Node.js >= 18.
 
 Execute diretamente via `npx`:
 

@@ -4,8 +4,7 @@
  * Cada handler declara `static TOOLS = { toolName: { schema, method } }`.
  * O registry agrega os schemas para `ListTools` e roteia `CallTool` para
  * `instance[method](args)`. Substitui switch statements, handlerMaps manuais
- * e listas inline de tools nos bootstraps (server-sdk, ServerFactory,
- * Server.js, PresentationBootstrap).
+ * e listas inline de tools nos bootstraps (server-sdk, ServerFactory).
  */
 
 class HandlerRegistry {

@@ -15,6 +15,7 @@
 
 const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'search_catalog_item',
@@ -46,16 +47,7 @@ const schema = {
         type: 'number',
         description: 'ID do catálogo de serviços para filtrar os resultados. Quando fornecido sem catalog_item_name ou search, lista todos os itens do catálogo.'
       },
-      limit: {
-        type: 'number',
-        description: 'Número de itens por página (padrão: 20, máximo: 200)',
-        default: 20
-      },
-      offset: {
-        type: 'number',
-        description: 'Número da página a ser retornada (padrão: 1)',
-        default: 1
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

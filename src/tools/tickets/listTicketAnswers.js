@@ -11,6 +11,7 @@ const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_ticket_answers',
@@ -22,14 +23,7 @@ const schema = {
         type: 'integer',
         description: 'Número do ticket para listar as respostas'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página a ser retornada (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Número de respostas por página (padrão: 20, máximo: 200)'
-      }
+      ...paginationSchemaProperties()
     },
     required: ['ticket_number']
   }

@@ -5,6 +5,7 @@
  */
 
 const { listClientSubresource } = require('../_shared/clientShared');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'get_client_technical_groups',
@@ -16,14 +17,7 @@ const schema = {
         type: 'number',
         description: 'ID do cliente (obrigatório)'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Grupos por página (padrão: 20, máximo: 200)'
-      }
+      ...paginationSchemaProperties()
     },
     required: ['client_id']
   }

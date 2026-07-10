@@ -9,6 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'search_stage',
@@ -24,14 +25,7 @@ const schema = {
         type: 'string',
         description: 'Nome da mesa para busca automatica (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").'
       },
-      limit: {
-        type: 'number',
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
-      },
-      offset: {
-        type: 'number',
-        description: 'Numero da pagina (padrao: 1)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

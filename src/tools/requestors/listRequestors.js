@@ -10,6 +10,7 @@ const { textResponse } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_requestors',
@@ -45,14 +46,7 @@ const schema = {
         type: 'boolean',
         description: 'Incluir campos personalizados (entities) de cada solicitante na resposta (padrão: false)'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Solicitantes por página (padrão: 20, máximo: 200)'
-      }
+      ...paginationSchemaProperties()
     },
     required: ['client_id']
   }

@@ -9,6 +9,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 /**
  * Formata um valor monetário string (ex: "170.05") como "R$ 170,05".
@@ -55,14 +56,7 @@ const schema = {
         type: 'string',
         description: 'Retorna apontamentos realizados até essa data no formato YYYY-MM-DD (opcional)'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página a ser retornada (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Número de apontamentos por página (padrão: 20, máximo: 200)'
-      }
+      ...paginationSchemaProperties()
     },
     required: ['ticket_number']
   }

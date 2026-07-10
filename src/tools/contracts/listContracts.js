@@ -16,6 +16,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 /**
  * Formata um valor monetario string (ex: "170.05") como "R$ 170,05".
@@ -63,17 +64,7 @@ const schema = {
         type: 'string',
         description: 'Filtrar por situacao: valores actives, readjust, expired separados por virgula (ex: "actives,expired"). Por padrao a API lista apenas contratos ativos (actives). Opcional.'
       },
-      limit: {
-        type: 'number',
-        minimum: 1,
-        maximum: 200,
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
-      },
-      offset: {
-        type: 'number',
-        minimum: 1,
-        description: 'Numero da pagina (padrao: 1)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

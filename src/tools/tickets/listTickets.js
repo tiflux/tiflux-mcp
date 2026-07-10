@@ -31,6 +31,7 @@ const { resolveResponsibleName } = require('../_shared/userResolver');
 const { footer, pagination } = require('../_shared/format');
 const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 // Contrato de GET /tickets (Swagger): services_catalogs_item_ids e priority_ids aceitam
 // no maximo 15 IDs, sem duplicados (erro 42201 "cannot have more than 15 items").
@@ -95,8 +96,7 @@ const schema = {
       catalog_query: { type: 'string', description: 'Termo de busca livre para filtrar por catálogo de serviço. Faz match parcial server-side contra nome de catálogo, área e item ao mesmo tempo — ex: "infraestrutura" retorna itens de todas as áreas/catálogos que contenham esse termo. Requer mesa (desk_id ou desk_name). Para IDs precisos, use services_catalogs_item_ids.' },
       priority_ids: { type: 'string', description: 'IDs de prioridade separados por vírgula (ex: "17,18"). Passthrough direto para a API — máximo 15 IDs (limite da API /tickets). Use quando ja souber os IDs (via list_desk_priorities). Para busca por nome, use priority_name.' },
       priority_name: { type: 'string', description: 'Nome da prioridade para busca automática via fuzzy match (ex: "alta", "high", "baixa"). Requer mesa (desk_id ou desk_name). Para IDs diretos, use priority_ids.' },
-      offset: { type: 'number', description: 'Número da página (padrão: 1)' },
-      limit: { type: 'number', description: 'Número de tickets por página (padrão: 20, máximo: 200)' },
+      ...paginationSchemaProperties(),
       is_closed: { type: 'boolean', description: 'Filtrar tickets fechados/cancelados (padrão: false - apenas abertos). A API força este filtro como true automaticamente quando date_type="solved_in_time". Para "qualquer status" prefira filter_by="all".' },
       filter_by: {
         type: 'string',

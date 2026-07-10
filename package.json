@@ -1,6 +1,6 @@
 {
   "name": "@tiflux/mcp",
-  "version": "2.23.0",
+  "version": "2.23.1",
   "description": "Tiflux MCP Server - Model Context Protocol integration for Claude Code and other AI clients",
   "main": "server-sdk.js",
   "bin": {
@@ -30,7 +30,7 @@
     "url": "https://github.com/tiflux/tiflux-mcp/issues"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18"
   },
   "keywords": [
     "mcp",
@@ -52,7 +52,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
     "form-data": "^4.0.6",
-    "marked": "^4.3.0",
+    "marked": "^15.0.12",
     "tslib": "^2.8.1"
   },
   "devDependencies": {

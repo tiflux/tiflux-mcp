@@ -10,6 +10,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'get_ticket_histories',
@@ -21,14 +22,7 @@ const schema = {
         type: 'integer',
         description: 'Número do ticket para buscar o histórico'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Eventos por página (padrão: 20, máximo: 200)'
-      },
+      ...paginationSchemaProperties(),
       history_of: {
         type: 'integer',
         description: 'Filtrar por área do ticket (ex: 1 = apontamentos)'

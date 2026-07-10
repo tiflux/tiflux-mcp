@@ -10,6 +10,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_internal_communications',
@@ -21,14 +22,7 @@ const schema = {
         type: 'string',
         description: 'Número do ticket para listar as comunicações internas'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página a ser retornada (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Número de comunicações por página (padrão: 20, máximo: 200)'
-      }
+      ...paginationSchemaProperties()
     },
     required: ['ticket_number']
   }

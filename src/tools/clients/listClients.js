@@ -9,6 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_clients',
@@ -28,14 +29,7 @@ const schema = {
         type: 'string',
         description: 'Filtrar por CPF ou CNPJ (busca exata ou parcial)'
       },
-      offset: {
-        type: 'number',
-        description: 'Número da página (padrão: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Clientes por página (padrão: 20, máximo: 200)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

@@ -10,6 +10,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'get_ticket_stages_slas',
@@ -18,8 +19,7 @@ const schema = {
     type: 'object',
     properties: {
       ticket_number: { type: 'string', description: 'Número do ticket para buscar o histórico de estágios e SLAs (ex: "123", "456")' },
-      offset: { type: 'number', description: 'Número da página a retornar (padrão: 1)' },
-      limit: { type: 'number', description: 'Número de registros por página (padrão: 20, máximo: 200)' }
+      ...paginationSchemaProperties()
     },
     required: ['ticket_number']
   }

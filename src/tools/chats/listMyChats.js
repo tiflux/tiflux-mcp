@@ -8,7 +8,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
-const { createdAtFilterSchemaProperties } = require('../_shared/schemaProps');
+const { createdAtFilterSchemaProperties, paginationSchemaProperties } = require('../_shared/schemaProps');
 const { commonChatListFilters } = require('../_shared/chatFilters');
 
 const schema = {
@@ -17,14 +17,7 @@ const schema = {
   inputSchema: {
     type: 'object',
     properties: {
-      offset: {
-        type: 'number',
-        description: 'Número da página a ser retornada (padrão: 1, mínimo: 1)'
-      },
-      limit: {
-        type: 'number',
-        description: 'Número de chats por página (padrão: 20, máximo: 200)'
-      },
+      ...paginationSchemaProperties(),
       department_id: {
         type: 'number',
         description: 'Filtrar por ID do departamento (opcional). Para descobrir o ID a partir de um nome, use list_departments (ex: list_departments name:"financeiro").'

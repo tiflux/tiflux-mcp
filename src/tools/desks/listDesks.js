@@ -9,6 +9,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_desks',
@@ -20,14 +21,7 @@ const schema = {
         type: 'boolean',
         description: 'Filtrar mesas ativas (true) ou inativas (false). Padrao: true (apenas mesas ativas).'
       },
-      limit: {
-        type: 'number',
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
-      },
-      offset: {
-        type: 'number',
-        description: 'Numero da pagina (padrao: 1)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }

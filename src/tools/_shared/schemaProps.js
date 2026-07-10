@@ -53,8 +53,28 @@ function finishedAtFilterSchemaProperties() {
   };
 }
 
+/**
+ * Propriedades de schema para paginação `offset`/`limit`.
+ * Compartilhadas por todos os slices de listagem — espalhar com
+ * `...paginationSchemaProperties()` dentro de `inputSchema.properties`.
+ * @returns {object} `{ offset, limit }`
+ */
+function paginationSchemaProperties() {
+  return {
+    offset: {
+      type: 'number',
+      description: 'Numero da pagina (padrao: 1)'
+    },
+    limit: {
+      type: 'number',
+      description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
+    }
+  };
+}
+
 module.exports = {
   ticketNumberSchemaProperty,
   createdAtFilterSchemaProperties,
-  finishedAtFilterSchemaProperties
+  finishedAtFilterSchemaProperties,
+  paginationSchemaProperties
 };

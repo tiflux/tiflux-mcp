@@ -12,6 +12,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
+const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_departments',
@@ -24,17 +25,7 @@ const schema = {
         maxLength: 255,
         description: 'Busca parcial por nome do departamento, case-insensitive (ex: "financeiro", "suporte"). Maximo 255 caracteres.'
       },
-      limit: {
-        type: 'number',
-        minimum: 1,
-        maximum: 200,
-        description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
-      },
-      offset: {
-        type: 'number',
-        minimum: 1,
-        description: 'Numero da pagina (padrao: 1)'
-      }
+      ...paginationSchemaProperties()
     },
     required: []
   }
