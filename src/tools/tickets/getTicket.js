@@ -11,6 +11,7 @@ const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, truncate } = require('../_shared/format');
 const { stripHtml } = require('../_shared/markdown');
+const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
   name: 'get_ticket',
@@ -25,28 +26,6 @@ const schema = {
     required: ['ticket_number']
   }
 };
-
-const FIELD_TYPES_WITH_OPTIONS = new Set(['single_select', 'checkbox']);
-
-function formatEntityField(field) {
-  const value = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
-  const requiredSuffix = field.required === true ? ' (obrigatório)' : '';
-  let text = `  • ${field.name}${requiredSuffix} (${field.field_type}): ${value}\n`;
-  text += `    - entity_field_id: ${field.entity_field_id}\n`;
-
-  if (FIELD_TYPES_WITH_OPTIONS.has(field.field_type)) {
-    // Mostrar opcoes ja preenchidas/retornadas pela API
-    if (field.options && field.options.length > 0) {
-      text += `    - opcoes marcadas:\n`;
-      field.options.forEach(opt => {
-        text += `      * ID ${opt.entity_field_option_id || opt.id}: ${opt.title || opt.value} (value: ${opt.value})\n`;
-      });
-    }
-    text += `    - _Use list_entity_field_options com entity_field_id=${field.entity_field_id} para ver todas as opcoes disponiveis_\n`;
-  }
-
-  return text;
-}
 
 function formatTicket(ticketNumber, ticket, v) {
   const verbosity = v || 'rich';

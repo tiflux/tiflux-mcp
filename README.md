@@ -914,17 +914,17 @@ List the requestors of a specific client (canonical per-client listing — `GET 
 - `telephone` (string, optional): Filter by phone (digits only, no country code)
 - `extension` (string, optional): Filter by extension
 - `can_open_ticket` (boolean, optional): Filter requestors who can (true) or cannot (false) open tickets by email
-- `include_entity_fields` (boolean, optional): Include each requestor's custom fields (entities) in the response (default: false)
+- `include_entity_fields` (boolean, optional): Include each requestor's custom fields in the response (default: false). When true, each field shows type, `required` flag, and — for `single_select`/`checkbox` types — the marked options with title and IDs for `list_entity_field_options`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Requestors per page (default: 20, max: 200)
 
-**Returns:** A paginated list of requestors with id, name, email, telephone, extension, and can_open_ticket.
+**Returns:** A paginated list of requestors with id, name, email, telephone, extension, can_open_ticket, and (when `include_entity_fields=true`) custom field details including marked option titles and IDs.
 
 **Example:**
 ```json
 {
   "client_id": 123,
-  "name": "João"
+  "include_entity_fields": true
 }
 ```
 
@@ -934,7 +934,7 @@ Get full details of a requestor of a client by ID (`GET /clients/{id}/requestors
 **Parameters:**
 - `client_id` (number, required): Client the requestor belongs to
 - `requestor_id` (number, required): Requestor ID (obtained via `list_requestors` or `search_requestor`)
-- `show_entities` (boolean, optional): Include custom fields (entities) in the response (default: false)
+- `show_entities` (boolean, optional): Include custom fields (entities) in the response (default: false). When true, each field shows type, `required` flag (suffix `(obrigatório)`), `entity_field_id`, and — for `single_select`/`checkbox` types — the marked options with IDs and a hint to call `list_entity_field_options` for all available options.
 
 **Example:**
 ```json

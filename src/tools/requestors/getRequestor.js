@@ -9,10 +9,11 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer } = require('../_shared/format');
+const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
   name: 'get_requestor',
-  description: 'Buscar detalhes completos de um solicitante (requestor) de um cliente no TiFlux pelo ID. Retorna dados cadastrais (nome, email, telefone, ramal, permissão de abrir ticket) e campos personalizados (entities) opcionais.',
+  description: 'Buscar detalhes completos de um solicitante (requestor) de um cliente no TiFlux pelo ID. Retorna dados cadastrais (nome, email, telefone, ramal, permissão de abrir ticket) e campos personalizados (entities) opcionais — incluindo tipo, flag required, opções marcadas de single_select/checkbox com IDs para list_entity_field_options.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -50,8 +51,7 @@ function formatRequestor(requestor, verbosity) {
       text += `\n**${entity.name || 'Menu'}** (ID: ${entity.id})\n`;
       if (entity.entity_fields && entity.entity_fields.length > 0) {
         entity.entity_fields.forEach(field => {
-          const value = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
-          text += `  • ${field.name} (${field.field_type}): ${value}\n`;
+          text += formatEntityField(field);
         });
       }
     });

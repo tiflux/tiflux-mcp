@@ -11,6 +11,7 @@ const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
+const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
   name: 'list_requestors',
@@ -44,7 +45,7 @@ const schema = {
       },
       include_entity_fields: {
         type: 'boolean',
-        description: 'Incluir campos personalizados (entities) de cada solicitante na resposta (padrão: false)'
+        description: 'Incluir campos personalizados de cada solicitante na resposta (padrão: false). Quando true, exibe tipo, flag required, opções marcadas de single_select/checkbox com título e IDs para list_entity_field_options.'
       },
       ...paginationSchemaProperties()
     },
@@ -102,6 +103,15 @@ async function execute(args, { api, verbosity }) {
       text += `   • **Telefone:** ${requestor.telephone || 'N/A'}\n`;
       if (requestor.extension) text += `   • **Ramal:** ${requestor.extension}\n`;
       text += `   • **Pode abrir ticket:** ${canOpen}\n`;
+
+      // Campos personalizados (shape LIST: entity_fields[] no root, nao aninhados em entities[])
+      if (include_entity_fields && requestor.entity_fields && requestor.entity_fields.length > 0) {
+        text += `   • **Campos Personalizados:**\n`;
+        requestor.entity_fields.forEach(field => {
+          text += formatEntityField(field).replace(/^  /gm, '   ');
+        });
+      }
+
       text += '\n';
     });
 
