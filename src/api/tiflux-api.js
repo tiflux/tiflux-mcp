@@ -2005,6 +2005,58 @@ class TiFluxAPI {
     };
     return await this.makeRequest('/knowledges', 'POST', jsonData, headers);
   }
+
+  /**
+   * Relatório de avaliações de atendimento — chats.
+   * GET /reports/feedbacks/chats
+   *
+   * Só transporte: query params → makeRequest (guardrail BE-003).
+   * Lógica de negócio (comparação, deltas, formatação) vive no slice.
+   *
+   * @param {object} filters - { start_date, end_date, chats_list?, offset?, limit?,
+   *                             responsible_ids?, department_ids?, technical_group_ids? }
+   * @returns {Promise<{data, status}|{error, status}>}
+   */
+  async getChatsFeedbackReport(filters = {}) {
+    const params = new URLSearchParams();
+
+    if (filters.start_date != null) params.append('start_date', filters.start_date);
+    if (filters.end_date != null) params.append('end_date', filters.end_date);
+    if (filters.chats_list) params.append('chats_list', 'true');
+    if (filters.offset != null) params.append('offset', filters.offset);
+    if (filters.limit != null) params.append('limit', Math.min(filters.limit, 200));
+    if (filters.responsible_ids != null) params.append('responsible_ids', filters.responsible_ids);
+    if (filters.department_ids != null) params.append('department_ids', filters.department_ids);
+    if (filters.technical_group_ids != null) params.append('technical_group_ids', filters.technical_group_ids);
+
+    return await this.makeRequest(`/reports/feedbacks/chats?${params.toString()}`);
+  }
+
+  /**
+   * Relatório de avaliações de atendimento — tickets.
+   * GET /reports/feedbacks/tickets
+   *
+   * Só transporte: query params → makeRequest (guardrail BE-003).
+   * Lógica de negócio (comparação, deltas, formatação) vive no slice.
+   *
+   * @param {object} filters - { start_date, end_date, tickets_list?, offset?, limit?,
+   *                             responsible_ids?, department_ids?, technical_group_ids? }
+   * @returns {Promise<{data, status}|{error, status}>}
+   */
+  async getTicketsFeedbackReport(filters = {}) {
+    const params = new URLSearchParams();
+
+    if (filters.start_date != null) params.append('start_date', filters.start_date);
+    if (filters.end_date != null) params.append('end_date', filters.end_date);
+    if (filters.tickets_list) params.append('tickets_list', 'true');
+    if (filters.offset != null) params.append('offset', filters.offset);
+    if (filters.limit != null) params.append('limit', Math.min(filters.limit, 200));
+    if (filters.responsible_ids != null) params.append('responsible_ids', filters.responsible_ids);
+    if (filters.department_ids != null) params.append('department_ids', filters.department_ids);
+    if (filters.technical_group_ids != null) params.append('technical_group_ids', filters.technical_group_ids);
+
+    return await this.makeRequest(`/reports/feedbacks/tickets?${params.toString()}`);
+  }
 }
 
 module.exports = TiFluxAPI;

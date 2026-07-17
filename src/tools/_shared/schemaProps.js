@@ -72,9 +72,64 @@ function paginationSchemaProperties() {
   };
 }
 
+/**
+ * Propriedades de schema comuns aos relatórios de avaliação (feedback) de
+ * chats e tickets. Compartilhadas por get_chats_feedback_report e
+ * get_tickets_feedback_report — os 2 slices só divergem na descrição de
+ * `include_list` (chat vs ticket), que entra como parâmetro. Espalhar com
+ * `...feedbackReportSchemaProperties('...')` dentro de `inputSchema.properties`.
+ * @param {string} includeListDescription - descrição de `include_list` (varia por entidade)
+ * @returns {object} propriedades prontas para `inputSchema.properties`
+ */
+function feedbackReportSchemaProperties(includeListDescription) {
+  return {
+    start_date: {
+      type: 'string',
+      description: 'Início do período principal (YYYY-MM-DD, ex: "2026-07-01"). Obrigatório.'
+    },
+    end_date: {
+      type: 'string',
+      description: 'Fim do período principal (YYYY-MM-DD, ex: "2026-07-31"). Obrigatório.'
+    },
+    compare_start_date: {
+      type: 'string',
+      description: 'Início do período de comparação (YYYY-MM-DD). Opcional — se omitido, calculado automaticamente como o período imediatamente anterior de mesma duração. Informe junto com compare_end_date (par completo).'
+    },
+    compare_end_date: {
+      type: 'string',
+      description: 'Fim do período de comparação (YYYY-MM-DD). Opcional — par com compare_start_date. Se omitido, calculado automaticamente.'
+    },
+    include_list: {
+      type: 'boolean',
+      description: includeListDescription
+    },
+    offset: {
+      type: 'integer',
+      description: 'Página da lista (default: 1). Relevante apenas com include_list=true.'
+    },
+    limit: {
+      type: 'integer',
+      description: 'Itens por página (default: 20, max: 200). Relevante apenas com include_list=true.'
+    },
+    responsible_ids: {
+      type: 'string',
+      description: 'IDs dos responsáveis separados por vírgula (máximo 15). Aplicado às 2 chamadas (principal + comparação).'
+    },
+    department_ids: {
+      type: 'string',
+      description: 'IDs dos departamentos separados por vírgula (máximo 15). Aplicado às 2 chamadas.'
+    },
+    technical_group_ids: {
+      type: 'string',
+      description: 'IDs dos grupos técnicos separados por vírgula (máximo 15). Aplicado às 2 chamadas.'
+    }
+  };
+}
+
 module.exports = {
   ticketNumberSchemaProperty,
   createdAtFilterSchemaProperties,
   finishedAtFilterSchemaProperties,
-  paginationSchemaProperties
+  paginationSchemaProperties,
+  feedbackReportSchemaProperties
 };

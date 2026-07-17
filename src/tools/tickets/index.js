@@ -39,7 +39,8 @@ const slices = [
   require('./uploadTicketFiles'),
   require('./deleteTicketFile'),
   require('./deleteTicketAnswer'),
-  require('./deleteTicketAnswerFile')
+  require('./deleteTicketAnswerFile'),
+  require('./getTicketsFeedbackReport')
 ];
 
 class TicketTools {

@@ -24,21 +24,13 @@ const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { footer } = require('../_shared/format');
 const { previousPeriod, validatePeriod } = require('../_shared/periodMath');
-
-// Cap de IDs passthrough (mesmo limite da API /tickets).
-const MAX_FILTER_IDS = 15;
+const { capIds, calcDelta, formatDeltaStr } = require('../_shared/reportMath');
 
 // Teto explicito de buckets por chamada. Em modo group_by a API atual ignora
 // `limit` e devolve todos os buckets (validado ao vivo: 66 buckets com limit=20);
 // enviamos o teto do contrato (Math.min(limit,200) em tiflux-api) como defesa
 // barata contra uma regressao futura que passe a respeitar `limit` e truncar.
 const BUCKET_LIMIT = 200;
-
-function capIds(csv) {
-  if (!csv) return null;
-  const ids = [...new Set(String(csv).split(',').map(s => s.trim()).filter(Boolean))];
-  return ids.slice(0, MAX_FILTER_IDS).join(',');
-}
 
 const schema = {
   name: 'get_tickets_comparison',
@@ -168,30 +160,6 @@ function alignDeskBuckets(currentBuckets, previousBuckets) {
   }
   rows.sort((a, b) => b.current - a.current);
   return rows;
-}
-
-/**
- * Calcula Δ (absoluto) e Δ% (relativo, 1 decimal).
- * anterior=0 && atual>0 → variação = "novo"
- * ambos 0 → Δ% = 0
- */
-function calcDelta(current, previous) {
-  const delta = current - previous;
-  let deltaPercent;
-  if (previous === 0 && current > 0) {
-    deltaPercent = 'novo';
-  } else if (previous === 0) {
-    deltaPercent = 0;
-  } else {
-    deltaPercent = Number(((delta / previous) * 100).toFixed(1));
-  }
-  return { delta, deltaPercent };
-}
-
-function formatDeltaStr(delta, deltaPercent) {
-  const sign = delta >= 0 ? '+' : '';
-  const pctStr = deltaPercent === 'novo' ? 'novo' : `${delta >= 0 ? '+' : ''}${deltaPercent}%`;
-  return `${sign}${delta} (${pctStr})`;
 }
 
 async function execute(args, { api, verbosity, logger }) {

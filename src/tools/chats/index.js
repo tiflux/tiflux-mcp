@@ -15,7 +15,8 @@ const slices = [
   require('./listArchivedChats'),
   require('./updateChat'),
   require('./sendMessage'),
-  require('./archiveChat')
+  require('./archiveChat'),
+  require('./getChatsFeedbackReport')
 ];
 
 class ChatTools {

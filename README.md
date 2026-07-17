@@ -134,10 +134,10 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 ## Funcionalidades
 
-- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA
+- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets
-- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, transferir e vincular chats, enviar mensagens e finalizar atendimentos
+- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
 - **Solicitantes**: buscar, criar, atualizar e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
@@ -513,6 +513,75 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 ```
 Comparação por mês — por data de criação: atual 15 vs anterior 12 → Δ +3 (+25%)
 Buckets (atual/anterior): 2026-01:10/8 · 2026-02:5/4
+```
+
+### get_tickets_feedback_report
+Relatório de avaliações de atendimento (CSAT) de tickets com comparação automática de período. Retorna métricas de satisfação (média, avaliados, finalizados, taxa de resposta) com deltas entre dois períodos, e opcionalmente a lista de tickets avaliados com comentários.
+
+**When to use vs other tools:**
+- **CSAT / satisfaction ratings for TICKETS** → `get_tickets_feedback_report` (this tool)
+- **CSAT / satisfaction ratings for CHATS** → `get_chats_feedback_report`
+- **Ticket count / trend comparison** → `get_tickets_comparison`
+
+**Default comparison period:** if `compare_start_date`/`compare_end_date` are not provided, the comparison period is the immediately preceding period of the same duration. Provide only `start_date` and `end_date` and the comparison window is calculated automatically.
+
+**No filter by rating in the API** — to filter by rating, use `include_list=true` and filter the returned list by `rating` client-side.
+
+**Enrichment workflow:**
+1. Run with `include_list=true` to get the list of evaluated tickets (with `rating`, `revised_in_time`, client, responsible, desk, and `comments`).
+2. For full ticket details (history, SLA, replies) → use `get_ticket` or `list_ticket_answers` with the ticket ID.
+3. The `comments` field (evaluation comment) is already in the list — no further enrichment needed for comments.
+
+**Note:** The `comments` field is plural and may be an empty string `""` when the client did not leave a comment.
+
+**Note:** This report requires **administrator/reports permission** — non-admin API keys receive 403.
+
+**Parameters:**
+- `start_date` (string, required): Start of the main period (YYYY-MM-DD, e.g., "2026-07-01")
+- `end_date` (string, required): End of the main period (YYYY-MM-DD, e.g., "2026-07-31")
+- `compare_start_date` (string, optional): Start of comparison period (YYYY-MM-DD). Must be provided with `compare_end_date`. If omitted, the immediately preceding period of the same duration is used.
+- `compare_end_date` (string, optional): End of comparison period (YYYY-MM-DD). Pair with `compare_start_date`.
+- `include_list` (boolean, optional): If true, includes the paginated list of evaluated tickets in the main period. Default: false.
+- `offset` (integer, optional): Page number for the list (default: 1). Only relevant with `include_list=true`.
+- `limit` (integer, optional): Items per page (default: 20, max: 200). Only relevant with `include_list=true`.
+- `responsible_ids` (string, optional): Comma-separated responsible user IDs (max 15). Applied to both calls (main + comparison).
+- `department_ids` (string, optional): Comma-separated department IDs (max 15). Applied to both calls.
+- `technical_group_ids` (string, optional): Comma-separated technical group IDs (max 15). Applied to both calls.
+
+**Example — compare this month vs last month:**
+```json
+{
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-31"
+}
+```
+
+**Example — get list of evaluated tickets with comments:**
+```json
+{
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-31",
+  "include_list": true,
+  "limit": 50
+}
+```
+
+**Rich response example:**
+```markdown
+**📊 Relatório de avaliações de atendimento — Tickets**
+
+**Período principal:** 2026-07-01 a 2026-07-31
+**Período de comparação:** 2026-05-31 a 2026-06-30
+
+| Métrica | Período atual | Período anterior | Δ |
+|---------|--------------|-----------------|---|
+| Média de avaliação | **4.5** | 4.0 | +0.5 (+12.5%) |
+| Tickets avaliados | **20** | 15 | +5 (+33.3%) |
+| Tickets finalizados | **100** | 80 | +20 (+25%) |
+| Clientes avaliadores | **15** | 12 | +3 (+25%) |
+| Taxa de resposta (%) | **80.0** | 75.0 | +5 (+6.7%) |
+
+*✅ Dados obtidos da API TiFlux em tempo real*
 ```
 
 ### close_ticket
@@ -1618,6 +1687,74 @@ Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramen
 
 **Returns:** Markdown confirmation that the chat was finished (202 Accepted).
 
+### get_chats_feedback_report
+Relatório de avaliações de atendimento (CSAT) de chats com comparação automática de período. Retorna métricas de satisfação (média, avaliados, finalizados, taxa de resposta) com deltas entre dois períodos, e opcionalmente a lista de chats avaliados.
+
+**When to use vs other tools:**
+- **CSAT / satisfaction ratings for CHATS** → `get_chats_feedback_report` (this tool)
+- **CSAT / satisfaction ratings for TICKETS** → `get_tickets_feedback_report`
+- **Ticket count / trend comparison** → `get_tickets_comparison`
+
+**Default comparison period:** if `compare_start_date`/`compare_end_date` are not provided, the comparison period is the immediately preceding period of the same duration. Provide only `start_date` and `end_date` and the comparison window is calculated automatically.
+
+**No filter by rating in the API** — to filter by rating, use `include_list=true` and filter the returned list by `rating` client-side (e.g., "show only chats with rating < 3").
+
+**Note:** The `comments` field (evaluation comment) is **not available** in the chats report — only in the tickets report.
+
+**Enrichment workflow:**
+1. Run with `include_list=true` to get the list of evaluated chats (with `rating`, `rating_time`, client, responsible, linked ticket number).
+2. For full chat details (requestor, department, service catalog, origin, timestamps) → use `get_chat` with the `id` returned.
+
+**Note:** This report requires **administrator/reports permission** — non-admin API keys receive 403.
+
+**Parameters:**
+- `start_date` (string, required): Start of the main period (YYYY-MM-DD, e.g., "2026-07-01")
+- `end_date` (string, required): End of the main period (YYYY-MM-DD, e.g., "2026-07-31")
+- `compare_start_date` (string, optional): Start of comparison period (YYYY-MM-DD). Must be provided with `compare_end_date`. If omitted, the immediately preceding period of the same duration is used.
+- `compare_end_date` (string, optional): End of comparison period (YYYY-MM-DD). Pair with `compare_start_date`.
+- `include_list` (boolean, optional): If true, includes the paginated list of evaluated chats in the main period. Default: false.
+- `offset` (integer, optional): Page number for the list (default: 1). Only relevant with `include_list=true`.
+- `limit` (integer, optional): Items per page (default: 20, max: 200). Only relevant with `include_list=true`.
+- `responsible_ids` (string, optional): Comma-separated responsible user IDs (max 15). Applied to both calls (main + comparison).
+- `department_ids` (string, optional): Comma-separated department IDs (max 15). Applied to both calls.
+- `technical_group_ids` (string, optional): Comma-separated technical group IDs (max 15). Applied to both calls.
+
+**Example — compare this week vs last week:**
+```json
+{
+  "start_date": "2026-07-07",
+  "end_date": "2026-07-13"
+}
+```
+
+**Example — get list of evaluated chats to filter by rating client-side:**
+```json
+{
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-31",
+  "include_list": true,
+  "limit": 100
+}
+```
+
+**Rich response example:**
+```markdown
+**📊 Relatório de avaliações de atendimento — Chats**
+
+**Período principal:** 2026-07-01 a 2026-07-31
+**Período de comparação:** 2026-05-31 a 2026-06-30
+
+| Métrica | Período atual | Período anterior | Δ |
+|---------|--------------|-----------------|---|
+| Média de avaliação | **4.5** | 4.0 | +0.5 (+12.5%) |
+| Chats avaliados | **20** | 15 | +5 (+33.3%) |
+| Chats finalizados | **100** | 80 | +20 (+25%) |
+| Clientes avaliadores | **15** | 12 | +3 (+25%) |
+| Taxa de resposta (%) | **80.0** | 75.0 | +5 (+6.7%) |
+
+*✅ Dados obtidos da API TiFlux em tempo real*
+```
+
 ## Desk Tools
 
 Explore and inspect desks (service queues) without leaving the chat. Use `list_desks` to discover available desks, `get_desk` to inspect full configuration, `list_desk_priorities` to discover priority IDs before creating tickets, and `list_desk_services_catalogs` to list service catalog containers linked to a desk.
@@ -2097,6 +2234,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Requires "Gerenciar conhecimento" permission
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Optional filters: `client_ids`, `contract_type_ids`, `status` (CSV). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`)
+- `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
+- `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
 
 ## Avançado: execução local (SDK via npx)
 
