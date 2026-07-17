@@ -2057,6 +2057,140 @@ class TiFluxAPI {
 
     return await this.makeRequest(`/reports/feedbacks/tickets?${params.toString()}`);
   }
+
+  // ---------------------------------------------------------------------------
+  // Equipments / Recursos
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Lista equipamentos/recursos da organizacao com paginacao.
+   * GET /equipments
+   *
+   * Filtros opcionais: client_id, include_manufacturer (bool), include_system (bool)
+   * + paginacao offset/limit (default 20, max 200).
+   * Anexa response.total via header X-Total-Items (padrao listTickets).
+   *
+   * @param {object} filters
+   */
+  async listEquipments(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.include_manufacturer) params.append('include_manufacturer', 'true');
+    if (filters.include_system) params.append('include_system', 'true');
+
+    const response = await this.makeRequest(`/equipments?${params.toString()}`);
+
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
+   * Cria um novo equipamento/recurso.
+   * POST /equipments
+   *
+   * @param {object} body - { name, client_id, equipment_type_id, equipment_group_id?,
+   *                          acquisition_date?, warranty_date? }
+   */
+  async createEquipment(body) {
+    return await this.makeRequest('/equipments', 'POST', body);
+  }
+
+  /**
+   * Atualiza um equipamento/recurso existente.
+   * PUT /equipments/{id}
+   *
+   * @param {number|string} equipmentId
+   * @param {object} body - campos opcionais a atualizar
+   */
+  async updateEquipment(equipmentId, body) {
+    return await this.makeRequest(`/equipments/${equipmentId}`, 'PUT', body);
+  }
+
+  /**
+   * Lista softwares instalados em um equipamento (via agente).
+   * GET /equipments/{id}/softwares
+   *
+   * Nao aceita offset/limit — retorna 400 se enviados (validado contra API real).
+   *
+   * @param {number|string} equipmentId
+   */
+  async listEquipmentSoftwares(equipmentId) {
+    return await this.makeRequest(`/equipments/${equipmentId}/softwares`);
+  }
+
+  /**
+   * Lista grupos de equipamentos com paginacao.
+   * GET /equipment-groups
+   *
+   * Filtro opcional: client_id.
+   * Anexa response.total via header X-Total-Items.
+   *
+   * @param {object} filters
+   */
+  async listEquipmentGroups(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+
+    const response = await this.makeRequest(`/equipment-groups?${params.toString()}`);
+
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
+   * Lista tipos de equipamentos com paginacao.
+   * GET /equipment-types
+   *
+   * Filtro opcional: name (contains, case-insensitive, validado contra API real).
+   * Anexa response.total via header X-Total-Items.
+   *
+   * @param {object} filters
+   */
+  async listEquipmentTypes(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.name != null) params.append('name', filters.name);
+
+    const response = await this.makeRequest(`/equipment-types?${params.toString()}`);
+
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
 }
 
 module.exports = TiFluxAPI;

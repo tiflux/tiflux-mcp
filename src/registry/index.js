@@ -22,6 +22,7 @@ const EntityHandlers = require('../tools/entities');
 const RequestorHandlers = require('../tools/requestors');
 const KnowledgeHandlers = require('../tools/knowledges');
 const ContractHandlers = require('../tools/contracts');
+const EquipmentHandlers = require('../tools/equipments');
 
 function createRegistry() {
   const registry = new HandlerRegistry();
@@ -39,6 +40,7 @@ function createRegistry() {
   registry.register(RequestorHandlers);
   registry.register(KnowledgeHandlers);
   registry.register(ContractHandlers);
+  registry.register(EquipmentHandlers);
 
   // Lê verbosidade do env (SDK); Lambda sobrescreve via registry.setVerbosity por request.
   // Default 'rich' preserva comportamento atual quando env nao esta definido.

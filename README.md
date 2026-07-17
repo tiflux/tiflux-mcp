@@ -145,6 +145,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
 - **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
+- **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 
 O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
@@ -2031,6 +2032,162 @@ List the organization's contracts (read-only). Returns a Markdown table with ID,
 | 101 | Contrato Mensal Ouro | Acme Corp | Suporte Mensal | Horas | Ativo | 2027-01-31 | R$ 1500,00 |
 ```
 
+### list_equipments
+List equipments/resources of the organization. Returns a Markdown table with ID, name, client, type, group, online status, and IP address for each resource. Optional blocks for manufacturer (`manufacturer`) and OS (`system`) info can be requested via flags — only populated for machines with the TiFlux agent installed.
+
+**Note:** Agent-specific fields (`online`, `ipv4`, `last_seen`, `agent`) are only present for machines with the TiFlux agent. Manual resources (no agent) show `—` in those columns.
+
+**Permissions:** Requires "Visualizar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `client_id` | number | no | — | Filter resources of a specific client (client ID) |
+| `include_manufacturer` | boolean | no | false | Include manufacturer info (make, model, serial/asset tag). Only populated for agent-machines |
+| `include_system` | boolean | no | false | Include OS info (name, version, kernel, timezone). Only populated for agent-machines |
+| `limit` | number | no | 20 | Results per page (max: 200) |
+| `offset` | number | no | 1 | Page number |
+
+**Returns:** Markdown table `ID | Nome | Cliente | Tipo | Grupo | Online | IP`. When `include_manufacturer`/`include_system` are requested and present, additional sections are appended below the table. Pagination footer with total count when available.
+
+**Example:**
+```json
+{ "client_id": 724, "include_manufacturer": true, "limit": 50 }
+```
+
+**Typical flows:**
+- "Machines of client X online?" → `list_equipments` with `client_id` → filter `online`.
+- "Manufacturer/asset tag of a machine?" → `list_equipments` with `include_manufacturer: true`.
+
+---
+
+### create_equipment
+Create a new equipment/resource in TiFlux.
+
+**Permissions:** Requires "Gerenciar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Resource name (max 255 chars) |
+| `client_id` | number | yes | Client ID the resource belongs to |
+| `equipment_type_id` | number | yes | Resource type ID — use `list_equipment_types` to discover |
+| `equipment_group_id` | number | no | Resource group ID — use `list_equipment_groups` with `client_id` to discover. If omitted, API auto-assigns to the first group of the client |
+| `acquisition_date` | string | no | Acquisition date (YYYY-MM-DD) |
+| `warranty_date` | string | no | Warranty end date (YYYY-MM-DD; must be >= `acquisition_date`) |
+
+**Returns:** Confirmation text with resource ID, name, client, type, and group.
+
+**Example:**
+```json
+{
+  "name": "Notebook do João",
+  "client_id": 724,
+  "equipment_type_id": 1,
+  "equipment_group_id": 5,
+  "acquisition_date": "2024-03-15",
+  "warranty_date": "2027-03-15"
+}
+```
+
+**Tip:** Types and groups are organization-specific — run `list_equipment_types` and `list_equipment_groups` (with `client_id`) before creating to get the correct IDs.
+
+---
+
+### update_equipment
+Update an existing equipment/resource in TiFlux. Only provided fields are sent in the update.
+
+**Note:** `client_id` cannot be changed via update — to change the client, create a new resource.
+
+**Permissions:** Requires "Gerenciar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `equipment_id` | number | yes | Resource ID to update |
+| `name` | string | no | New name (max 255 chars) |
+| `equipment_type_id` | number | no | New type ID |
+| `equipment_group_id` | number | no | New group ID — must belong to the same client as the resource |
+| `acquisition_date` | string | no | New acquisition date (YYYY-MM-DD) |
+| `warranty_date` | string | no | New warranty end date (YYYY-MM-DD; must be >= `acquisition_date`) |
+
+**Returns:** Confirmation text with resource ID, name, and updated fields.
+
+---
+
+### list_equipment_softwares
+List software installed on a resource (collected by the TiFlux agent). Returns a Markdown table with name, version, and vendor of each software.
+
+**Note:** Only resources with the TiFlux agent installed have a software inventory. Manual resources (no agent) return an empty list — the response message clarifies this.
+
+**Permissions:** Requires "Visualizar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `equipment_id` | number | yes | Resource ID — use `list_equipments` to discover |
+
+**Returns:** Markdown table `Nome | Versao | Fabricante`. Empty list message explains that inventory is only available for agent-machines.
+
+**Example:**
+```json
+{ "equipment_id": 11 }
+```
+
+---
+
+### list_equipment_groups
+List equipment/resource groups. Returns a Markdown table with ID, name, and client for each group.
+
+**Note:** Groups are client-scoped — each client can have different groups. Use `client_id` to filter groups before creating a resource.
+
+**Permissions:** Requires "Visualizar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `client_id` | number | no | — | Filter groups of a specific client — recommended when creating resources |
+| `limit` | number | no | 20 | Results per page (max: 200) |
+| `offset` | number | no | 1 | Page number |
+
+**Returns:** Markdown table `ID | Nome | Cliente` with pagination footer.
+
+**Example:**
+```json
+{ "client_id": 724, "limit": 50 }
+```
+
+---
+
+### list_equipment_types
+List equipment/resource types of the organization. Returns a Markdown table with ID and name.
+
+**Note:** Types are organization-specific. Common defaults: "Estação", "Hardware", "Software". Use this to get the correct `equipment_type_id` before creating a resource.
+
+**Permissions:** Requires "Visualizar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | no | — | Filter by name (partial, case-insensitive, max 255 chars). E.g. `"esta"` matches "Estação" |
+| `limit` | number | no | 20 | Results per page (max: 200) |
+| `offset` | number | no | 1 | Page number |
+
+**Returns:** Markdown table `ID | Nome` with pagination footer.
+
+**Example:**
+```json
+{ "name": "esta" }
+```
+
+---
+
 ### list_entities
 List custom field groups (entities) available in the Tiflux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
@@ -2236,6 +2393,12 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Optional filters: `client_ids`, `contract_type_ids`, `status` (CSV). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`)
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
+- `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system` flags, pagination. Requires "Visualizar recursos" + Tickets License.
+- `POST /equipments` - Create a new equipment/resource (`create_equipment`). Required: `name`, `client_id`, `equipment_type_id`. Optional: `equipment_group_id` (auto-assigned if omitted), `acquisition_date`, `warranty_date`.
+- `PUT /equipments/{id}` - Update an existing equipment/resource (`update_equipment`). Partial update — only provided fields are sent.
+- `GET /equipments/{id}/softwares` - List installed software on a resource (`list_equipment_softwares`). No pagination params — endpoint returns all at once.
+- `GET /equipment-groups` - List equipment groups with optional `client_id` filter (`list_equipment_groups`). Paginated with `X-Total-Items`.
+- `GET /equipment-types` - List equipment types with optional `name` filter (partial, case-insensitive) (`list_equipment_types`). Paginated with `X-Total-Items`.
 
 ## Avançado: execução local (SDK via npx)
 
