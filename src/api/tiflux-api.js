@@ -2191,6 +2191,90 @@ class TiFluxAPI {
 
     return response;
   }
+
+  // ---------------------------------------------------------------------------
+  // Pre-Tickets
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Lista pré-tickets da organização com paginação.
+   * GET /pre-tickets
+   *
+   * Filtros opcionais: archived (bool), client_id, created_after, created_before,
+   * include_description (bool) + paginação offset/limit (default 20, max 200).
+   * Anexa response.total via header X-Total-Items.
+   *
+   * @param {object} filters
+   */
+  async listPreTickets(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.archived != null) params.append('archived', filters.archived ? 'true' : 'false');
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.created_after != null) params.append('created_after', filters.created_after);
+    if (filters.created_before != null) params.append('created_before', filters.created_before);
+    if (filters.include_description != null) params.append('include_description', filters.include_description ? 'true' : 'false');
+
+    const response = await this.makeRequest(`/pre-tickets?${params.toString()}`);
+
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
+   * Cria um novo pré-ticket via multipart/form-data.
+   * POST /pre-tickets
+   *
+   * Aceita arquivos em base64 (objeto { content, filename }) via data.files (opcional).
+   * Sempre multipart — o endpoint exige multipart/form-data mesmo sem anexos.
+   *
+   * @param {object} data - { title, description, requestor_name, requestor_email,
+   *                          requestor_telephone, requestor_ramal?, requestor_country?,
+   *                          client_id?, files? }
+   */
+  async createPreTicket(data) {
+    try {
+      const processed = this._processAttachments(data.files, MAX_BASE64_BYTES_25MB, '25MB');
+      if (processed.error) return processed;
+
+      const fieldNames = [
+        'title',
+        'description',
+        'requestor_name',
+        'requestor_email',
+        'requestor_telephone',
+        'requestor_ramal',
+        'requestor_country',
+        'client_id'
+      ];
+
+      const fields = [];
+      for (const name of fieldNames) {
+        if (data[name] != null) fields.push({ name, value: String(data[name]) });
+      }
+
+      const { buffer, headers } = this._buildMultipart({
+        fields,
+        files: processed.processedFiles
+      });
+
+      return await this.makeRequestBinary('/pre-tickets', 'POST', buffer, headers);
+
+    } catch (error) {
+      return { error: `Erro interno ao criar pré-ticket: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
 }
 
 module.exports = TiFluxAPI;

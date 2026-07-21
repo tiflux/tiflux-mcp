@@ -146,6 +146,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
 - **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
 - **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
+- **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 
 O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
@@ -2188,6 +2189,81 @@ List equipment/resource types of the organization. Returns a Markdown table with
 
 ---
 
+## Pre-Ticket Tools
+
+### list_pre_tickets
+List pre-tickets of the organization. Pre-tickets are service requests in a pre-triage stage — they carry requestor data, title, description, and optional client/equipment links, but have not yet been converted into tickets.
+
+**Permissions:** Requires Tickets license + "Gerenciar pré-tickets" permission.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `archived` | boolean | no | false | If `true`, returns only archived pre-tickets; if `false`, returns only active ones |
+| `client_id` | number | no | — | Filter by client ID. Example: `724` |
+| `created_after` | string | no | — | Return pre-tickets created on or after this date (YYYY-MM-DD). Example: `"2026-07-01"` |
+| `created_before` | string | no | — | Return pre-tickets created on or before this date (YYYY-MM-DD). Example: `"2026-07-31"` |
+| `include_description` | boolean | no | false | If `true`, includes the `description` field in the response (omitted by default to reduce payload) |
+| `limit` | number | no | 20 | Results per page (max: 200) |
+| `offset` | number | no | 1 | Page number |
+
+**Returns:** Markdown table `ID | Título | Cliente | Solicitante | Criado em` with pagination footer. Empty list returns a message with guidance.
+
+**Example:**
+```json
+{ "client_id": 724, "created_after": "2026-07-01", "limit": 50 }
+```
+
+---
+
+### create_pre_ticket
+Create a new pre-ticket in TiFlux. Pre-tickets represent incoming service requests before they are assigned and triaged into formal tickets. Supports file attachments.
+
+**Permissions:** Requires Tickets license + "Gerenciar pré-tickets" permission.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `title` | string | yes | Pre-ticket title |
+| `description` | string | yes | Description/details of the request |
+| `requestor_name` | string | yes | Requestor full name |
+| `requestor_email` | string | yes | Requestor e-mail address |
+| `requestor_telephone` | string | yes | Requestor telephone number |
+| `requestor_ramal` | number | no | Requestor extension (ramal) |
+| `requestor_country` | string | no | Requestor country (ISO 2-letter code). Example: `"BR"`, `"US"` |
+| `client_id` | number | no | Client ID to associate with the pre-ticket. Example: `724` |
+| `files` | array | no | Attachments. Each item: `{ "content": "<base64>", "filename": "file.pdf" }`. Max 10 files, 25MB each |
+
+**Returns:** Confirmation text with pre-ticket ID, title, client, and requestor info.
+
+**Example (minimal):**
+```json
+{
+  "title": "Sistema fora do ar",
+  "description": "Não consigo acessar o sistema desde as 8h.",
+  "requestor_name": "João Silva",
+  "requestor_email": "joao.silva@empresa.com",
+  "requestor_telephone": "11999990001"
+}
+```
+
+**Example (with client and attachment):**
+```json
+{
+  "title": "Erro na impressão",
+  "description": "A impressora da recepção não imprime documentos PDF.",
+  "requestor_name": "Maria Souza",
+  "requestor_email": "maria.souza@empresa.com",
+  "requestor_telephone": "11999990002",
+  "client_id": 724,
+  "files": [{ "content": "<base64>", "filename": "screenshot.png" }]
+}
+```
+
+---
+
 ### list_entities
 List custom field groups (entities) available in the Tiflux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
@@ -2399,6 +2475,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /equipments/{id}/softwares` - List installed software on a resource (`list_equipment_softwares`). No pagination params — endpoint returns all at once.
 - `GET /equipment-groups` - List equipment groups with optional `client_id` filter (`list_equipment_groups`). Paginated with `X-Total-Items`.
 - `GET /equipment-types` - List equipment types with optional `name` filter (partial, case-insensitive) (`list_equipment_types`). Paginated with `X-Total-Items`.
+- `GET /pre-tickets` - List pre-tickets (service requests in pre-triage) with optional filters (`list_pre_tickets`). Supports `archived`, `client_id`, `created_after`, `created_before`, `include_description`, pagination. Header `X-Total-Items` for total count. Requires Tickets license + "Gerenciar pré-tickets" permission.
+- `POST /pre-tickets` - Create a new pre-ticket (`create_pre_ticket`). `multipart/form-data`. Required: `title`, `description`, `requestor_name`, `requestor_email`, `requestor_telephone`. Optional: `requestor_ramal`, `requestor_country`, `client_id`, `files[]` (max 10, 25MB each).
 
 ## Avançado: execução local (SDK via npx)
 
