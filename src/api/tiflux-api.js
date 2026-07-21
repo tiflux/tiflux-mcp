@@ -2243,6 +2243,62 @@ class TiFluxAPI {
    *                          requestor_telephone, requestor_ramal?, requestor_country?,
    *                          client_id?, files? }
    */
+  /**
+   * Lista templates Gupshup da organização.
+   * GET /templates/gupshup
+   *
+   * Guardrail BE-003: só transporte — querystring → makeRequest.
+   * Lógica de negócio (formatação, filtros client-side) fica no slice.
+   *
+   * @param {object} filters - { offset, limit, integration_id }
+   */
+  /**
+   * Anexa response.total a partir do header X-Total-Items (padrao listTickets).
+   * Só transporte — não altera error/data. Retorna o mesmo response.
+   */
+  _attachTotalItems(response) {
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+    return response;
+  }
+
+  /**
+   * Monta a querystring de paginacao comum aos endpoints de templates
+   * (limit clampado 1..200, offset >= 1, integration_id opcional). Só transporte.
+   */
+  _templateListParams(filters = {}) {
+    const params = new URLSearchParams();
+    params.append('limit', Math.min(200, Math.max(1, parseInt(filters.limit) || 20)));
+    params.append('offset', Math.max(1, parseInt(filters.offset) || 1));
+    if (filters.integration_id != null) params.append('integration_id', filters.integration_id);
+    return params;
+  }
+
+  async listGupshupTemplates(filters = {}) {
+    const params = this._templateListParams(filters);
+    const response = await this.makeRequest(`/templates/gupshup?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Lista templates WhatsApp Cloud da organização.
+   * GET /templates/whatsapp_cloud
+   *
+   * Guardrail BE-003: só transporte — querystring → makeRequest.
+   * Lógica de negócio (formatação, filtros client-side) fica no slice.
+   *
+   * @param {object} filters - { offset, limit, integration_id, status }
+   */
+  async listWhatsappCloudTemplates(filters = {}) {
+    const params = this._templateListParams(filters);
+    if (filters.status != null) params.append('status', filters.status);
+    const response = await this.makeRequest(`/templates/whatsapp_cloud?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
   async createPreTicket(data) {
     try {
       const processed = this._processAttachments(data.files, MAX_BASE64_BYTES_25MB, '25MB');

@@ -95,4 +95,37 @@ function truncate(str, max = 800) {
   return plain.substring(0, max) + '...';
 }
 
-module.exports = { footer, pagination, truncate };
+/**
+ * Renderiza uma listagem paginada em Markdown com o esqueleto comum a slices de
+ * listagem: mensagem de lista vazia, cabecalho com contagem (`N` ou `N de total`),
+ * corpo item-a-item e bloco de paginacao.
+ *
+ * O que varia entre slices (titulo, mensagem de vazio, unidade e o Markdown de cada
+ * item) e injetado; o esqueleto identico fica aqui (evita duplicacao entre slices).
+ *
+ * @param {object} params
+ * @param {Array}    params.items        - Itens ja resolvidos (pode ser vazio/nulo)
+ * @param {string}   params.title        - Titulo (sem contagem), ex: 'Templates Gupshup'
+ * @param {string}   params.emptyMessage - Texto retornado quando nao ha itens
+ * @param {function} params.renderItem   - (item) => string Markdown do item (deve terminar com '\n\n')
+ * @param {number}   [params.total]      - Total de itens (header X-Total-Items)
+ * @param {number}   [params.offset]     - Pagina atual
+ * @param {number}   [params.limit]      - Itens por pagina
+ * @param {string}   [params.unit]       - Unidade para paginacao (ex: 'templates')
+ * @param {string}   [params.verbosity]  - Modo de verbosidade repassado a pagination()
+ * @returns {string}
+ */
+function renderList({ items, title, emptyMessage, renderItem, total, offset, limit, unit, verbosity }) {
+  if (!items || items.length === 0) return emptyMessage;
+
+  const hasTotal = total !== undefined && total !== null && total !== items.length;
+  const countLabel = hasTotal ? `${items.length} de ${total}` : `${items.length}`;
+
+  let text = `**${title} (${countLabel})**\n\n`;
+  items.forEach(item => { text += renderItem(item); });
+  text += pagination({ offset, limit, count: items.length, total, unit }, verbosity);
+
+  return text;
+}
+
+module.exports = { footer, pagination, truncate, renderList };

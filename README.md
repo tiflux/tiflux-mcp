@@ -147,6 +147,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
 - **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
+- **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
 
 O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
@@ -2264,6 +2265,70 @@ Create a new pre-ticket in TiFlux. Pre-tickets represent incoming service reques
 
 ---
 
+### list_gupshup_templates
+List HSM templates from the Gupshup WhatsApp integration available in the organization. Returns the name, approval status, category, content (with variables like `{{1}}`), description, and integration ID of each template. Use to discover the approved template IDs and names that feed `send_message` (origin: `gupshup`).
+
+**Permissions:** Requires "Gerenciar Modelos" permission.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `integration_id` | number | no | — | Filter by Gupshup integration ID. Example: `2` |
+| `offset` | number | no | 1 | Page number |
+| `limit` | number | no | 20 | Results per page (max 200) |
+
+**Returns:** Compact list — one line per template with name, status, category, integration ID, and a short preview (~70 chars) of the HSM content (variables like `{{1}}` preserved). The one-line format keeps the payload bounded even on a full 200-item page. To read a template's full content, narrow the list (e.g. by `integration_id`) and use a small page.
+
+```
+**Templates Gupshup (200)**
+
+- **first_contact_with_org** (ID 15174) · APPROVED · UTILITY · int 1867 — _Olá, tudo bem? aqui é o {{1}} da {{2}}. Podemos conversar sobre o seu…_
+- **hsm_template** (ID 1) · APPROVED · ALERT_UPDATE · int 1 — _You are in department {{1}}_
+```
+
+**Example:**
+```json
+{
+  "integration_id": 2,
+  "limit": 20
+}
+```
+
+---
+
+### list_whatsapp_cloud_templates
+List templates from the WhatsApp Cloud (Meta) integration available in the organization. Returns name, approval status, language, category, Meta template ID, and a short preview of the body text. Use to discover templates that feed `send_message` (origin: `whatsapp_cloud`). Filter by `status: "APPROVED"` to see only templates ready to use.
+
+**Permissions:** Requires "Gerenciar Modelos" permission.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `integration_id` | number | no | — | Filter by WhatsApp Cloud integration ID. Example: `4` |
+| `status` | string | no | — | Filter by template status: `APPROVED`, `MISSING_VARS`, `REJECTED`, or `PENDING` |
+| `offset` | number | no | 1 | Page number |
+| `limit` | number | no | 20 | Results per page (max 200) |
+
+**Returns:** Compact list — one line per template with name, status, language, category, Meta template ID, and a short preview (~70 chars) of the body text. `header`/`footer` are omitted from the list row to keep it scannable and the payload bounded on full pages.
+
+```
+**Templates WhatsApp Cloud (2)**
+
+- **integracao_teste** (ID 1) · APPROVED · pt_BR · CATEGORY · tpl `bvwzyawdpyrtibavxvnrzcvswxqbltst` — _teste idioma_
+```
+
+**Example:**
+```json
+{
+  "status": "APPROVED",
+  "limit": 50
+}
+```
+
+---
+
 ### list_entities
 List custom field groups (entities) available in the Tiflux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
 
@@ -2477,6 +2542,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /equipment-types` - List equipment types with optional `name` filter (partial, case-insensitive) (`list_equipment_types`). Paginated with `X-Total-Items`.
 - `GET /pre-tickets` - List pre-tickets (service requests in pre-triage) with optional filters (`list_pre_tickets`). Supports `archived`, `client_id`, `created_after`, `created_before`, `include_description`, pagination. Header `X-Total-Items` for total count. Requires Tickets license + "Gerenciar pré-tickets" permission.
 - `POST /pre-tickets` - Create a new pre-ticket (`create_pre_ticket`). `multipart/form-data`. Required: `title`, `description`, `requestor_name`, `requestor_email`, `requestor_telephone`. Optional: `requestor_ramal`, `requestor_country`, `client_id`, `files[]` (max 10, 25MB each).
+- `GET /templates/gupshup` - List HSM templates from the Gupshup integration (`list_gupshup_templates`). Filters: `integration_id`, `offset`, `limit`. Header `X-Total-Items` for total count. Requires "Gerenciar Modelos" permission.
+- `GET /templates/whatsapp_cloud` - List templates from the WhatsApp Cloud (Meta) integration (`list_whatsapp_cloud_templates`). Filters: `integration_id`, `status` (enum: APPROVED/MISSING_VARS/REJECTED/PENDING), `offset`, `limit`. Header `X-Total-Items` for total count. Requires "Gerenciar Modelos" permission.
 
 ## Avançado: execução local (SDK via npx)
 
