@@ -128,4 +128,30 @@ function renderList({ items, title, emptyMessage, renderItem, total, offset, lim
   return text;
 }
 
-module.exports = { footer, pagination, truncate, renderList };
+/**
+ * Formata um valor monetario string (ex: "974.30") como "R$ 974,30",
+ * com separador de milhar (ex: "28963.20" → "R$ 28.963,20").
+ *
+ * Nao usa Intl/toLocaleString por dois motivos verificados que falham em silencio:
+ *   1. style:'currency' em pt-BR insere U+00A0 (NBSP) entre "R$" e o numero —
+ *      quebra qualquer toContain('R$ ...') com espaco normal.
+ *   2. Node small-icu (comum em clientes npx) faz toLocaleString('pt-BR') cair
+ *      para en-US → ponto/virgula invertidos, sem nenhum erro.
+ *
+ * Casos de borda:
+ *   null / undefined / '' → 'N/A'
+ *   nao-numerico (ex: '--') → passthrough (preserva dado original da API)
+ *   '0.00' → 'R$ 0,00' (nao 'N/A')
+ *
+ * @param {string|null|undefined} valueStr
+ * @returns {string}
+ */
+function currencyBRL(valueStr) {
+  if (valueStr === null || valueStr === undefined || valueStr === '') return 'N/A';
+  const num = Number(valueStr);
+  if (!Number.isFinite(num)) return valueStr;
+  const [intPart, decPart] = num.toFixed(2).split('.');
+  return `R$ ${intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${decPart}`;
+}
+
+module.exports = { footer, pagination, truncate, renderList, currencyBRL };

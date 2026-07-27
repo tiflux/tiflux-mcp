@@ -502,7 +502,16 @@ class TiFluxAPI {
     if (filters.contract_type_ids) params.append('contract_type_ids', filters.contract_type_ids);
     if (filters.status) params.append('status', filters.status);
 
-    return await this.makeRequest(`/contracts?${params.toString()}`);
+    const response = await this.makeRequest(`/contracts?${params.toString()}`);
+
+    // Node http/https sempre minusculam os nomes de header em res.headers,
+    // por isso a busca e apenas por 'x-total-items' (sem fallback maiusculo).
+    if (response && !response.error && response.headers) {
+      const total = parseInt(response.headers['x-total-items'], 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
   }
 
   /**

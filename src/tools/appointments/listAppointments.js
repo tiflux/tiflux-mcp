@@ -8,20 +8,8 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, pagination } = require('../_shared/format');
+const { footer, pagination, currencyBRL } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
-
-/**
- * Formata um valor monetário string (ex: "170.05") como "R$ 170,05".
- * Para ausente/null/vazio, retorna "N/A".
- * Para string não-numérica, retorna a própria string (passthrough — preserva o dado original).
- */
-function formatBRL(valueStr) {
-  if (valueStr === null || valueStr === undefined || valueStr === '') return 'N/A';
-  const num = Number(valueStr);
-  if (!Number.isFinite(num)) return valueStr;
-  return `R$ ${num.toFixed(2).replace('.', ',')}`;
-}
 
 const ATTENDANCE_LABELS = {
   External: 'Externo',
@@ -106,7 +94,7 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit, verb
       text += `      • Tipo: ${kindDisplay}\n`;
 
       if (val.shift) {
-        text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${formatBRL(val.shift.value)})\n`;
+        text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${currencyBRL(val.shift.value)})\n`;
       }
       if (val.guarantee === true) {
         text += `      • 🛡️ Garantia\n`;
@@ -114,7 +102,7 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit, verb
       if (val.manual_value === true) {
         text += `      • ✋ Valor manual\n`;
       }
-      text += `      • 💵 Valor: ${formatBRL(val.value)}\n`;
+      text += `      • 💵 Valor: ${currencyBRL(val.value)}\n`;
     }
 
     // Localizações — uma linha por entrada, só se array não-vazio

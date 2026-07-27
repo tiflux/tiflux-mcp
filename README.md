@@ -2003,35 +2003,41 @@ Conhecimento criado com sucesso!
 ```
 
 ### list_contracts
-List the organization's contracts (read-only). Returns a Markdown table with ID, name, client, contract type, modality, status, expiration date, and total value for each contract.
+List the organization's contracts (read-only). Returns a Markdown table with 9 columns: ID, name, client, contract type, modality, status (with `(cancelado)` suffix when applicable), expiration date, readjustment date, and total value.
 
-**Note:** Only the `GET /contracts` endpoint exists in the API v2 (there is no `GET /contracts/{id}`), so this is the single contracts tool — the listing already returns the full contract object.
+**Note:** Only `GET /contracts` exists in the API v2 — there is no `GET /contracts/{id}` and no endpoint to list contract types. This means `contract_type_ids` filter IDs can only be discovered via `include_details: true`, which surfaces `contract_type.id` for each contract.
 
-**Permissions:** The monetary fields (`total_value`, `rider_tax`, `rider_value`) are only shown to users with the "Visualizar valores dos tickets" permission. Without it, the API returns `"--"` for those fields (rendered as-is).
+**Permissions:** The monetary fields (`rider_tax`, `rider_value`) are only available in the details block when using `include_details: true`, and only for users with the "Visualizar valores dos tickets" permission. Without it, the API returns `"--"` for those fields (rendered as-is). `total_value` is shown in the default table column.
 
 **Parameters (all optional):**
+- `include_details` (boolean, default `false`): When `true`, appends a detail block after the table with one line per contract showing `client.id` (useful in `client_ids`), `contract_type.id` (useful in `contract_type_ids`), `duration`, `readjust_duration`, and `rider_value`/`rider_tax`. **Not sent to the API — rendering-only.**
 - `client_ids` (string, CSV): Filter by clients, IDs separated by commas (e.g. `"982,2,1024"`).
 - `contract_type_ids` (string, CSV): Filter by contract types, IDs separated by commas (e.g. `"3,27"`).
 - `status` (string, CSV): Filter by status — `actives`, `readjust`, `expired`, separated by commas (e.g. `"actives,expired"`). **By default the API lists only `actives`.**
 - `limit` (number, optional): Results per page (default: 20, max: 200).
 - `offset` (number, optional): Page number (default: 1).
 
-**Returns:** Markdown table with columns `ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Valor total`. Modality and status are translated to PT-BR (unknown enum values fall back to the raw API value). Monetary values are formatted as `R$ x,yy`.
+**Returns:** Markdown table with columns `ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Reajuste | Valor total`. Modality and status are translated to PT-BR (unknown enum values fall back to the raw API value). Dates are rendered as ISO `YYYY-MM-DD`. Monetary values are formatted as `R$ 1.234,56` (with thousand separator). Status `expired` + `cancelled: true` renders as `Inativo (cancelado)`. Total contract count from `X-Total-Items` header is shown in the pagination footer when available. With `include_details: true`, a `**Detalhes**` section follows the table.
 
 **Example:**
 ```json
 {
   "client_ids": "44",
   "status": "actives,expired",
+  "include_details": true,
   "limit": 10
 }
 ```
 
 **Example response:**
 ```
-| ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Valor total |
-|---|---|---|---|---|---|---|---|
-| 101 | Contrato Mensal Ouro | Acme Corp | Suporte Mensal | Horas | Ativo | 2027-01-31 | R$ 1500,00 |
+| ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Reajuste | Valor total |
+|---|---|---|---|---|---|---|---|---|
+| 87508 | Contrato de licença de uso | 2V Sistemas | Contrato Tiflux | SaaS/Produto | Ativo | — | 2027-05-25 | R$ 974,30 |
+| 103 | Contrato Expirado | Initech | Suporte | Horas | Inativo (cancelado) | 2024-12-31 | 2024-01-01 | R$ 28.963,20 |
+
+**Detalhes**
+- **#87508** · cliente ID 2274047 · tipo ID 178 · duracao: — · reajuste a cada 12 meses · adicional: R$ 974,30 (taxa R$ 0,00)
 ```
 
 ### list_equipments
@@ -2531,7 +2537,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Requires "Gerenciar conhecimento" permission
-- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Optional filters: `client_ids`, `contract_type_ids`, `status` (CSV). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`)
+- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
 - `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system` flags, pagination. Requires "Visualizar recursos" + Tickets License.
