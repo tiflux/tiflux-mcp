@@ -14,7 +14,17 @@ const slices = [
   require('./getClientDesks'),
   require('./getClientTechnicalGroups'),
   require('./createClientUser'),
-  require('./addClientEmailPermission')
+  require('./addClientEmailPermission'),
+  require('./listClientAddresses'),
+  require('./getClientAddress'),
+  require('./createClientAddress'),
+  require('./updateClientAddress'),
+  require('./deleteClientAddress'),
+  require('./listClientContacts'),
+  require('./getClientContact'),
+  require('./createClientContact'),
+  require('./updateClientContact'),
+  require('./deleteClientContact')
 ];
 
 class ClientTools {

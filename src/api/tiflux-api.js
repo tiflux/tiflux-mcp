@@ -2340,6 +2340,174 @@ class TiFluxAPI {
       return { error: `Erro interno ao criar pré-ticket: ${error.message}`, status: 'INTERNAL_ERROR' };
     }
   }
+
+  // ─── Endereços de cliente ────────────────────────────────────────────────
+
+  /**
+   * Lista enderecos de um cliente.
+   * GET /clients/{client_id}/addresses
+   *
+   * @param {number|string} clientId
+   * @param {object} options - { offset, limit }
+   */
+  async getClientAddresses(clientId, options = {}) {
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(options.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/addresses?${params.toString()}`);
+  }
+
+  /**
+   * Retorna um endereco especifico de um cliente.
+   * GET /clients/{client_id}/addresses/{id}
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   */
+  async getClientAddress(clientId, id) {
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/addresses/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Cria um endereco para um cliente.
+   * POST /clients/{client_id}/addresses
+   *
+   * @param {number|string} clientId
+   * @param {object} body - { address: { cep, city, neighborhood, number, state, street, complement? } }
+   */
+  async createClientAddress(clientId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/addresses`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um endereco de um cliente (parcial).
+   * PUT /clients/{client_id}/addresses/{id}
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   * @param {object} body - { address: { ...campos parciais } }
+   */
+  async updateClientAddress(clientId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/addresses/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Remove um endereco de um cliente.
+   * DELETE /clients/{client_id}/addresses/{id}
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   */
+  async deleteClientAddress(clientId, id) {
+    try {
+      const response = await this.makeRequest(
+        `/clients/${encodeURIComponent(clientId)}/addresses/${encodeURIComponent(id)}`,
+        'DELETE'
+      );
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar endereço: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  // ─── Contatos de cliente ─────────────────────────────────────────────────
+
+  /**
+   * Lista contatos de um cliente.
+   * GET /clients/{client_id}/contacts
+   *
+   * @param {number|string} clientId
+   * @param {object} options - { offset, limit }
+   */
+  async getClientContacts(clientId, options = {}) {
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(options.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(options.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/contacts?${params.toString()}`);
+  }
+
+  /**
+   * Retorna um contato especifico de um cliente.
+   * GET /clients/{client_id}/contacts/{id}
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   */
+  async getClientContact(clientId, id) {
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/contacts/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Cria um contato para um cliente.
+   * POST /clients/{client_id}/contacts
+   *
+   * @param {number|string} clientId
+   * @param {object} body - { contact: { use, number, owner, email, country? } }
+   */
+  async createClientContact(clientId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/contacts`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um contato de um cliente (parcial).
+   * PUT /clients/{client_id}/contacts/{id}
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   * @param {object} body - { contact: { ...campos parciais } }
+   */
+  async updateClientContact(clientId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/clients/${encodeURIComponent(clientId)}/contacts/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Remove um contato de um cliente.
+   * DELETE /clients/{client_id}/contacts/{id}
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   */
+  async deleteClientContact(clientId, id) {
+    try {
+      const response = await this.makeRequest(
+        `/clients/${encodeURIComponent(clientId)}/contacts/${encodeURIComponent(id)}`,
+        'DELETE'
+      );
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar contato: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
 }
 
 module.exports = TiFluxAPI;

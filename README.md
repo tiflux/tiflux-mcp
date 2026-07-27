@@ -809,6 +809,126 @@ Add an authorized domain or email to open tickets on behalf of a client.
 }
 ```
 
+### list_client_addresses
+List the addresses registered for a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+### get_client_address
+Get details of a specific address of a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `id` (number, required): Address ID
+
+### create_client_address
+Create a new address for a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `cep` (string, required): ZIP code (e.g. `"89201-305"`)
+- `city` (string, required): City
+- `neighborhood` (string, required): Neighborhood/district
+- `number` (number, required): Street number (integer)
+- `state` (string, required): State — 2-letter code (e.g. `"SC"`)
+- `street` (string, required): Street name
+- `complement` (string, optional): Address complement (e.g. `"Sala 3"`)
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "cep": "89201-305",
+  "city": "Joinville",
+  "neighborhood": "Centro",
+  "number": 100,
+  "state": "SC",
+  "street": "Rua das Flores",
+  "complement": "Sala 3"
+}
+```
+
+### update_client_address
+Partially update an address of a client. Only the provided fields are sent.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `id` (number, required): Address ID to update
+- `cep` (string, optional): ZIP code
+- `city` (string, optional): City
+- `neighborhood` (string, optional): Neighborhood
+- `number` (number, optional): Street number
+- `state` (string, optional): State code
+- `street` (string, optional): Street name
+- `complement` (string, optional): Complement
+
+### delete_client_address
+Remove an address from a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `id` (number, required): Address ID to remove
+
+### list_client_contacts
+List the contacts (phone/email) registered for a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+### get_client_contact
+Get details of a specific contact of a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `id` (number, required): Contact ID
+
+### create_client_contact
+Create a new contact (phone/email) for a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `use` (string, required): Contact usage type (e.g. `"Personal"`, `"Commercial"`)
+- `number` (string, required): Phone number (accepts BR and international formats)
+- `owner` (string, required): Name of the contact owner
+- `email` (string, required): Contact email
+- `country` (string, optional): Country code (e.g. `"BR"`, `"US"`)
+
+**Example:**
+```json
+{
+  "client_id": 42,
+  "use": "Commercial",
+  "number": "47999990000",
+  "owner": "João Silva",
+  "email": "joao@empresa.com",
+  "country": "BR"
+}
+```
+
+### update_client_contact
+Partially update a contact of a client. Only the provided fields are sent.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `id` (number, required): Contact ID to update
+- `use` (string, optional): Contact usage type
+- `number` (string, optional): Phone number
+- `owner` (string, optional): Contact owner name
+- `email` (string, optional): Contact email
+- `country` (string, optional): Country code
+
+### delete_client_contact
+Remove a contact from a client.
+
+**Parameters:**
+- `client_id` (number, required): Client ID
+- `id` (number, required): Contact ID to remove
+
 ### search_user
 Search for users by name to use as responsible in tickets.
 
@@ -2491,6 +2611,16 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /clients/{id}/technical-groups` - List technical groups associated with a client (`get_client_technical_groups`)
 - `POST /clients/{id}/users` - Create a portal user for a client (`create_client_user`)
 - `POST /clients/{id}/email_tickets_permissions` - Add authorized email/domain for a client (`add_client_email_permission`)
+- `GET /clients/{client_id}/addresses` - List addresses of a client (`list_client_addresses`)
+- `POST /clients/{client_id}/addresses` - Create an address for a client (`create_client_address`)
+- `GET /clients/{client_id}/addresses/{id}` - Get a specific address of a client (`get_client_address`)
+- `PUT /clients/{client_id}/addresses/{id}` - Update an address of a client (`update_client_address`)
+- `DELETE /clients/{client_id}/addresses/{id}` - Remove an address from a client (`delete_client_address`)
+- `GET /clients/{client_id}/contacts` - List contacts of a client (`list_client_contacts`)
+- `POST /clients/{client_id}/contacts` - Create a contact for a client (`create_client_contact`)
+- `GET /clients/{client_id}/contacts/{id}` - Get a specific contact of a client (`get_client_contact`)
+- `PUT /clients/{client_id}/contacts/{id}` - Update a contact of a client (`update_client_contact`)
+- `DELETE /clients/{client_id}/contacts/{id}` - Remove a contact from a client (`delete_client_contact`)
 - `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name` auto-resolve in `create_ticket` and `update_ticket`). Admin/global permission required — returns 403 for non-admin attendants, handled by the client-scoped fallback below.
 - `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`; automatic fallback for `search_requestor`, `create_ticket`, and `update_ticket` (name resolution) when `GET /requestors` returns 403 (attendant with permission on that client).
 - `GET /clients/{client_id}/requestors/{id}` - Get a single requestor of a client (`get_requestor`; `include_entity_fields` for custom fields).
