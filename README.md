@@ -148,6 +148,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
+- **Faturamentos**: consultar o histórico de faturamentos da organização com filtros por período de emissão, vencimento, cliente (por ID ou nome), NFe, ticket e situação (`get_billings_history`); exige permissão "Faturar serviços avulsos e contratos" e licença Tickets
 
 O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
@@ -2601,6 +2602,53 @@ The fallback returns only the **highest-scoring group** of matches — so single
 
 This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage`, `search_catalog_item`, `get_desk`, `list_desk_priorities`, and `list_desk_services_catalogs`.
 
+---
+
+### get_billings_history
+Returns the organization's billing history. Filters are all optional: billing period (`billing_start_date` + `billing_end_date`, mandatory in pair), due date period (`due_start_date` + `due_end_date`, mandatory in pair), client by ID (`client_id`) or name with fuzzy resolver (`client_name`), NFe number (`nfe_number`), ticket number (`ticket_number`), and billing status (`type`). The response is a 7-column table plus a page sum.
+
+**Permissions:** Requires "Faturar serviços avulsos e contratos" + Tickets license. Returns **403** for users without billing permission.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `billing_start_date` | string | no (pair) | — | Start of billing period (`YYYY-MM-DD`). Must be used with `billing_end_date`. |
+| `billing_end_date` | string | no (pair) | — | End of billing period (`YYYY-MM-DD`). Must be used with `billing_start_date`. |
+| `due_start_date` | string | no (pair) | — | Start of due date period (`YYYY-MM-DD`). Must be used with `due_end_date`. |
+| `due_end_date` | string | no (pair) | — | End of due date period (`YYYY-MM-DD`). Must be used with `due_start_date`. |
+| `client_id` | number | no | — | Filter by client ID. Takes precedence over `client_name`. |
+| `client_name` | string | no | — | Client name (partial or exact) for fuzzy auto-resolution. Ignored when `client_id` is provided. |
+| `nfe_number` | number | no | — | Filter by NFe number. |
+| `ticket_number` | number | no | — | Filter by ticket number associated with the billing. |
+| `type` | string | no | — | Billing status: `billed`, `reversed`, or `paid`. Omit for all statuses. |
+| `offset` | number | no | 1 | Page number. |
+| `limit` | number | no | 20 | Results per page (max 200). |
+
+**Returns:** Markdown table with 7 columns — ID, Cliente, Data faturamento, Vencimento, NFe, Situação, Valor — plus a page sum row (`Soma desta página (sem estornos)`) and pagination footer. Situação is derived: `reversal=true` → Estornado; `paid=true` → Pago; both false → Faturado. Monetary values formatted as `R$ X.XXX,XX`.
+
+> **Page sum semantics:** `Soma desta página (sem estornos)` adds up `real_value` for the rows on the current page **excluding reversed billings** (`reversal=true`). A reversal is an in-place `UPDATE` on the billing record — the API returns its `real_value` as a **positive** number and there is no offsetting entry, so summing it would inflate the total and subtracting it would double-count (the reversed work can later be re-billed under a new `billing_id`). The product convention (internal report and native screen) is to **filter, not subtract**. When the page contains reversals, a note lists how many were excluded and their summed value. Note: `type: "paid"` does **not** exclude reversals (it filters by financial-integration status only) — use `type: "billed"` for a set with no reversals. The endpoint returns no monetary total for the filter, only the record count via the `X-Total-Items` header.
+
+**Example:**
+```json
+{
+  "billing_start_date": "2024-10-01",
+  "billing_end_date": "2024-10-31",
+  "type": "billed"
+}
+```
+
+**Example response:**
+```
+**Faturamentos (1)**
+
+| ID | Cliente | Data faturamento | Vencimento | NFe | Situação | Valor |
+|---|---|---|---|---|---|---|
+| 2 | Zemlak-Cremin | 2024-10-10 | 2024-10-15 | 4310034 | Faturado | R$ 755,90 |
+
+**Soma desta página (sem estornos):** R$ 755,90
+```
+
 ## API Endpoints Used
 
 The MCP server integrates with the following Tiflux API v2 endpoints:
@@ -2687,6 +2735,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
+- `GET /reports/billings/history` - Billing history report (`get_billings_history`). Returns paginated array of billing records with `billing_id`, `billing_date`, `client_id`, `client_name`, `due_date`, `nfe_number`, `paid`, `real_value`, `reversal`. Filters: `billing_start_date`/`billing_end_date` (pair), `due_start_date`/`due_end_date` (pair), `client_id`, `nfe_number`, `ticket_number`, `_type` (billed|reversed|paid). Header `X-Total-Items` for total count. Requires "Faturar serviços avulsos e contratos" permission + Tickets license (403 code `40301` without permission, `40304` without license).
 - `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system` flags, pagination. Requires "Visualizar recursos" + Tickets License.
 - `POST /equipments` - Create a new equipment/resource (`create_equipment`). Required: `name`, `client_id`, `equipment_type_id`. Optional: `equipment_group_id` (auto-assigned if omitted), `acquisition_date`, `warranty_date`.
 - `PUT /equipments/{id}` - Update an existing equipment/resource (`update_equipment`). Partial update — only provided fields are sent.

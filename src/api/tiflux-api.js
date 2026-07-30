@@ -515,6 +515,51 @@ class TiFluxAPI {
   }
 
   /**
+   * Retorna historico de faturamentos (GET /reports/billings/history).
+   *
+   * Filtros opcionais (passados via URLSearchParams):
+   *   - billing_start_date, billing_end_date (par obrigatorio em conjunto)
+   *   - due_start_date, due_end_date (par obrigatorio em conjunto)
+   *   - client_id, nfe_number, ticket_number
+   *   - _type (billed|reversed|paid)
+   *   - limit (default 20, max 200), offset (default 1, min 1)
+   *
+   * Validacao de pareamento de datas e feita no slice (nao aqui — guardrail BE-003).
+   * Mapeamento type→_type tambem fica no slice.
+   *
+   * @param {object} filters
+   */
+  async getBillingsHistory(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.billing_start_date != null) params.append('billing_start_date', filters.billing_start_date);
+    if (filters.billing_end_date != null) params.append('billing_end_date', filters.billing_end_date);
+    if (filters.due_start_date != null) params.append('due_start_date', filters.due_start_date);
+    if (filters.due_end_date != null) params.append('due_end_date', filters.due_end_date);
+    if (filters.client_id != null) params.append('client_id', filters.client_id);
+    if (filters.nfe_number != null) params.append('nfe_number', filters.nfe_number);
+    if (filters.ticket_number != null) params.append('ticket_number', filters.ticket_number);
+    if (filters._type != null) params.append('_type', filters._type);
+
+    const response = await this.makeRequest(`/reports/billings/history?${params.toString()}`);
+
+    // Node http/https sempre minusculam os nomes de header em res.headers,
+    // por isso a busca e apenas por 'x-total-items' (sem fallback maiusculo).
+    if (response && !response.error && response.headers) {
+      const total = parseInt(response.headers['x-total-items'], 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
    * Retorna dados completos de uma mesa por ID.
    *
    * @param {number} deskId - ID da mesa
