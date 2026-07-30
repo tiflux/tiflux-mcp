@@ -12,8 +12,11 @@
  * (compare_end = start − 1s; compare_start = compare_end − duração).
  * Sem snapping de calendário.
  *
- * filter_by default "all": comparações de períodos passados contam tudo
- * por padrão (abertos, fechados e cancelados).
+ * filter_by default:
+ *   - created_at: 'all' (inclui abertos, fechados e cancelados — ideal para períodos passados)
+ *   - solved_in_time: 'closed' (resolvidos — alinhado com list_tickets e com a realidade:
+ *     solved_in_time exige status encerrado; assumir 'all' mas entregar 'closed' seria
+ *     inconsistente com list_tickets e confuso para o usuario)
  *
  * Endpoint: GET /tickets (via api.listTickets, 2 chamadas por invocação).
  */
@@ -25,6 +28,8 @@ const { resolveClientName } = require('../_shared/clientResolver');
 const { footer } = require('../_shared/format');
 const { previousPeriod, validatePeriod } = require('../_shared/periodMath');
 const { capIds, calcDelta, formatDeltaStr } = require('../_shared/reportMath');
+const { renderAppliedFilters } = require('../_shared/appliedFilters');
+const { diagnoseZero } = require('../_shared/zeroDiagnostics');
 
 // Teto explicito de buckets por chamada. Em modo group_by a API atual ignora
 // `limit` e devolve todos os buckets (validado ao vivo: 66 buckets com limit=20);
@@ -42,7 +47,11 @@ const schema = {
 
 **Período de comparação padrão:** se compare_start/compare_end não forem informados, o período de comparação é o imediatamente anterior de mesma duração (compare_end = start_datetime − 1s; duração idêntica). Informe apenas start_datetime e end_datetime e o período de comparação é calculado automaticamente.
 
-**filter_by padrão "all":** comparações de períodos passados contam tudo (abertos, fechados, cancelados) por padrão.
+**filter_by padrão por date_type:**
+- \`created_at\` (padrão): \`filter_by="all"\` — comparações de períodos passados contam tudo (abertos, fechados e cancelados).
+- \`solved_in_time\`: \`filter_by="closed"\` — necessário porque solved_in_time filtra pela data de fechamento e requer status encerrado. Usar "all" com created_at e "closed" com solved_in_time garante que list_tickets e get_tickets_comparison retornem o mesmo número para a mesma pergunta.
+
+**date_type="solved_in_time":** filtra pela data de fechamento/resolução. filter_by="closed" retorna apenas resolvidos; filter_by="all" retorna fechados + cancelados (ex: 358 + 31 = 389). Aceita offsets de fuso além de Z (ex: \`-03:00\`).
 
 **group_by "desk":** útil para "qual mesa cresceu" — alinha por nome de mesa, não por ordem.
 
@@ -55,11 +64,11 @@ Exemplos de uso:
     properties: {
       start_datetime: {
         type: 'string',
-        description: 'Início do período principal (ISO 8601, ex: "2026-01-01T00:00:00Z"). Obrigatório.'
+        description: 'Início do período principal (ISO 8601, ex: "2026-01-01T00:00:00Z" ou "2026-01-01T00:00:00-03:00"). Obrigatório.'
       },
       end_datetime: {
         type: 'string',
-        description: 'Fim do período principal (ISO 8601, ex: "2026-06-30T23:59:59Z"). Obrigatório.'
+        description: 'Fim do período principal (ISO 8601, ex: "2026-06-30T23:59:59Z" ou "2026-06-30T23:59:59-03:00"). Obrigatório.'
       },
       compare_start_datetime: {
         type: 'string',
@@ -77,12 +86,12 @@ Exemplos de uso:
       date_type: {
         type: 'string',
         enum: ['created_at', 'solved_in_time'],
-        description: 'Eixo temporal usado nos dois períodos. "created_at" (padrão) = data de criação. "solved_in_time" = data de fechamento/resolução. Deve ser o mesmo nos dois períodos — essa tool garante consistência automaticamente.'
+        description: 'Eixo temporal usado nos dois períodos. "created_at" (padrão) = data de criação. "solved_in_time" = data de fechamento/resolução — requer status encerrado; o MCP aplica filter_by="closed" por padrão. Deve ser o mesmo nos dois períodos — essa tool garante consistência automaticamente. Aceita offsets de fuso além de Z (ex: -03:00).'
       },
       filter_by: {
         type: 'string',
         enum: ['open', 'closed', 'canceled', 'all'],
-        description: 'Filtro por status. Padrão "all" (abertos + fechados + cancelados) — ideal para comparações de períodos passados. Use "closed" para análise de resolução, "open" para snapshot de demanda.'
+        description: 'Filtro por status. Padrão depende de date_type: "all" para created_at (abertos + fechados + cancelados); "closed" para solved_in_time (resolvidos). Use "all" sob solved_in_time para incluir cancelados também (ex: 358 fechados + 31 cancelados = 389). Use "open" com created_at para snapshot de demanda ativa.'
       },
       desk_ids: {
         type: 'string',
@@ -173,7 +182,7 @@ async function execute(args, { api, verbosity, logger }) {
     compare_end_datetime,
     group_by = 'month',
     date_type = 'created_at',
-    filter_by = 'all',
+    filter_by,
     desk_ids,
     desk_name,
     client_ids,
@@ -183,6 +192,24 @@ async function execute(args, { api, verbosity, logger }) {
     priority_ids,
     services_catalogs_item_ids
   } = args;
+
+  // --- Guard-rail: date_type='solved_in_time' x filter_by ---
+  // Alinhado com list_tickets: quando solved_in_time sem filter_by, assume 'closed'.
+  // Para created_at sem filter_by, mantém 'all' (comportamento original).
+  let filterByAssumed = false;
+  let effectiveFilterBy;
+
+  if (filter_by) {
+    // Uso explícito: respeita sempre
+    effectiveFilterBy = filter_by;
+  } else if (date_type === 'solved_in_time') {
+    // solved_in_time sem filter_by → assume 'closed' (garante paridade com list_tickets)
+    effectiveFilterBy = 'closed';
+    filterByAssumed = true;
+  } else {
+    // created_at sem filter_by → 'all' (comportamento original)
+    effectiveFilterBy = 'all';
+  }
 
   // --- Validar período principal ---
   const mainValidation = validatePeriod(start_datetime, end_datetime);
@@ -196,7 +223,6 @@ async function execute(args, { api, verbosity, logger }) {
   // --- Resolver período de comparação ---
   let compareStart, compareEnd;
 
-  // Ambos informados = par completo; apenas um = erro
   const hasCompareStart = compare_start_datetime != null && compare_start_datetime !== '';
   const hasCompareEnd = compare_end_datetime != null && compare_end_datetime !== '';
 
@@ -219,7 +245,6 @@ async function execute(args, { api, verbosity, logger }) {
     compareStart = compare_start_datetime;
     compareEnd = compare_end_datetime;
   } else {
-    // Padrão: período adjacente anterior de mesma duração
     const prev = previousPeriod(start_datetime, end_datetime);
     compareStart = prev.start;
     compareEnd = prev.end;
@@ -227,10 +252,16 @@ async function execute(args, { api, verbosity, logger }) {
 
   // --- Resolver nomes em IDs ---
   let finalDeskIds = capIds(desk_ids);
+  let resolvedDeskInfo = null;
   if (desk_name && !desk_ids) {
     const resolved = await resolveDeskName(api, desk_name);
     if (resolved.error) return resolved.response;
     finalDeskIds = String(resolved.deskId);
+    resolvedDeskInfo = {
+      id: resolved.deskId,
+      name: resolved.desk?.display_name || resolved.desk?.name || String(resolved.deskId),
+      searchTerm: desk_name
+    };
   }
 
   let finalClientIds = capIds(client_ids);
@@ -240,17 +271,16 @@ async function execute(args, { api, verbosity, logger }) {
     finalClientIds = String(resolved.clientId);
   }
 
-  // Passthrough caps
   const finalResponsibleIds = capIds(responsible_ids);
   const finalPriorityIds = capIds(priority_ids);
   const finalCatalogIds = capIds(services_catalogs_item_ids);
 
-  // Base de filtros comuns às duas chamadas
+  // Base de filtros comuns às duas chamadas — usa effectiveFilterBy
   const baseFilters = {
     limit: BUCKET_LIMIT,
     group_by,
     date_type,
-    filter_by,
+    filter_by: effectiveFilterBy,
     ...(finalDeskIds ? { desk_ids: finalDeskIds } : {}),
     ...(finalClientIds ? { client_ids: finalClientIds } : {}),
     ...(finalResponsibleIds ? { responsible_ids: finalResponsibleIds } : {}),
@@ -314,18 +344,51 @@ async function execute(args, { api, verbosity, logger }) {
   const currentBuckets = currentPayload.buckets;
   const compareBuckets = comparePayload.buckets;
 
-  // Totais — mesma fonte-da-verdade do list_tickets: prefere o header X-Total-Items
-  // (exposto em response.total por tiflux-api), depois o total do corpo, e só então
-  // soma os buckets (que podem vir truncados em uma regressao da API).
+  // Totais — mesma fonte-da-verdade do list_tickets
   const currentTotal = currentResponse.total ?? currentPayload.total ?? currentBuckets.reduce((s, b) => s + (b.count || 0), 0);
   const compareTotal = compareResponse.total ?? comparePayload.total ?? compareBuckets.reduce((s, b) => s + (b.count || 0), 0);
 
-  // Ambos vazios
+  // Entradas de filtros para eco
+  const filterEntries = [];
+  if (finalDeskIds) {
+    if (resolvedDeskInfo) {
+      filterEntries.push({
+        label: 'Mesa',
+        value: `${resolvedDeskInfo.id} — "${resolvedDeskInfo.name}" (de "${resolvedDeskInfo.searchTerm}")`,
+        origin: 'resolvido'
+      });
+    } else {
+      filterEntries.push({ label: 'Mesa', value: finalDeskIds, origin: 'informado' });
+    }
+  }
+  if (finalClientIds) filterEntries.push({ label: 'Cliente', value: finalClientIds, origin: client_name ? 'resolvido' : 'informado' });
+  if (date_type !== 'created_at') filterEntries.push({ label: 'Tipo de data', value: 'fechamento/resolução (solved_in_time)', origin: 'informado' });
+  filterEntries.push({
+    label: 'Status',
+    value: { open: 'Abertos', closed: 'Fechados', canceled: 'Cancelados', all: 'Todos' }[effectiveFilterBy] || effectiveFilterBy,
+    origin: filter_by ? 'informado' : (filterByAssumed ? 'assumido' : 'padrao')
+  });
+
+  const filtersBlock = renderAppliedFilters(filterEntries, v);
+  const assumptionNote = (filterByAssumed && v !== 'compact')
+    ? `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n\n`
+    : '';
+
+  // Ambos vazios — diagnostico + filtros
   if (currentBuckets.length === 0 && compareBuckets.length === 0) {
-    return textResponse(
-      `**📊 Comparação de tickets**\n\n` +
-      `Nenhum ticket encontrado em ambos os períodos com os filtros aplicados.`
-    );
+    // Sonda sem group_by para diagnosticar o eixo de zeros
+    const diagFilters = { ...baseFilters };
+    delete diagFilters.group_by;
+    diagFilters.start_datetime = start_datetime;
+    diagFilters.end_datetime = end_datetime;
+    const diagText = await diagnoseZero({ api, filters: diagFilters, verbosity: v });
+
+    let out = `**📊 Comparação de tickets**\n\n`;
+    out += assumptionNote;
+    if (filtersBlock) out += `${filtersBlock}\n`;
+    out += `Nenhum ticket encontrado em ambos os períodos com os filtros aplicados.`;
+    if (diagText) out += `\n\n${diagText}`;
+    return textResponse(out);
   }
 
   // --- Alinhar buckets ---
@@ -334,10 +397,8 @@ async function execute(args, { api, verbosity, logger }) {
     ? alignDeskBuckets(currentBuckets, compareBuckets)
     : alignTemporalBuckets(currentBuckets, compareBuckets);
 
-  // Totais e delta globais
   const { delta: totalDelta, deltaPercent: totalDeltaPct } = calcDelta(currentTotal, compareTotal);
 
-  // Labels de unidade
   const unitLabel = { day: 'dia', week: 'semana', month: 'mês', desk: 'mesa' }[group_by] || group_by;
   const dtSuffix = isDesk ? '' : ` — por data de ${date_type === 'solved_in_time' ? 'fechamento/resolução' : 'criação'}`;
 
@@ -345,18 +406,20 @@ async function execute(args, { api, verbosity, logger }) {
   if (v === 'compact') {
     const deltaStr = formatDeltaStr(totalDelta, totalDeltaPct);
     const bucketsStr = rows.map(r => `${r.period}:${r.current}/${r.previous}`).join(' · ');
+    const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
     const line1 = `Comparação por ${unitLabel}${dtSuffix}: atual ${currentTotal} vs anterior ${compareTotal} → Δ ${deltaStr}`;
     const line2 = bucketsStr ? `Buckets (atual/anterior): ${bucketsStr}` : '';
-    return textResponse(line2 ? `${line1}\n${line2}` : line1);
+    return textResponse(line2 ? `${line1}\n${line2}${filtersLine}` : `${line1}${filtersLine}`);
   }
 
   // Rich
   const deltaStr = formatDeltaStr(totalDelta, totalDeltaPct);
-  let out = `**📊 Comparação de tickets por ${unitLabel}**${dtSuffix}\n\n`;
+  let out = assumptionNote;
+  out += `**📊 Comparação de tickets por ${unitLabel}**${dtSuffix}\n\n`;
+  if (filtersBlock) out += `${filtersBlock}\n`;
   out += `| | Período atual | Período anterior | Δ |\n|---|---|---|---|\n`;
   out += `| **Total** | **${currentTotal}** | **${compareTotal}** | **${deltaStr}** |\n\n`;
 
-  // Tabela pareada
   const colLabel = isDesk ? 'Mesa' : 'Período';
   out += `| ${colLabel} | Atual | Anterior | Δ | Δ% |\n|---|---|---|---|---|\n`;
   for (const row of rows) {

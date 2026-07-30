@@ -582,11 +582,12 @@ class TiFluxAPI {
     params.append('offset', offset);
     params.append('limit', limit);
 
-    // filter_by (open/closed/all) tem precedencia sobre is_closed nas versoes da
-    // API que o suportam. Enviamos SEMPRE os dois: a API que conhece filter_by
-    // ignora is_closed; a que ainda nao conhece (ex: producao atual) continua
-    // filtrando corretamente via is_closed. Sem isso, filter_by sozinho cairia
-    // no default is_closed=false e zeraria buscas por solved_in_time.
+    // filter_by (open/closed/canceled/all) tem precedencia sobre is_closed na API.
+    // Enviamos SEMPRE os dois para retrocompatibilidade com versoes antigas sem
+    // suporte a filter_by — nessas versoes is_closed e o unico mecanismo.
+    // ATENCAO: o is_closed derivado abaixo e o fallback de compat; quando filter_by
+    // e informado, a API o usa com precedencia. O slice (listTickets.js) e responsavel
+    // por garantir que a combinacao date_type x filter_by e coerente antes de chamar.
     if (filters.filter_by) {
       params.append('filter_by', filters.filter_by);
     }

@@ -366,7 +366,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `client_ids` (string, optional): Comma-separated client (company) IDs (e.g., "1,2,3")
 - `client_name` (string, optional): Client (company) name for automatic search. Use **only** when the user explicitly says "client", "company", or gives a known corporate name. For a person, prefer `requestor_email`.
 - `stage_ids` (string, optional): Comma-separated stage IDs (e.g., "1,2,3")
-- `stage_name` (string, optional): Stage name (must be used with desk_name)
+- `stage_name` (string, optional): Stage name — use with `desk_name` or `desk_ids` (either works)
 - `responsible_ids` (string, optional): Comma-separated responsible (assigned attendant) user IDs (use when you already have the ID)
 - `responsible_name` (string, optional): Responsible user name for automatic resolution. Works for both admin (via `GET /users`) and non-admin users (via attendant groups fallback). Use when the user says "assigned to" / "responsible" and gives a name.
 - `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_requestor`.
@@ -377,15 +377,30 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `priority_name` (string, optional): Priority name for automatic fuzzy resolution (e.g., "high", "baixa"). **Requires a desk** (`desk_id` or `desk_name`). For direct IDs, use `priority_ids`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200)
-- `is_closed` (boolean, optional): Include closed tickets (default: false)
-- `filter_by` (string, optional): Status mode with precedence over `is_closed`: "open" (only open), "closed" (only resolved/closed — does NOT include cancelled), "canceled" (only cancelled — robust even with custom status names), or "all" (every status in a single query). Use "canceled" when the user specifically asks for cancelled tickets, and "all" for tickets regardless of status.
-- `date_type` (string, optional): Date type for filtering: "created_at" (creation date, default) or "solved_in_time" (resolution/closing date)
-- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns.
+- `is_closed` (boolean, optional): Legacy status flag. Prefer `filter_by` for more granular control. `is_closed: true` = only closed; `is_closed: false` = only open.
+- `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Under `date_type="solved_in_time"`, "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
+- `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (closing/resolution date). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
+- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).**
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 
 **Note:** At least one filter is required (desk, client, requestor, responsible, stage, date range, SLA, catalog, or priority).
+
+**Guard-rails for `date_type="solved_in_time"`:**
+- If `filter_by` is **not** provided, the MCP assumes `filter_by="closed"` and announces it in the response (e.g., "Status: Fechados — assumido; use 'all' para incluir cancelados"). Use `filter_by="all"` to include cancelled tickets too.
+- If `filter_by="open"` is explicitly passed with `solved_in_time`, the MCP returns an error immediately — this is a contradictory combination (a ticket can't be both "resolved" and "open").
+
+**Common recipes:**
+
+| User question | Recommended call |
+|---|---|
+| "closed per month in desk X" | `desk_name` + `date_type="solved_in_time"` + `filter_by="closed"` + `group_by="month"` |
+| "opened today in desk X" | `desk_name` + `date_type="created_at"` + `filter_by="all"` + period |
+| "cancelled in the period" | `filter_by="canceled"` + `date_type="solved_in_time"` |
+| "this semester vs last" | `get_tickets_comparison` |
+
+**Zero-result diagnostics:** When the response is empty (no tickets), the MCP automatically runs up to 2 sonda API calls to tell the AI *why* — whether it's the status filter, the date range, or a genuine zero for this scope.
 
 **Volume guard:** When the total (`X-Total-Items`) exceeds 500 tickets in a regular listing (without `group_by`), the response appends an instruction not to paginate for analysis — use `group_by` or `get_tickets_comparison` instead. This threshold is set at 500 in `LIST_TOTAL_WARN_THRESHOLD`.
 
@@ -428,12 +443,12 @@ List tickets with filtering options. Catalog and priority are automatically show
 }
 
 // List tickets resolved in a specific period
+// (filter_by="closed" assumed automatically; use "all" to include cancelled)
 {
   "desk_name": "Support",
   "date_type": "solved_in_time",
   "start_datetime": "2024-01-01T00:00:00Z",
-  "end_datetime": "2024-01-31T23:59:59Z",
-  "is_closed": true
+  "end_datetime": "2024-01-31T23:59:59Z"
 }
 ```
 
@@ -446,16 +461,18 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 
 **Default comparison period:** If `compare_start_datetime`/`compare_end_datetime` are not provided, the comparison period is the immediately preceding period of the same duration (`compare_end = start_datetime − 1s`; same duration in ms). Provide only `start_datetime` and `end_datetime` and the comparison window is calculated automatically.
 
-**Default `filter_by: "all"`:** Comparisons of past periods count all ticket statuses (open, closed, cancelled) by default.
+**Default `filter_by` by `date_type`:**
+- `created_at` (default): `filter_by="all"` — historical comparisons count all statuses (open, closed, cancelled).
+- `solved_in_time`: `filter_by="closed"` — comparisons by closing date assume resolved tickets; use `filter_by="all"` to include cancelled too (e.g., 358 closed + 31 cancelled = 389). This aligns with `list_tickets` so both tools return the same number for the same query.
 
 **Parameters:**
-- `start_datetime` (string, required): Start of the main period (ISO 8601, e.g., "2026-01-01T00:00:00Z")
+- `start_datetime` (string, required): Start of the main period (ISO 8601, e.g., "2026-01-01T00:00:00Z" or "2026-01-01T00:00:00-03:00")
 - `end_datetime` (string, required): End of the main period (ISO 8601, e.g., "2026-06-30T23:59:59Z")
 - `compare_start_datetime` (string, optional): Start of comparison period (ISO 8601). Must be provided with `compare_end_datetime` (complete pair). If omitted, the immediately preceding period of the same duration is used automatically.
 - `compare_end_datetime` (string, optional): End of comparison period (ISO 8601). Pair with `compare_start_datetime`.
 - `group_by` (string, optional): Granularity — "day", "week", "month" (temporal buckets) or "desk" (per-desk breakdown, useful for "which desk grew"). Default: "month".
-- `date_type` (string, optional): Time axis applied to both periods — "created_at" (creation date, default) or "solved_in_time" (resolution/closing date). Consistent across both calls automatically.
-- `filter_by` (string, optional): Status filter — "open", "closed", "canceled", or "all" (default). "all" is ideal for historical comparisons. Use "closed" for resolution analysis.
+- `date_type` (string, optional): Time axis applied to both periods — "created_at" (creation date, default) or "solved_in_time" (closing/resolution date). Consistent across both calls automatically. Accepts timezone offsets beyond Z (e.g., `-03:00`).
+- `filter_by` (string, optional): Status filter — "open", "closed", "canceled", or "all". Default depends on `date_type`: "all" for `created_at`; "closed" for `solved_in_time`. Use "all" with `solved_in_time` to include cancelled tickets in the count.
 - `desk_ids` (string, optional): Comma-separated desk IDs (max 15). Alternative to `desk_name`.
 - `desk_name` (string, optional): Desk/team name for automatic ID resolution. Accepts partial names.
 - `client_ids` (string, optional): Comma-separated client (company) IDs (max 15).
