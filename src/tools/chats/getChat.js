@@ -9,6 +9,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer } = require('../_shared/format');
+const { ticketReference } = require('../_shared/chatTicket');
 
 const schema = {
   name: 'get_chat',
@@ -38,7 +39,7 @@ function formatChatCard(chat, verbosity) {
   const room = chat.room || 'Não informado';
   const online = chat.online ? 'Online' : 'Offline';
   const waitingAnswer = chat.waiting_answer ? 'Sim' : 'Não';
-  const ticket = chat.ticket?.number ? `#${chat.ticket.number}` : 'Sem ticket vinculado';
+  const ticket = ticketReference(chat.ticket) || 'Sem ticket vinculado';
   const startedBy = chat.started_by || 'Não informado';
   const createdAt = chat.created_at || 'Não informado';
   const updatedAt = chat.updated_at || 'Não informado';

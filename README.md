@@ -1630,7 +1630,7 @@ Card with all relevant chat fields including:
 - Client and requestor names
 - Department and responsible attendant
 - Origin channel and room
-- Linked ticket number
+- Linked ticket (number + title, e.g. `#127 — Erro no login`); title is normalized to a single line and truncated at 150 chars; shows `Sem ticket vinculado` when no ticket is linked
 - Assessment rating (1–5) if available
 - Last client message (truncated at 150 chars)
 - Timestamps (created, updated, assumed)
@@ -1657,6 +1657,9 @@ Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de
 - `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
+**Returns:**
+Paginated list of chats. Each item includes origin, online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+
 **Example:**
 ```json
 {
@@ -1681,6 +1684,9 @@ Listar chats assumidos pelo usuário autenticado (dono da API key) com filtros o
 - `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
 - `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
+
+**Returns:**
+Paginated list of chats assumed by the authenticated user. Each item includes origin, online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
 
 **Example:**
 ```json
@@ -1708,6 +1714,9 @@ Listar todos os chats em atendimento da organização com filtros opcionais de r
 - `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
+**Returns:**
+Paginated list of all chats currently in attendance in the organization. Each item includes origin, online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+
 **Example:**
 ```json
 {
@@ -1734,6 +1743,9 @@ Listar chats arquivados (finalizados ou cancelados) com filtros opcionais de dat
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 - `finished_at_start` (string, optional): Filter chats finished on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Only applicable to archived chats
 - `finished_at_end` (string, optional): Filter chats finished on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `finished_at_start`. Only applicable to archived chats
+
+**Returns:**
+Paginated list of archived chats. Each item includes origin, canceled/assessment status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
 
 **Example:**
 ```json

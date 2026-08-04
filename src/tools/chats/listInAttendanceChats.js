@@ -10,6 +10,7 @@ const { errorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
 const { createdAtFilterSchemaProperties, paginationSchemaProperties } = require('../_shared/schemaProps');
 const { commonChatListFilters } = require('../_shared/chatFilters');
+const { ticketLine } = require('../_shared/chatTicket');
 
 const schema = {
   name: 'list_in_attendance_chats',
@@ -74,6 +75,7 @@ function formatChatItem(chat, index) {
     `   Origem: ${origin} | ${online} | Aguardando: ${waitingAnswer}\n` +
     `   Cliente: ${clientName} | Requerente: ${requestorName}\n` +
     `   Departamento: ${department}\n` +
+    ticketLine(chat.ticket) +
     `   Última mensagem: ${lastMsg}\n` +
     `   Criado em: ${createdAt}\n`
   );
