@@ -53,4 +53,30 @@ function apiFailureResponse(title, response, tail = '') {
   );
 }
 
-module.exports = { errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse };
+/**
+ * Extrai o `error_code` numerico do erro da API v2 a partir do shape real do
+ * transporte.
+ *
+ * IMPORTANTE: `TiFluxAPI._convertErrorToResponse` NAO expoe o corpo parseado em
+ * `response.data` — ele serializa o corpo bruto dentro da **string**
+ * `response.error` (ex: `Erro HTTP 403: {"error_code":40301,...}`). Logo,
+ * `response.data?.error_code` e sempre `undefined` em producao. Este helper
+ * cobre os dois caminhos: `data.error_code` (se o transporte um dia passar a
+ * expor o corpo) e o JSON embutido na mensagem de erro.
+ *
+ * @param {{error?: string, status?: number|string, data?: object}} response
+ * @returns {number|undefined} codigo numerico (ex: 40301) ou undefined
+ */
+function extractApiErrorCode(response) {
+  if (!response) return undefined;
+
+  const direct = response.data?.error_code;
+  if (typeof direct === 'number' && Number.isFinite(direct)) return direct;
+  if (typeof direct === 'string' && /^\d+$/.test(direct.trim())) return Number(direct.trim());
+
+  const text = typeof response.error === 'string' ? response.error : '';
+  const match = text.match(/"error_code"\s*:\s*"?(\d+)"?/);
+  return match ? Number(match[1]) : undefined;
+}
+
+module.exports = { errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode };

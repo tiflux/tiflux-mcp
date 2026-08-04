@@ -996,6 +996,21 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca os tipos de atendimento disponíveis para um ticket (contratos/adendos e serviços avulsos)
+   * GET /tickets/{ticket_number}/service-types
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {Object} filters - filtros opcionais: { date } (ISO YYYY-MM-DD)
+   */
+  async fetchTicketServiceTypes(ticketNumber, filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.date) params.append('date', filters.date);
+
+    const query = params.toString();
+    return await this.makeRequest(`/tickets/${ticketNumber}/service-types${query ? `?${query}` : ''}`);
+  }
+
+  /**
    * Faz upload de arquivos para um ticket existente via multipart.
    * POST /tickets/{ticket_number}/files
    *

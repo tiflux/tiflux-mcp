@@ -1393,6 +1393,28 @@ For each stage transition, the formatted output includes:
 }
 ```
 
+### get_ticket_service_types
+List the service types available for billing/valorization of an appointment on a ticket. Returns the active contract riders (with add-on number, validity, and ID) and the loose services (with ID and name) applicable on the given date. Useful for discovering which services or contracts can be referenced when creating a valued appointment.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number (e.g., "123", "456")
+- `date` (string, optional): Reference date in ISO format `YYYY-MM-DD` (default: today). Cannot be a future date.
+
+**Returns:**
+Two sections in the formatted output:
+- **📄 Contratos / Adendos vigentes** — for each `contract_rider`: contract name, add-on number (`rider_number`), validity period (`start_date` → `cancel_date`), and the add-on ID.
+- **🔧 Serviços avulsos** — for each `loose_service`: `id` + `name`.
+
+Each list can be independently empty (shows "none found" for that section); **both empty** returns an explanatory message (no contracts/services applicable for that ticket on the given date).
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "date": "2026-08-04"
+}
+```
+
 ### list_ticket_answers
 List answers (communications with the client) of a specific ticket, paginated.
 
@@ -2729,6 +2751,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /tickets/{ticket_number}/files` - Upload files to an existing ticket (`upload_ticket_files`)
 - `DELETE /tickets/{ticket_number}/files/{id}` - Remove a file attached to a ticket (`delete_ticket_file`)
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
+- `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters
 - `GET /chats/{id}` - Retrieve chat details

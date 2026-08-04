@@ -11,6 +11,9 @@ const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
+const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
+
+const RESOURCE_LABEL = 'estágios/SLAs';
 
 const schema = {
   name: 'get_ticket_stages_slas',
@@ -39,37 +42,7 @@ async function execute(args, { api, verbosity }) {
     const response = await api.fetchTicketStagesSlas(ticket_number, filters);
 
     if (response.error) {
-      const status = response.status;
-      const errorCode = response.data?.error_code;
-
-      // 403 com error codes especificos
-      if (status === 403 && errorCode === 40301) {
-        return errorResponse(
-          `**🚫 Sem permissão para acessar estágios/SLAs do ticket #${ticket_number}**\n\n` +
-          `*Seu usuário não tem permissão para esta operação. Contate o administrador.*`
-        );
-      }
-
-      if (status === 403 && errorCode === 40304) {
-        return errorResponse(
-          `**🔒 Sem licença de Tickets**\n\n` +
-          `*Seu plano TiFlux não possui licença ativa para o módulo de Tickets.*`
-        );
-      }
-
-      if (status === 404) {
-        return errorResponse(
-          `**🔍 Ticket #${ticket_number} não encontrado**\n\n` +
-          `*Verifique se o número do ticket está correto.*`
-        );
-      }
-
-      return errorResponse(
-        `**❌ Erro ao buscar estágios/SLAs do ticket #${ticket_number}**\n\n` +
-        `**Código:** ${status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique se o ticket existe e se você tem permissão para acessá-lo.*`
-      );
+      return ticketSubresourceErrorResponse(response, ticket_number, { resourceLabel: RESOURCE_LABEL });
     }
 
     const items = Array.isArray(response.data) ? response.data : [];
