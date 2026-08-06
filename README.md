@@ -137,7 +137,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets
-- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
+- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
 - **Solicitantes**: buscar, criar, atualizar e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
@@ -1780,6 +1780,33 @@ Paginated list of archived chats. Each item includes origin, canceled/assessment
 }
 ```
 
+### list_chat_messages
+Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply citado e status de entrega quando disponível. Suporta paginação offset/limit.
+
+**Parameters:**
+- `id` (number, required): Numeric ID of the chat (also accepts numeric string — the handler calls parseInt)
+- `offset` (number, optional): Page number (default: 1, minimum: 1)
+- `limit` (number, optional): Messages per page (default: 20, max: 200)
+
+**Returns:**
+Conversation transcript in Markdown. Each message includes:
+- Author + role in Portuguese (client → Cliente, attendant → Atendente, system → Sistema, ai → IA), including the name when available
+- Timestamp (`created_at`)
+- Message text (truncated at 150 chars) **or** attachment reference `[anexo: <caption> (<content_type>)]` when `media ≠ null`
+- `↩ resposta a: "<excerpt>"` when `quoted_message` is present (excerpt truncated at 80 chars)
+- Delivery status when relevant (lido / entregue / ⚠ falhou)
+
+Errors: 404 when the chat does not exist, 403 when the account lacks permission or WhatsApp license.
+
+**Example:**
+```json
+{
+  "id": 42,
+  "offset": 1,
+  "limit": 50
+}
+```
+
 ### update_chat
 Atualizar um chat existente: transferir o atendente (`user_id`), transferir o departamento (`department_id`) e/ou vincular o chat a um ticket (`ticket_number`). Só é possível atualizar um chat que **não esteja cancelado ou encerrado**.
 
@@ -2759,6 +2786,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /chats/mine` - List chats assigned to the authenticated user
 - `GET /chats/in_attendance` - List chats currently in attendance
 - `GET /chats/archived` - List archived (finished or canceled) chats
+- `GET /chats/{id}/messages` - List messages of a chat in chronological order (`list_chat_messages`)
 - `PUT /chats/{id}` - Update a chat (transfer attendant/department, link ticket)
 - `POST /chats/send_message` - Send a WhatsApp message (free text or HSM template), creating the chat
 - `PUT /chats/{id}/archive` - Finish (archive) a chat

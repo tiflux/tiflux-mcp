@@ -13,6 +13,7 @@ const slices = [
   require('./listMyChats'),
   require('./listInAttendanceChats'),
   require('./listArchivedChats'),
+  require('./listChatMessages'),
   require('./updateChat'),
   require('./sendMessage'),
   require('./archiveChat'),

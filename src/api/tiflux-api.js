@@ -1603,6 +1603,27 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista as mensagens de um chat em ordem cronológica.
+   * GET /chats/{id}/messages
+   *
+   * @param {number} id - ID do chat (obrigatório)
+   * @param {object} filters - { offset (int, default 1), limit (int, default 20, max 200) }
+   */
+  async listChatMessages(id, filters = {}) {
+    if (!id) {
+      return { error: 'id é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(filters.offset) >= 1 ? parseInt(filters.offset) : 1);
+    const limit = Math.min(200, Math.max(1, filters.limit != null ? parseInt(filters.limit) : 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    return await this.makeRequest(`/chats/${id}/messages?${params.toString()}`);
+  }
+
+  /**
    * Lista campos personalizados (entities) disponiveis na organizacao.
    *
    * @param {object} filters - { active (boolean), applied_in (string), name (string), limit (int, default 20, max 200), offset (int, default 1) }
