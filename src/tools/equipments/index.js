@@ -6,6 +6,7 @@ const TiFluxAPI = require('../../api/tiflux-api');
 
 const slices = [
   require('./listEquipments'),
+  require('./getEquipment'),
   require('./createEquipment'),
   require('./updateEquipment'),
   require('./listEquipmentSoftwares'),

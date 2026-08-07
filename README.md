@@ -145,7 +145,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
 - **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
-- **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
+- **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; exibir detalhes completos de hardware e inventário de um recurso individual (processador, memória, discos, rede, SO, fabricante, campos personalizados) via `get_equipment`; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
 - **Faturamentos**: consultar o histórico de faturamentos da organização com filtros por período de emissão, vencimento, cliente (por ID ou nome), NFe, ticket e situação (`get_billings_history`); exige permissão "Faturar serviços avulsos e contratos" e licença Tickets
@@ -2332,6 +2332,35 @@ List equipments/resources of the organization. Returns a Markdown table with ID,
 
 ---
 
+### get_equipment
+Get full details of a single equipment/resource by ID. Returns a comprehensive Markdown report including hardware inventory (processor, memory, disks, network adapters, sound, video, OS, manufacturer, antivirus, etc.), client, type, group, last contact date, acquisition/warranty dates (when set), and optional custom fields.
+
+**Note:** The detail endpoint always includes hardware inventory when the TiFlux agent is installed — no extra flags needed. Fields like `agent_email`/`agent_user` may be `null` on some machines and populated on others. The `network` adapter `ipv4` field is a comma-separated string that may contain multiple IPv4 and IPv6 addresses.
+
+**Inventory fields returned by the API** (verified against real payloads on 2026-08-07): `processor.name`; `memory.total_gb` (number, GB); `motherboard.{manufacturer,model,bios}`; `disks[].{name,size_gb,use_percent}`; `disksmart[].{model,status}`; `network[].{name,ipv4,mac}`; `printer[].{name,port,default}`; `sound[].name`; `vga[].{name,vram_mb}`; `operating_system.{name,version,kernel,service_pack}` (`kernel` carries the architecture, e.g. `"64 bits"`); `windows_update.{pending_count,has_critical_pending}`; `manufacturer.{name,model,serial}`; `antivirus[].{name,active,up_to_date}`; plus `current_user`.
+
+**Permissions:** Requires "Visualizar recursos" permission + Tickets License.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `equipment_id` | number | yes | Resource ID — use `list_equipments` to discover |
+| `show_entities` | boolean | no | Include custom fields (entities) linked to the resource (default: false) |
+
+**Returns:** Full Markdown report with all available inventory sections. Sections for empty/null inventory blocks are omitted automatically.
+
+**Example:**
+```json
+{ "equipment_id": 385053 }
+```
+
+```json
+{ "equipment_id": 385053, "show_entities": true }
+```
+
+---
+
 ### create_equipment
 Create a new equipment/resource in TiFlux.
 
@@ -2864,6 +2893,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/billings/history` - Billing history report (`get_billings_history`). Returns paginated array of billing records with `billing_id`, `billing_date`, `client_id`, `client_name`, `due_date`, `nfe_number`, `paid`, `real_value`, `reversal`. Filters: `billing_start_date`/`billing_end_date` (pair), `due_start_date`/`due_end_date` (pair), `client_id`, `nfe_number`, `ticket_number`, `_type` (billed|reversed|paid). Header `X-Total-Items` for total count. Requires "Faturar serviços avulsos e contratos" permission + Tickets license (403 code `40301` without permission, `40304` without license).
 - `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system` flags, pagination. Requires "Visualizar recursos" + Tickets License.
+- `GET /equipments/{id}` - Get full details of a single equipment/resource (`get_equipment`). Returns hardware inventory, OS, manufacturer, network, custom fields (optional). Requires "Visualizar recursos" + Tickets License.
 - `POST /equipments` - Create a new equipment/resource (`create_equipment`). Required: `name`, `client_id`, `equipment_type_id`. Optional: `equipment_group_id` (auto-assigned if omitted), `acquisition_date`, `warranty_date`.
 - `PUT /equipments/{id}` - Update an existing equipment/resource (`update_equipment`). Partial update — only provided fields are sent.
 - `GET /equipments/{id}/softwares` - List installed software on a resource (`list_equipment_softwares`). No pagination params — endpoint returns all at once.

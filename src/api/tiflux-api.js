@@ -2188,6 +2188,20 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca um equipamento/recurso especifico pelo ID.
+   * GET /equipments/{id}
+   *
+   * @param {number|string} equipmentId - ID do recurso
+   * @param {object} options - { showEntities (boolean) }
+   */
+  async getEquipment(equipmentId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.showEntities) params.append('show_entities', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return await this.makeRequest(`/equipments/${encodeURIComponent(equipmentId)}${qs}`);
+  }
+
+  /**
    * Cria um novo equipamento/recurso.
    * POST /equipments
    *
