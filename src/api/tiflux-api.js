@@ -2390,6 +2390,38 @@ class TiFluxAPI {
     return this._attachTotalItems(response);
   }
 
+  /**
+   * Lista apontamentos globais com filtros server-side.
+   * GET /appointments
+   *
+   * Guardrail BE-003: só transporte — querystring → makeRequest.
+   * Lógica de negócio (agregação, resolução de nomes) fica no slice.
+   *
+   * @param {object} filters - { user_ids, desk_ids, start_date, end_date, include_valorization, offset, limit }
+   *   user_ids: CSV de IDs (máx 15, clampado pelo slice via capIds)
+   *   desk_ids: CSV de IDs (máx 15, clampado pelo slice via capIds)
+   *   start_date: YYYY-MM-DD (obrigatório)
+   *   end_date: YYYY-MM-DD (obrigatório)
+   *   include_valorization: boolean (opt-in)
+   *   offset: nº da página (min 1, default 1)
+   *   limit: itens/pág (default 20, max 200)
+   */
+  async listAppointmentsGlobal(filters = {}) {
+    const params = new URLSearchParams();
+
+    params.append('offset', Math.max(1, parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, parseInt(filters.limit) || 20)));
+
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    if (filters.user_ids) params.append('user_ids', filters.user_ids);
+    if (filters.desk_ids) params.append('desk_ids', filters.desk_ids);
+    if (filters.include_valorization === true) params.append('include_valorization', 'true');
+
+    const response = await this.makeRequest(`/appointments?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
   async createPreTicket(data) {
     try {
       const processed = this._processAttachments(data.files, MAX_BASE64_BYTES_25MB, '25MB');

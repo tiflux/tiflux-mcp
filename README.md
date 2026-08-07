@@ -136,7 +136,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 - **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada)
-- **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets
+- **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`)
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
@@ -1638,6 +1638,69 @@ Geolocation lines (`📍 Localização: lat, lon`) are rendered when the API ret
 }
 ```
 
+### list_appointments_global
+List all appointments across all tickets for a date range with optional filters by technician and desk. Requires permission to access the global appointments endpoint. Use `list_appointments_report` for an aggregated summary by technician (N2 support report).
+
+> **Permission note:** Requires access to the `GET /appointments` endpoint. Users without the "Visualizar relatórios dos técnicos" (view_users_manage) permission may have their `user_ids` filter silently ignored by the API, receiving only their own appointments. When `user_ids` or `user_names` is provided and the API returns data, the tool emits an advisory note about this behavior. Non-admin users may receive `403` if the route itself is blocked at the permission level.
+
+**Parameters:**
+- `start_date` (string, required): Start date of the period (`YYYY-MM-DD`)
+- `end_date` (string, required): End date of the period (`YYYY-MM-DD`)
+- `user_ids` (string, optional): Comma-separated technician IDs (max 15). Use `user_names` for name-based resolution.
+- `user_names` (string, optional): Comma-separated technician names for automatic resolution (alternative to `user_ids`). Ambiguity returns a disambiguation list.
+- `desk_ids` (string, optional): Comma-separated desk IDs (max 15). Use `desk_names` for name-based resolution.
+- `desk_names` (string, optional): Comma-separated desk names for automatic resolution (alternative to `desk_ids`).
+- `include_valorization` (boolean, optional): Include valorization data (attendance type, value). Default: `false`.
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+**Returns:**
+Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, desk, ticket number and title, description (truncated at 120 chars), and valorization summary (attendance type + value) when present.
+
+**Example:**
+```json
+{
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-31",
+  "user_ids": "123,456",
+  "desk_ids": "85",
+  "limit": 50
+}
+```
+
+### list_appointments_report
+Generate an aggregated N2 support report: count and total hours per technician for a date range, with optional desk sub-breakdown and grand totals. Ideal for recurring N2 support metrics (how many times and how many hours each N2 technician assisted others in a period).
+
+> **Permission note:** Same as `list_appointments_global`. Non-admin users without route-level permission receive a `403` error.
+
+**Parameters:**
+- `start_date` (string, required): Start date of the period (`YYYY-MM-DD`)
+- `end_date` (string, required): End date of the period (`YYYY-MM-DD`)
+- `user_ids` (string, optional): Comma-separated N2 technician IDs (max 15). Use `user_names` for name-based resolution.
+- `user_names` (string, optional): Comma-separated N2 technician names for automatic resolution.
+- `desk_ids` (string, optional): Comma-separated desk IDs (max 15) to enable desk sub-breakdown in the report. Use `desk_names` for name-based resolution.
+- `desk_names` (string, optional): Comma-separated desk names for automatic resolution (enables desk sub-breakdown).
+- `include_valorization` (boolean, optional): Include total value per technician (and per desk when breakdown enabled). Default: `false`.
+
+**Returns:**
+Markdown report with:
+- Global totals: total appointments count, total hours
+- Per-technician section (sorted by appointment count desc): appointment count, total hours, total value (when `include_valorization=true`)
+- Desk sub-breakdown per technician (shown only when `desk_ids`/`desk_names` provided): count + hours per desk
+- Footer with real-time data notice
+
+The report paginates through all available data automatically (no `offset`/`limit` needed — all pages are fetched internally before aggregating).
+
+**Example:**
+```json
+{
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-31",
+  "user_names": "Fernando N2, Peterson N2",
+  "desk_names": "Suporte - Dúvidas"
+}
+```
+
 ## Chats
 
 ### get_chat
@@ -2780,6 +2843,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
 - `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
+- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters
 - `GET /chats/{id}` - Retrieve chat details
 - `GET /chats/inbox` - List inbox chats

@@ -7,7 +7,9 @@ const TiFluxAPI = require('../../api/tiflux-api');
 // Ordem preservada do handler legado: create primeiro, list depois.
 const slices = [
   require('./createAppointment'),
-  require('./listAppointments')
+  require('./listAppointments'),
+  require('./listAppointmentsGlobal'),
+  require('./listAppointmentsReport')
 ];
 
 class AppointmentTools {
