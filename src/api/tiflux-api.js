@@ -1011,6 +1011,21 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista os deslocamentos disponíveis para um ticket
+   * GET /tickets/{ticket_number}/shifts
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {Object} filters - filtros opcionais: { contract_id } (integer)
+   */
+  async fetchTicketShifts(ticketNumber, filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.contract_id !== undefined) params.append('contract_id', filters.contract_id);
+
+    const query = params.toString();
+    return await this.makeRequest(`/tickets/${ticketNumber}/shifts${query ? `?${query}` : ''}`);
+  }
+
+  /**
    * Faz upload de arquivos para um ticket existente via multipart.
    * POST /tickets/{ticket_number}/files
    *

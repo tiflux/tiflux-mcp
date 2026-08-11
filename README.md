@@ -1415,6 +1415,29 @@ Each list can be independently empty (shows "none found" for that section); **bo
 }
 ```
 
+### get_ticket_shifts
+List the displacements (travel/visit) available for valorization of an appointment on a ticket. Displacement is a valorization component representing the travel cost to the client. Useful for discovering which displacements can be referenced when creating a valued appointment. Sister tool of `get_ticket_service_types`.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number (e.g., "98875", "123")
+- `contract_id` (number, optional): Contract ID (positive integer) to filter displacements linked to a specific contract. Omit to return all displacements applicable to the ticket. A non-integer value fails locally with a clear message, without calling the API.
+
+**Returns:**
+List of available displacements. Each displacement includes:
+- `name` and `id`
+- `reference` scope label (All = generic for all clients/contracts; Client = exclusive to the client; Contract = exclusive to the contract; Shared = group of contracts)
+- Linked `contract` or `client` when present (not shown for generic "All" items)
+
+Empty result returns a friendly explanatory message.
+
+**Example:**
+```json
+{
+  "ticket_number": "98875",
+  "contract_id": 88558
+}
+```
+
 ### list_ticket_answers
 List answers (communications with the client) of a specific ticket, paginated.
 
@@ -2871,6 +2894,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `DELETE /tickets/{ticket_number}/files/{id}` - Remove a file attached to a ticket (`delete_ticket_file`)
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
 - `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services)
+- `GET /tickets/{ticket_number}/shifts` - List displacements available for valorization of a ticket appointment (travel/visit costs, filterable by contract_id)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters
