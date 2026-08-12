@@ -1,6 +1,7 @@
 /**
  * Tratamento de erro compartilhado pelos slices de sub-recurso de ticket
- * (`GET /tickets/{ticket_number}/<sub-recurso>`).
+ * (`/tickets/{ticket_number}/<sub-recurso>` — leitura e escrita; o verbo exibido
+ * nas mensagens vem de `options.action`, default "buscar").
  *
  * Os endpoints de sub-recurso de ticket compartilham exatamente a mesma
  * taxonomia de erro (403 com `error_code` 40301/40304, 404 de ticket
@@ -24,9 +25,16 @@ const ERROR_CODE_NO_TICKETS_LICENSE = 40304;
  * @param {object} options
  * @param {string} options.resourceLabel - rotulo do sub-recurso (ex: "tipos de atendimento", "estágios/SLAs")
  * @param {string} [options.validationHint] - dica exibida em 422; quando ausente, 422 cai no ramo generico
+ * @param {string} [options.action='buscar'] - verbo da operacao usado nas mensagens de 422 e generica.
+ *   Default "buscar" (leitura); slices de escrita passam "atualizar" para a mensagem nao mentir
+ *   sobre o que falhou (um PUT nao "busca" nada).
  * @returns {{content: Array, isError: true}} resposta MCP de erro
  */
-function ticketSubresourceErrorResponse(response, ticketNumber, { resourceLabel, validationHint = '' } = {}) {
+function ticketSubresourceErrorResponse(
+  response,
+  ticketNumber,
+  { resourceLabel, validationHint = '', action = 'buscar' } = {}
+) {
   const status = response?.status;
   const errorCode = extractApiErrorCode(response);
 
@@ -53,14 +61,14 @@ function ticketSubresourceErrorResponse(response, ticketNumber, { resourceLabel,
 
   if (status === 422 && validationHint) {
     return errorResponse(
-      `**⚠️ Parâmetro inválido ao buscar ${resourceLabel} do ticket #${ticketNumber}**\n\n` +
+      `**⚠️ Parâmetro inválido ao ${action} ${resourceLabel} do ticket #${ticketNumber}**\n\n` +
       `${validationHint}\n\n` +
       `**Mensagem:** ${response?.error}`
     );
   }
 
   return errorResponse(
-    `**❌ Erro ao buscar ${resourceLabel} do ticket #${ticketNumber}**\n\n` +
+    `**❌ Erro ao ${action} ${resourceLabel} do ticket #${ticketNumber}**\n\n` +
     `**Código:** ${status}\n` +
     `**Mensagem:** ${response?.error}\n\n` +
     `*Verifique se o ticket existe e se você tem permissão para acessá-lo.*`

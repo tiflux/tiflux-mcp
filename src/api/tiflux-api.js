@@ -297,6 +297,33 @@ class TiFluxAPI {
   }
 
   /**
+   * Preenche ou limpa um campo de checklist de ticket.
+   * PUT /tickets/{ticket_number}/checklists/{id}/items/{index}
+   *
+   * Só transporte — monta headers + makeRequest PUT (guardrail BE-003).
+   * Montagem de value/options é responsabilidade do slice.
+   *
+   * @param {string|number} ticketNumber
+   * @param {string|number} checklistId
+   * @param {number} index
+   * @param {object} body - { value } ou { options: [{id, checked}] }
+   */
+  async updateTicketChecklistItem(ticketNumber, checklistId, index, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+
+    return await this.makeRequest(
+      `/tickets/${ticketNumber}/checklists/${checklistId}/items/${index}`,
+      'PUT',
+      jsonData,
+      headers
+    );
+  }
+
+  /**
    * Cancela um ticket específico
    */
   async cancelTicket(ticketNumber) {

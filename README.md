@@ -1439,7 +1439,7 @@ Empty result returns a friendly explanatory message.
 ```
 
 ### get_ticket_checklists
-List the checklists (forms) of a ticket, with all fields and their fill state. Useful for understanding which fields are pending and **why a ticket cannot be closed** — a checklist with `pending: true` means there is a required unfilled field blocking closure. Each field shows its `index` (the only way to reference it for writing), type, whether it is required, fill state, and the value or options depending on the field type.
+List the checklists (forms) of a ticket, with all fields and their fill state. Useful for understanding which fields are pending and **why a ticket cannot be closed** — a checklist with `pending: true` means there is a required unfilled field blocking closure. Each field shows its `index` (the only way to reference it for writing), type, whether it is required, fill state, and the value or options depending on the field type. **Option ids for `checkbox` and `radio` fields are exposed in the output** so they can be used directly in `update_ticket_checklist_item`.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number (e.g., "98875", "123")
@@ -1457,8 +1457,8 @@ Per field (`fields[]`):
 - Visual marker for required-but-unfilled fields (blocks ticket closure)
 - Value/options by type:
   - `text` / `textarea` / `value`: shows the filled value or "— vazio —"
-  - `radio`: shows the chosen option resolved from `options[]` (type-tolerant id comparison)
-  - `checkbox`: lists all options marking which are checked (☑) and which are not (☐)
+  - `radio`: shows the chosen option and lists all available options with their ids (e.g., `[id: 2] Média`) for use in `update_ticket_checklist_item`
+  - `checkbox`: lists all options with their ids and marks which are checked (☑ `[id: a] E-mail`) and which are not (☐ `[id: b] VPN`); `id: null` is also displayed (it is addressable via the API)
 
 **Example:**
 ```json
@@ -1470,6 +1470,52 @@ Per field (`fields[]`):
 ```
 
 Empty result (no checklists) returns a friendly explanatory message. A ticket without checklists can be closed normally.
+
+### update_ticket_checklist_item
+Fill or clear a single checklist field for a ticket. One field per call (1:1 with the API). Use `get_ticket_checklists` first to obtain `checklist_id`, `index`, and the option ids for `checkbox`/`radio` fields.
+
+**Important constraints:**
+- Checklists without an `id` (not originated from a template) cannot be updated.
+- Fields of a closed ticket cannot be updated.
+- The payload is mutually exclusive: send either `value` OR `options`, never both.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number (e.g., "98875")
+- `checklist_id` (number, required): Checklist id as returned by `get_ticket_checklists`
+- `index` (number, required): Field position within the checklist (from `get_ticket_checklists`)
+- `value` (string | number | null, optional): Value to fill. Use for `text`, `textarea`, `value` fields (any string/number) and `radio` (the option id). Send `null` to clear any field type. Mutually exclusive with `options`.
+- `options` (array, optional): For `checkbox` fields only. Array of `{ id, checked }` — send only the options you want to change; others remain unchanged. Use the ids from `get_ticket_checklists`. Mutually exclusive with `value`.
+
+**Payload by field type:**
+
+| Field type | Payload |
+|------------|---------|
+| `text` / `textarea` / `value` | `{ "value": "text content" }` |
+| `radio` | `{ "value": "<option_id>" }` (id from `get_ticket_checklists`) |
+| `checkbox` | `{ "options": [{ "id": "<option_id>", "checked": true }] }` |
+| Clear any field | `{ "value": null }` |
+
+**Examples:**
+```json
+// Fill a text field
+{ "ticket_number": "98875", "checklist_id": 2, "index": 0, "value": "Client notified" }
+
+// Select a radio option
+{ "ticket_number": "98875", "checklist_id": 2, "index": 3, "value": "2" }
+
+// Mark checkbox options
+{ "ticket_number": "98875", "checklist_id": 2, "index": 4, "options": [{ "id": "a", "checked": true }, { "id": "b", "checked": false }] }
+
+// Clear any field
+{ "ticket_number": "98875", "checklist_id": 2, "index": 1, "value": null }
+```
+
+**Returns:** The updated checklist with all fields and their new state, plus the `pending` status of the checklist (whether it still blocks ticket closure).
+
+**Errors:**
+- `404`: Ticket or checklist not found
+- `422`: Attribute incompatible with field type (e.g., `value` sent to a `checkbox` field — use `options` instead)
+- `403`: No permission or no Tickets license
 
 ### list_ticket_answers
 List answers (communications with the client) of a specific ticket, paginated.
@@ -2929,6 +2975,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services)
 - `GET /tickets/{ticket_number}/shifts` - List displacements available for valorization of a ticket appointment (travel/visit costs, filterable by contract_id)
 - `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
+- `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters

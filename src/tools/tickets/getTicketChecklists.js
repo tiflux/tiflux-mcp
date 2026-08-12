@@ -24,7 +24,8 @@ const schema = {
     'Listar os checklists (formulários) de um ticket, com todos os campos e estado de preenchimento. ' +
     'Útil para entender quais campos estão pendentes e por que o ticket não fecha — um checklist com ' +
     '`pending: true` significa que há campo obrigatório em branco bloqueando o fechamento. ' +
-    'Cada campo exibe `index` (a única forma de referenciá-lo), tipo, obrigatoriedade, estado de preenchimento e valor/opções.',
+    'Cada campo exibe `index` (a única forma de referenciá-lo), tipo, obrigatoriedade, estado de preenchimento e valor/opções. ' +
+    'Os ids das opções de campos `checkbox` e `radio` são exibidos na saída para uso direto em `update_ticket_checklist_item`.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -112,8 +113,17 @@ function formatField(field) {
     const valLabel = val !== null ? `\`${val}\`` : '*— vazio —*';
     line += `    Valor: ${valLabel}\n`;
   } else if (type === 'radio') {
-    const chosen = resolveRadioOption(field.value, field.options);
+    const opts = Array.isArray(field.options) ? field.options : [];
+    const chosen = resolveRadioOption(field.value, opts);
     line += `    Opção escolhida: ${chosen !== null ? chosen : '*— nenhuma —*'}\n`;
+    if (opts.length > 0) {
+      line += `    Opções disponíveis (id → descrição):\n`;
+      opts.forEach(opt => {
+        const idLabel = opt.id === null || opt.id === undefined ? 'null' : String(opt.id);
+        const desc = opt.description || String(opt.id);
+        line += `      [id: ${idLabel}] ${desc}\n`;
+      });
+    }
   } else if (type === 'checkbox') {
     const opts = Array.isArray(field.options) ? field.options : [];
     if (opts.length === 0) {
@@ -123,7 +133,8 @@ function formatField(field) {
       opts.forEach(opt => {
         const checked = opt.value === true ? '☑' : '☐';
         const desc = opt.description || String(opt.id);
-        line += `      ${checked} ${desc}\n`;
+        const idLabel = opt.id === null || opt.id === undefined ? 'null' : String(opt.id);
+        line += `      ${checked} [id: ${idLabel}] ${desc}\n`;
       });
     }
   }
@@ -219,4 +230,4 @@ async function execute(args, { api, verbosity }) {
   }
 }
 
-module.exports = { name: schema.name, schema, execute, _formatChecklistsList: formatChecklistsList };
+module.exports = { name: schema.name, schema, execute, _formatChecklistsList: formatChecklistsList, _formatField: formatField };
