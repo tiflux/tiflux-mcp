@@ -1026,6 +1026,37 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista os checklists (formularios) de um ticket.
+   * GET /tickets/{ticket_number}/checklists?offset&limit
+   *
+   * Anexa response.total a partir do header X-Total-Items (padrao listEquipments).
+   * Clamp de offset/limit identico aos demais metodos paginados (offset >= 1, limit 1..200).
+   * Sem logica de negocio — so transporte (guardrail BE-003).
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {object} filters - { offset, limit }
+   */
+  async fetchTicketChecklists(ticketNumber, filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit, 10) || 20));
+    const offset = Math.max(1, parseInt(filters.offset, 10) || 1);
+
+    params.append('offset', offset);
+    params.append('limit', limit);
+
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/checklists?${params.toString()}`);
+
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
    * Faz upload de arquivos para um ticket existente via multipart.
    * POST /tickets/{ticket_number}/files
    *

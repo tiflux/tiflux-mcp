@@ -34,6 +34,7 @@ const slices = [
   require('./getTicketStagesSlas'),
   require('./getTicketServiceTypes'),
   require('./getTicketShifts'),
+  require('./getTicketChecklists'),
   require('./listTicketAnswers'),
   require('./getTicketAnswer'),
   require('./getTicketHistories'),

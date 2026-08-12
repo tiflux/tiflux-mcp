@@ -1438,6 +1438,39 @@ Empty result returns a friendly explanatory message.
 }
 ```
 
+### get_ticket_checklists
+List the checklists (forms) of a ticket, with all fields and their fill state. Useful for understanding which fields are pending and **why a ticket cannot be closed** — a checklist with `pending: true` means there is a required unfilled field blocking closure. Each field shows its `index` (the only way to reference it for writing), type, whether it is required, fill state, and the value or options depending on the field type.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number (e.g., "98875", "123")
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Checklists per page (default: 20, max: 200)
+
+**Returns:**
+Per checklist:
+- Name, description, `required` (informational — whether the checklist is required for the client/catalog item), `pending` (whether a required field is missing — this blocks closure), creation and update dates.
+
+Per field (`fields[]`):
+- `index`: the positional reference for the field (the only identifier — not persistent across changes)
+- `title`, `type` (`text`, `textarea`, `value`, `radio`, `checkbox`)
+- Whether it is required and whether it is filled
+- Visual marker for required-but-unfilled fields (blocks ticket closure)
+- Value/options by type:
+  - `text` / `textarea` / `value`: shows the filled value or "— vazio —"
+  - `radio`: shows the chosen option resolved from `options[]` (type-tolerant id comparison)
+  - `checkbox`: lists all options marking which are checked (☑) and which are not (☐)
+
+**Example:**
+```json
+{
+  "ticket_number": "98875",
+  "offset": 1,
+  "limit": 20
+}
+```
+
+Empty result (no checklists) returns a friendly explanatory message. A ticket without checklists can be closed normally.
+
 ### list_ticket_answers
 List answers (communications with the client) of a specific ticket, paginated.
 
@@ -2895,6 +2928,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
 - `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services)
 - `GET /tickets/{ticket_number}/shifts` - List displacements available for valorization of a ticket appointment (travel/visit costs, filterable by contract_id)
+- `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters
