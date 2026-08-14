@@ -5,11 +5,13 @@
  * o caller pode querer criar um solicitante novo. Apenas N matches e erro
  * (precisa desambiguar).
  *
- * Cascata de resolucao (graceful degradation por permissao):
- *   1. GET /requestors (global) — funciona para admin / atendente com permissao global.
- *   2. Se 403 e houver clientId: GET /clients/{clientId}/requestors (escopado) —
- *      pode estar acessivel a atendentes com permissao naquele cliente.
- *   3. Se ainda 403 (ou sem clientId): NAO e erro — retorna requestorId: null para
+ * Cascata de resolucao (escopado-primeiro quando clientId disponivel):
+ *   1. Com clientId: GET /clients/{clientId}/requestors (escopado) — resultados ja pertencem
+ *      ao cliente correto, eliminando a causa do ticket #98515.
+ *   2. Se 403 na escopada OU sem clientId: GET /requestors (global).
+ *      Quando ha clientId e o resultado vem da rota global, descartar matches cujo
+ *      client.id !== clientId (a view index_all expoe client: { id, name }).
+ *   3. Se ainda 403 (ambas as rotas): NAO e erro — retorna requestorId: null para
  *      que o caller siga com requestor_name cru (a API resolve/cria o solicitante).
  *
  * Retorno:
@@ -34,25 +36,37 @@ const { errorResponse } = require('./errors');
 /**
  * Miolo compartilhado da resolucao de solicitante (por nome OU por e-mail).
  *
- * Cascata: busca global GET /requestors → fallback escopado GET /clients/{id}/requestors
- * em 403 → 0/1/N matches. 0 matches NAO e erro fatal (retorna requestorId: null);
+ * Cascata: escopado GET /clients/{id}/requestors (quando clientId disponivel) →
+ * global GET /requestors como fallback (403 ou sem clientId) →
+ * 0/1/N matches. 0 matches NAO e erro fatal (retorna requestorId: null);
  * N matches e erro (precisa desambiguar).
  *
  * @param {object} api - instancia de TiFluxAPI
  * @param {object} filter - { name } ou { email } — o filtro de busca repassado a API
- * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
+ * @param {number|string} [clientId] - cliente do ticket; habilita resolucao escopada (escopado-primeiro)
  * @param {{ term: string, label: string }} desc - termo e rotulo para mensagens de erro
  * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
  */
 async function resolveRequestor(api, filter, clientId, desc) {
   const searchFilter = { ...filter, limit: 10 };
 
-  let userSearchResponse = await api.searchRequestors(searchFilter);
+  let userSearchResponse;
+  let usedGlobalFallback = false;
 
-  // Fallback atendente: /requestors global e admin-only (403). Com clientId, tenta
-  // a rota escopada por cliente (clientes ja vem filtrados pela permissao do atendente).
-  if (userSearchResponse.status === 403 && clientId) {
+  if (clientId) {
+    // Escopado-primeiro: busca dentro do cliente do ticket.
+    // Resultados ja pertencem ao cliente correto — elimina a causa do #98515.
     userSearchResponse = await api.searchClientRequestors(clientId, searchFilter);
+
+    if (userSearchResponse.status === 403) {
+      // Atendente sem permissao na rota escopada: cai no global.
+      userSearchResponse = await api.searchRequestors(searchFilter);
+      usedGlobalFallback = true;
+    }
+  } else {
+    // Sem clientId: apenas a rota global (comportamento preservado).
+    userSearchResponse = await api.searchRequestors(searchFilter);
+    usedGlobalFallback = true;
   }
 
   // Sem permissao para resolver (403 mesmo apos fallback): NAO e erro fatal — o caller
@@ -73,6 +87,16 @@ async function resolveRequestor(api, filter, clientId, desc) {
   }
 
   let requestors = userSearchResponse.data || [];
+
+  // Quando o resultado veio da rota global e ha clientId: descartar matches cujo
+  // client.id !== clientId. A view index_all expoe client: { id, name }.
+  // Match descartado por cliente cai no caminho de 0-match (requestorId: null),
+  // que deixa a API criar o solicitante no cliente correto ao receber o valor cru.
+  if (usedGlobalFallback && clientId) {
+    requestors = requestors.filter(
+      (r) => r.client && Number(r.client.id) === Number(clientId)
+    );
+  }
 
   // Guard de correspondencia exata para e-mail: a API filtra e-mail como busca ampla
   // (mesma semantica de "nome"), entao um unico resultado pode ser substring — "a@b.com"
@@ -120,7 +144,9 @@ async function resolveRequestor(api, filter, clientId, desc) {
  *
  * @param {object} api - instancia de TiFluxAPI
  * @param {string} requestorName - nome (parcial ou exato) do solicitante
- * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
+ * @param {number|string} [clientId] - cliente do ticket; habilita resolucao escopada-primeiro
+ *   (GET /clients/{id}/requestors); fallback global em 403 (GET /requestors); descarta matches
+ *   cujo client.id !== clientId quando o resultado vier da rota global.
  * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
  */
 async function resolveRequestorName(api, requestorName, clientId) {
@@ -133,7 +159,9 @@ async function resolveRequestorName(api, requestorName, clientId) {
  *
  * @param {object} api - instancia de TiFluxAPI
  * @param {string} requestorEmail - e-mail (exato) do solicitante
- * @param {number|string} [clientId] - cliente do ticket; habilita o fallback escopado em 403
+ * @param {number|string} [clientId] - cliente do ticket; habilita resolucao escopada-primeiro
+ *   (GET /clients/{id}/requestors); fallback global em 403 (GET /requestors); descarta matches
+ *   cujo client.id !== clientId quando o resultado vier da rota global.
  * @returns {Promise<{error: boolean, requestorId?: number|null, requestor?: object, response?: object}>}
  */
 async function resolveRequestorEmail(api, requestorEmail, clientId) {

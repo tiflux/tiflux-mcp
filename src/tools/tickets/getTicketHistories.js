@@ -14,7 +14,7 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'get_ticket_histories',
-  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados. Filtros opcionais: history_of (área), type_id_attr, operation (só com history_of=1 para apontamentos)',
+  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados. history_of é obrigatório: 0 = histórico de estágios, 1 = histórico de apontamentos. Filtro operation só é considerado quando history_of=1.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -25,18 +25,20 @@ const schema = {
       ...paginationSchemaProperties(),
       history_of: {
         type: 'integer',
-        description: 'Filtrar por área do ticket (ex: 1 = apontamentos)'
+        enum: [0, 1],
+        description: 'Área do histórico a consultar (obrigatório): 0 = histórico de estágios, 1 = histórico de apontamentos'
       },
       type_id_attr: {
         type: 'integer',
         description: 'Filtrar por tipo de atributo'
       },
       operation: {
-        type: 'integer',
-        description: 'Filtrar por tipo de operação — somente válido quando history_of=1'
+        type: 'string',
+        enum: ['created', 'updated', 'deleted'],
+        description: 'Filtrar por tipo de operação — somente válido quando history_of=1 (apontamentos)'
       }
     },
-    required: ['ticket_number']
+    required: ['ticket_number', 'history_of']
   }
 };
 
@@ -102,6 +104,7 @@ async function execute(args, { api, verbosity }) {
   const { ticket_number, offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
 
   requireField(args, 'ticket_number');
+  requireField(args, 'history_of');
 
   try {
     const response = await api.getTicketHistories(ticket_number, {

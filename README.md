@@ -1156,25 +1156,26 @@ Get full details of a requestor of a client by ID (`GET /clients/{id}/requestors
 ```
 
 ### create_requestor
-Create a new requestor in a client (`POST /clients/{id}/requestors`). Required fields: `client_id`, `name`, `telephone`. Other fields are optional and only sent if provided.
+Create a new requestor in a client (`POST /clients/{id}/requestors`). Required fields: `client_id`, `name`, `email`. Other fields are optional and only sent if provided.
+
+> **Note:** `telephone` is optional here. When it comes to ticket creation, field requirements may differ — they depend on the desk's `required_fields` (see `GET /desks/{id}`), not on the requestor registration endpoint.
 
 **Parameters:**
 - `client_id` (number, required): Client to link the requestor to
 - `name` (string, required): Requestor name
-- `telephone` (string, required): Requestor phone (digits only)
-- `email` (string, optional): Requestor email
+- `email` (string, required): Requestor email
+- `telephone` (string, optional): Requestor phone. If provided, must be a valid number — do not send an empty string (causes 422)
 - `can_open_ticket` (boolean, optional): Whether the requestor can open tickets by email
 - `extension` (string, optional): Requestor extension
 - `country` (string, optional): Requestor country
 
-**Returns:** The created requestor's id, name, email, and telephone.
+**Returns:** The created requestor's id, name, email, and telephone (if provided).
 
 **Example:**
 ```json
 {
   "client_id": 123,
   "name": "João Silva",
-  "telephone": "47999999999",
   "email": "joao@empresa.com"
 }
 ```
@@ -1599,11 +1600,11 @@ List the event history (timeline) of a ticket, showing field changes, stage tran
 
 **Parameters:**
 - `ticket_number` (integer, required): Ticket number to retrieve history for
+- `history_of` (integer, required): History area to query — `0` = stage history, `1` = appointment history
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Events per page (default: 20, max: 200)
-- `history_of` (integer, optional): Filter by ticket area (e.g., `1` = appointments)
 - `type_id_attr` (integer, optional): Filter by attribute type
-- `operation` (integer, optional): Filter by operation type — only valid when `history_of=1`
+- `operation` (string, optional): Filter by operation type (`"created"`, `"updated"`, `"deleted"`) — only considered when `history_of=1`
 
 **Returns:**
 For each event:
@@ -1614,7 +1615,7 @@ For each event:
 ```json
 {
   "ticket_number": 123,
-  "history_of": 1
+  "history_of": 0
 }
 ```
 
@@ -2941,8 +2942,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /clients/{client_id}/contacts/{id}` - Get a specific contact of a client (`get_client_contact`)
 - `PUT /clients/{client_id}/contacts/{id}` - Update a contact of a client (`update_client_contact`)
 - `DELETE /clients/{client_id}/contacts/{id}` - Remove a contact from a client (`delete_client_contact`)
-- `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name` auto-resolve in `create_ticket` and `update_ticket`). Admin/global permission required — returns 403 for non-admin attendants, handled by the client-scoped fallback below.
-- `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`; automatic fallback for `search_requestor`, `create_ticket`, and `update_ticket` (name resolution) when `GET /requestors` returns 403 (attendant with permission on that client).
+- `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name`/`requestor_email` auto-resolve in `create_ticket` and `update_ticket`). Used as fallback when the client-scoped route returns 403 or when no `client_id` is available.
+- `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`. **Primary route** for `requestor_name`/`requestor_email` auto-resolve in `create_ticket` and `update_ticket` when `client_id` is known (scoped-first since v2.37.0, eliminates ticket #98515 class of bug). Falls back to global `GET /requestors` on 403.
 - `GET /clients/{client_id}/requestors/{id}` - Get a single requestor of a client (`get_requestor`; `include_entity_fields` for custom fields).
 - `POST /clients/{client_id}/requestors` - Create a requestor in a client (`create_requestor`).
 - `PUT /clients/{client_id}/requestors/{id}` - Update a requestor (`update_requestor`, partial).

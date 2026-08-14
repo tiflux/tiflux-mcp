@@ -34,7 +34,9 @@ const schema = {
 
 **Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_name se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa que vai abrir o ticket, use requestor_name ou requestor_email.
 
-**Solicitante (requestor):** o vinculo canonico e o requestor_id (solicitante cadastrado no cliente). O MCP resolve automaticamente requestor_email e requestor_name para requestor_id quando o cadastro existe — prioridade: requestor_id > requestor_email > requestor_name. Se encontrar mais de um match, retorna lista para desambiguacao. Se nao encontrar, usa o email/nome cru (a API resolve/cria). Prefira fornecer requestor_id quando ja o tiver.`,
+**Solicitante (requestor):** o vinculo canonico e o requestor_id (solicitante cadastrado no cliente). O MCP resolve automaticamente requestor_email e requestor_name para requestor_id quando o cadastro existe — prioridade: requestor_id > requestor_email > requestor_name. Se encontrar mais de um match, retorna lista para desambiguacao. Se nao encontrar, usa o email/nome cru (a API resolve/cria). Prefira fornecer requestor_id quando ja o tiver.
+
+**Obrigatoriedade de dados do solicitante:** a obrigatoriedade de campos adicionais do solicitante (ex: telephone) na abertura de ticket nao vem do cadastro de solicitante — vem de required_fields da mesa (GET /desks/{id}). Consulte a mesa antes de exigir campos nao declarados aqui como obrigatorios.`,
   inputSchema: {
     type: 'object',
     properties: {
