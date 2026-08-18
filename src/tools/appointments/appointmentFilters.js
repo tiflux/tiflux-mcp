@@ -20,6 +20,26 @@ const { resolveDeskName } = require('../_shared/deskResolver');
 const PARAM_HINT = '*Verifique os parâmetros (start_date/end_date obrigatórios, desk_ids deve ser numérico).*';
 
 /**
+ * Mapeamento de tipo de atendimento (string da API → label PT-BR).
+ * Consumido por listAppointments e listAppointmentsGlobal (unicos slices que renderizam
+ * o rotulo de atendimento hoje).
+ * Dedupe: antes cada slice mantinha copia local.
+ */
+const ATTENDANCE_LABELS = {
+  External: 'Externo',
+  Remote: 'Remoto',
+  Internal: 'Interno'
+};
+
+/**
+ * Mapeamento de tipo de servico (string da API → label PT-BR).
+ */
+const ATTENDANCE_KIND_LABELS = {
+  Contract: 'Contrato',
+  Loose: 'Avulso'
+};
+
+/**
  * Propriedades de schema comuns as tools de apontamentos globais.
  * Cada slice pode sobrescrever a `description` de um campo passando
  * `{ <campo>: 'nova descricao' }` — o resto herda o texto padrao.
@@ -169,6 +189,8 @@ function appointmentsApiErrorResponse(response, failureTitle) {
 }
 
 module.exports = {
+  ATTENDANCE_LABELS,
+  ATTENDANCE_KIND_LABELS,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,

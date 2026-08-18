@@ -1685,26 +1685,53 @@ Remove an internal communication from a ticket in Tiflux.
 
 ## Appointments (Time Tracking)
 
-> **Disclaimer:** Creating appointments (`create_appointment`) is only supported for tickets on desks configured with non-valued appointments. Listing appointments (`list_appointments`) works for any desk and renders valorization details when available.
-
 ### create_appointment
-Create a new appointment (work-hour record) on a specific ticket. Only works on tickets from desks configured with non-valued appointments.
+Create a new appointment (work-hour record) on a specific ticket. Supports both non-valued (simple) and valued appointments (attended externally/remotely/internally, with contract or loose service billing, optional travel shift, guarantee flag, and manual value).
 
-**Parameters:**
+**Parameters (required):**
 - `ticket_number` (string, required): Ticket number where the appointment will be created
 - `date` (string, required): Appointment date in `YYYY-MM-DD` format. Future dates are not allowed.
 - `init_time` (string, required): Start time in `HH:MM` format (e.g. `"09:00"`, `"14:30"`)
 - `end_time` (string, required): End time in `HH:MM` format. Must be greater than or equal to `init_time`.
 - `description` (string, required): Description of the work performed
 
-**Example:**
+**Parameters (valorization — required for desks with valorization enabled):**
+- `attendance` (integer, optional): Attendance type: `1` = External (presencial), `2` = Remote, `3` = Internal. Required on desks with valorization.
+- `attendance_kind` (integer, optional): Service type: `1` = Loose (avulso), `2` = Contract. Required on desks with valorization.
+- `contract_rider_id` (integer, optional): Contract add-on ID. Required when `attendance_kind=2`. Use `contract_name` to resolve by name.
+- `loose_service_id` (integer, optional): Loose service ID. Required when `attendance_kind=1`. Use `loose_service_name` to resolve by name.
+- `shift_id` (integer, optional): Travel/displacement ID (visit cost). Only with `attendance=1`. Exclusive with `shift_owner_ticket_number`. Use `shift_name` to resolve by name.
+- `shift_owner_ticket_number` (integer, optional): Ticket number of another open ticket from the same client that already has the travel cost charged (carona). Only with `attendance=1`. Exclusive with `shift_id`.
+- `guarantee` (boolean, optional): Guarantee appointment — value forced to zero, does not bill. Cannot be used together with `value`.
+- `value` (number, optional): Manual value (0–9999999.99). Only with `attendance_kind=1`. If omitted, calculated automatically. Cannot be used with `attendance_kind=2` or `guarantee=true`.
+- `external_user_name` (string, optional): Name of the executor in an external tool (max 255 chars, no `<` or `>`). Valid on any desk type.
+
+**Name resolution parameters (Smart Name Resolution):**
+- `shift_name` (string, optional): Partial shift/displacement name — resolves to `shift_id`. Preference: `shift_id` wins if both given.
+- `loose_service_name` (string, optional): Partial loose service name — resolves to `loose_service_id`. Preference: `loose_service_id` wins if both given.
+- `contract_name` (string, optional): Partial contract name — resolves to `contract_rider_id`. Preference: `contract_rider_id` wins if both given.
+
+**Cross-field rules (validated locally before API call):**
+- `attendance_kind=1` (Loose) requires `loose_service_id`; rejects `contract_rider_id`
+- `attendance_kind=2` (Contract) requires `contract_rider_id`; rejects `loose_service_id` and `value`
+- `shift_id` and `shift_owner_ticket_number` are mutually exclusive (never both)
+- `shift_id` or `shift_owner_ticket_number` requires `attendance=1` (External)
+- `value` requires an explicit `attendance_kind=1` (rejected when `attendance_kind` is omitted)
+- `guarantee=true` rejects `value`
+- `external_user_name` max 255 chars, no `<` or `>`
+
+**Example (valued appointment — loose service):**
 ```json
 {
-  "ticket_number": "123",
-  "date": "2025-01-15",
+  "ticket_number": "258",
+  "date": "2026-08-17",
   "init_time": "09:00",
-  "end_time": "10:30",
-  "description": "Investigation and fix of the reported issue"
+  "end_time": "11:00",
+  "description": "On-site support — network configuration",
+  "attendance": 1,
+  "attendance_kind": 1,
+  "loose_service_name": "Suporte TI Basico",
+  "shift_name": "Deslocamento Joinville"
 }
 ```
 
@@ -1720,10 +1747,10 @@ List appointments (work-hour records) of a specific ticket with optional filters
 - `limit` (number, optional): Appointments per page (default: 20, max: 200)
 
 **Returns:**
-Each appointment card shows date, time range, attendant, client (when available), and description. When the desk has valorization enabled, the card also includes:
+Each appointment card shows date, time range, attendant, client (when available), and description. When `external_user_name` is present it is shown as a separate line outside the valorization block (valid on any desk type). When the desk has valorization enabled, the card also includes:
 - Attendance type: External (Externo), Remote (Remoto), or Internal (Interno)
 - Service type: Loose (Avulso) with loose service name, or Contract with contract name
-- Travel shift name and value (when applicable)
+- Travel shift name and value (`shift`) when applicable — or "Deslocamento de: #N — Title" when `shift_owner_ticket` is set (carona)
 - Guarantee and manual-value flags (shown only when `true`)
 - Monetary value formatted as `R$ X,XX`
 
@@ -1758,7 +1785,7 @@ List all appointments across all tickets for a date range with optional filters 
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 
 **Returns:**
-Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, desk, ticket number and title, description (truncated at 120 chars), and valorization summary (attendance type + value) when present.
+Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, desk, ticket number and title, description (truncated at 120 chars). When present, `external_user_name` is shown as a separate line. Valorization summary (attendance type + value, and `shift_owner_ticket` when set) appears when `include_valorization=true`.
 
 **Example:**
 ```json
@@ -2858,6 +2885,13 @@ The fallback returns only the **highest-scoring group** of matches — so single
 
 This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage`, `search_catalog_item`, `get_desk`, `list_desk_priorities`, and `list_desk_services_catalogs`.
 
+**Appointment valorization resolution** (`create_appointment`): three additional name parameters resolve valorization IDs scoped to the ticket itself — no cross-organization ambiguity:
+- `shift_name` → resolves to `shift_id` (fuzzy match over available travel shifts for the ticket)
+- `loose_service_name` → resolves to `loose_service_id` (fuzzy match over available loose services)
+- `contract_name` → resolves to `contract_rider_id` (fuzzy match over `contract_riders[].contract.name` — returns the **rider ID**, not the contract ID)
+
+All three apply the same 0/1/N behavior: 0 matches → error with suggestion to use the corresponding `get_ticket_*` tool; 1 match → resolved; N matches → disambiguation list with IDs. When both the ID field and the name field are given, the ID takes precedence.
+
 ---
 
 ### get_billings_history
@@ -2973,13 +3007,13 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /tickets/{ticket_number}/files` - Upload files to an existing ticket (`upload_ticket_files`)
 - `DELETE /tickets/{ticket_number}/files/{id}` - Remove a file attached to a ticket (`delete_ticket_file`)
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
-- `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services)
-- `GET /tickets/{ticket_number}/shifts` - List displacements available for valorization of a ticket appointment (travel/visit costs, filterable by contract_id)
+- `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services). Used by `get_ticket_service_types` and by `create_appointment` for `loose_service_name`/`contract_name` resolution.
+- `GET /tickets/{ticket_number}/shifts` - List displacements available for valorization of a ticket appointment (travel/visit costs, filterable by contract_id). Used by `get_ticket_shifts` and by `create_appointment` for `shift_name` resolution.
 - `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
 - `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
-- `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment (time tracking)
-- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Used by `list_appointments_global` and `list_appointments_report`.
-- `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters
+- `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
+- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments_global` and `list_appointments_report`.
+- `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters; returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments`.
 - `GET /chats/{id}` - Retrieve chat details
 - `GET /chats/inbox` - List inbox chats
 - `GET /chats/mine` - List chats assigned to the authenticated user

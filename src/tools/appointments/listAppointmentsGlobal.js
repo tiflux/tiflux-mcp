@@ -18,17 +18,12 @@ const { internalErrorResponse } = require('../_shared/errors');
 const { renderList, currencyBRL } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const {
+  ATTENDANCE_LABELS,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,
   appointmentsApiErrorResponse
 } = require('./appointmentFilters');
-
-const ATTENDANCE_LABELS = {
-  External: 'Externo',
-  Remote: 'Remoto',
-  Internal: 'Interno'
-};
 
 const schema = {
   name: 'list_appointments_global',
@@ -60,12 +55,21 @@ function renderAppointmentItem(appt) {
   text += `  👤 ${userName} · 🏢 ${clientName} · 🗂️ ${deskName} · 🎫 #${ticketNum} — ${ticketTitle}\n`;
   if (desc) text += `  📝 ${desc}\n`;
 
+  if (appt.external_user_name) {
+    text += `  👷 Executor: ${appt.external_user_name}\n`;
+  }
+
   const val = appt.valorization;
   if (val && typeof val === 'object') {
     const attendanceLabel = ATTENDANCE_LABELS[val.attendance] || val.attendance || 'N/A';
     let valLine = `  💰 ${attendanceLabel}`;
     if (val.value != null && val.value !== '') valLine += ` · ${currencyBRL(val.value)}`;
     text += valLine + '\n';
+
+    if (val.shift_owner_ticket) {
+      const sot = val.shift_owner_ticket;
+      text += `  🚗 Deslocamento de: #${sot.ticket_number || 'N/A'} — ${sot.title || 'N/A'}\n`;
+    }
   }
 
   text += '\n';

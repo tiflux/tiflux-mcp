@@ -10,17 +10,7 @@ const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination, currencyBRL } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
-
-const ATTENDANCE_LABELS = {
-  External: 'Externo',
-  Remote: 'Remoto',
-  Internal: 'Interno'
-};
-
-const ATTENDANCE_KIND_LABELS = {
-  Contract: 'Contrato',
-  Loose: 'Avulso'
-};
+const { ATTENDANCE_LABELS, ATTENDANCE_KIND_LABELS } = require('./appointmentFilters');
 
 const schema = {
   name: 'list_appointments',
@@ -77,6 +67,11 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit, verb
 
     text += `   💬 **Descrição:** ${desc}\n`;
 
+    // external_user_name — campo raiz do apontamento, fora do bloco de valorização
+    if (appt.external_user_name) {
+      text += `   👷 **Executor externo:** ${appt.external_user_name}\n`;
+    }
+
     // Bloco de valorização — só renderiza quando valorization é objeto não-nulo e verbosidade rich
     const val = appt.valorization;
     if (val !== null && val !== undefined && typeof val === 'object' && (verbosity || 'rich') !== 'compact') {
@@ -95,6 +90,10 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit, verb
 
       if (val.shift) {
         text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${currencyBRL(val.shift.value)})\n`;
+      }
+      if (val.shift_owner_ticket) {
+        const sot = val.shift_owner_ticket;
+        text += `      • 🚗 Deslocamento de: #${sot.ticket_number || 'N/A'} — ${sot.title || 'N/A'}\n`;
       }
       if (val.guarantee === true) {
         text += `      • 🛡️ Garantia\n`;

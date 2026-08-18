@@ -970,12 +970,9 @@ class TiFluxAPI {
    * POST /tickets/{ticket_number}/appointments
    */
   async createAppointment(ticketNumber, appointmentData) {
-    const jsonData = JSON.stringify({
-      date: appointmentData.date,
-      init_time: appointmentData.init_time,
-      end_time: appointmentData.end_time,
-      description: appointmentData.description
-    });
+    // Transporte puro: o slice monta o payload com as regras de negocio (guardrail BE-003).
+    // O body e repassado diretamente — sem allowlist aqui.
+    const jsonData = JSON.stringify(appointmentData);
 
     const headers = {
       'Content-Type': 'application/json',
@@ -1001,7 +998,8 @@ class TiFluxAPI {
     if (filters.start_date) params.append('start_date', filters.start_date);
     if (filters.end_date) params.append('end_date', filters.end_date);
 
-    return await this.makeRequest(`/tickets/${ticketNumber}/appointments?${params.toString()}`);
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/appointments?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**
