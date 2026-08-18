@@ -1720,6 +1720,20 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 - `guarantee=true` rejects `value`
 - `external_user_name` max 255 chars, no `<` or `>`
 
+> **Desks with valorization enabled:** When the ticket's desk requires valorization, calling `create_appointment` without `attendance` and `attendance_kind` results in a `422` from the API. The tool catches this and returns a guided error message:
+>
+> ```
+> ❌ Esta mesa exige informações de valorização
+>
+> A mesa do ticket #X está configurada com valorização de apontamentos, então
+> `attendance` e `attendance_kind` são obrigatórios.
+>
+> • `attendance`: 1 = Externo (presencial), 2 = Remoto, 3 = Interno
+> • `attendance_kind`: 1 = Avulso (exige `loose_service_id`), 2 = Contrato (exige `contract_rider_id`)
+> ```
+>
+> Note: `attendance` and `attendance_kind` remain optional in the schema because desks _without_ valorization reject them at the API level — the tool cannot know the desk's configuration before the API call.
+
 **Example (valued appointment — loose service):**
 ```json
 {
@@ -1785,7 +1799,7 @@ List all appointments across all tickets for a date range with optional filters 
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 
 **Returns:**
-Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, desk, ticket number and title, description (truncated at 120 chars). When present, `external_user_name` is shown as a separate line. Valorization summary (attendance type + value, and `shift_owner_ticket` when set) appears when `include_valorization=true`.
+Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, desk, ticket number and title, description (truncated at 120 chars). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis.
 
 **Example:**
 ```json
@@ -1814,10 +1828,12 @@ Generate an aggregated N2 support report: count and total hours per technician f
 
 **Returns:**
 Markdown report with:
-- Global totals: total appointments count, total hours
-- Per-technician section (sorted by appointment count desc): appointment count, total hours, total value (when `include_valorization=true`)
-- Desk sub-breakdown per technician (shown only when `desk_ids`/`desk_names` provided): count + hours per desk
+- Global totals: total appointments count, total hours, total value with manual sub-total in parentheses when applicable (e.g. `**Valor total:** R$ 1.200,00 (R$ 400,00 em valor manual)`)
+- Per-technician section (sorted by appointment count desc): appointment count, total hours, total value — with `(R$ X manual)` suffix when any manual-value appointment exists for that technician
+- Desk sub-breakdown per technician (shown only when `desk_ids`/`desk_names` provided): count + hours + value per desk, with manual suffix when applicable
 - Footer with real-time data notice
+
+The `manual_value` breakdown (when `include_valorization=true`) makes it immediately clear how much of the billed total came from manually-entered values vs. contract-calculated rates — important for billing audits.
 
 The report paginates through all available data automatically (no `offset`/`limit` needed — all pages are fetched internally before aggregating).
 

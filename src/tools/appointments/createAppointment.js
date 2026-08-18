@@ -20,7 +20,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, extractApiErrorCode, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField, parseIntStrict } = require('../_shared/validators');
 const { currencyBRL } = require('../_shared/format');
 const { resolveShiftName, resolveLooseServiceName, resolveContractName } = require('./valorizationResolver');
@@ -209,11 +209,67 @@ function formatCreatedAppointment(appointment, ticketNumber, hadLooseService) {
 
   // value — so existe na resposta quando houve loose_service_id
   if (hadLooseService && appointment.value !== undefined && appointment.value !== null) {
-    text += `**Valor:** ${currencyBRL(parseFloat(appointment.value))}\n`;
+    text += `**Valor:** ${currencyBRL(Number.parseFloat(appointment.value))}\n`;
   }
 
   text += `\n*✅ Apontamento registrado via API TiFlux*`;
   return text;
+}
+
+/**
+ * Detecta o 422 de mesa com valorizacao obrigatoria (attendance/attendance_kind
+ * "can't be blank") e devolve mensagem orientada. Null quando o 422 tem outra causa.
+ *
+ * @param {object} response - resposta de erro da API
+ * @param {string|number} ticketNumber
+ * @returns {object|null}
+ */
+function valorizationRequiredResponse(response, ticketNumber) {
+  if (response.status !== 422) return null;
+
+  const detail = extractApiErrorDetail(response);
+  if (!detail) return null;
+
+  const isBlank = field =>
+    [detail[field]].flat().some(msg => typeof msg === 'string' && msg.includes("can't be blank"));
+
+  if (!isBlank('attendance_kind') && !isBlank('attendance')) return null;
+
+  return errorResponse(
+    `**❌ Esta mesa exige informações de valorização**\n\n` +
+    `A mesa do ticket #${ticketNumber} está configurada com valorização de apontamentos, então ` +
+    `\`attendance\` e \`attendance_kind\` são obrigatórios.\n\n` +
+    `• \`attendance\`: 1 = Externo (presencial), 2 = Remoto, 3 = Interno\n` +
+    `• \`attendance_kind\`: 1 = Avulso (exige \`loose_service_id\`), 2 = Contrato (exige \`contract_rider_id\`)`
+  );
+}
+
+/**
+ * Mapeia a resposta de erro da API para a mensagem MCP correspondente.
+ *
+ * @param {object} response - resposta de erro da API
+ * @param {string|number} ticketNumber
+ * @returns {object}
+ */
+function appointmentApiErrorResponse(response, ticketNumber) {
+  const errorCode = extractApiErrorCode(response);
+
+  if (errorCode === 40304) {
+    return errorResponse(
+      `**❌ Sem licença para apontamentos**\n\n` +
+      `Sua organização não possui licença ativa para o módulo de tickets/apontamentos (erro 40304).\n\n` +
+      `*Entre em contato com o suporte TiFlux para verificar o licenciamento.*`
+    );
+  }
+
+  const valorizationError = valorizationRequiredResponse(response, ticketNumber);
+  if (valorizationError) return valorizationError;
+
+  return apiFailureResponse(
+    `**❌ Erro ao criar apontamento no ticket #${ticketNumber}**`,
+    response,
+    `*Verifique se a mesa permite o tipo de valorização informado e se os IDs de contrato/serviço são válidos para este cliente.*`
+  );
 }
 
 async function execute(args, { api }) {
@@ -330,21 +386,7 @@ async function execute(args, { api }) {
     const response = await api.createAppointment(ticket_number, payload);
 
     if (response.error) {
-      const errorCode = extractApiErrorCode(response);
-
-      if (errorCode === 40304) {
-        return errorResponse(
-          `**❌ Sem licença para apontamentos**\n\n` +
-          `Sua organização não possui licença ativa para o módulo de tickets/apontamentos (erro 40304).\n\n` +
-          `*Entre em contato com o suporte TiFlux para verificar o licenciamento.*`
-        );
-      }
-
-      return apiFailureResponse(
-        `**❌ Erro ao criar apontamento no ticket #${ticket_number}**`,
-        response,
-        `*Verifique se a mesa permite o tipo de valorização informado e se os IDs de contrato/serviço são válidos para este cliente.*`
-      );
+      return appointmentApiErrorResponse(response, ticket_number);
     }
 
     const appointment = response.data;

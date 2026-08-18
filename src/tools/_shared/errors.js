@@ -79,4 +79,40 @@ function extractApiErrorCode(response) {
   return match ? Number(match[1]) : undefined;
 }
 
-module.exports = { errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode };
+/**
+ * Extrai o objeto `detail` do erro da API v2 a partir do shape real do transporte.
+ *
+ * IMPORTANTE: `TiFluxAPI._convertErrorToResponse` NAO expoe o corpo parseado em
+ * `response.data` — ele serializa o corpo bruto dentro da **string** `response.error`.
+ * O prefixo varia por status: em **422** e `Erro de validação: {...}`; nos demais
+ * status e `Erro HTTP <status>: {...}` (ver `tiflux-api.js`). Logo,
+ * `response.data?.detail` e sempre `undefined` em producao. Este helper e agnostico ao
+ * prefixo (localiza o primeiro `{`) e cobre os dois caminhos: `data.detail` (se o
+ * transporte um dia passar a expor o corpo) e o JSON embutido na mensagem de erro.
+ *
+ * @param {{error?: string, status?: number|string, data?: object}} response
+ * @returns {object|undefined} objeto detail (ex: { attendance_kind: ["can't be blank"] }) ou undefined
+ */
+function extractApiErrorDetail(response) {
+  if (!response) return undefined;
+
+  if (response.data?.detail && typeof response.data.detail === 'object') {
+    return response.data.detail;
+  }
+
+  const text = typeof response.error === 'string' ? response.error : '';
+  if (!text) return undefined;
+
+  // Encontra o primeiro bloco JSON na string de erro
+  const braceIdx = text.indexOf('{');
+  if (braceIdx === -1) return undefined;
+
+  try {
+    const parsed = JSON.parse(text.slice(braceIdx));
+    return parsed.detail && typeof parsed.detail === 'object' ? parsed.detail : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+module.exports = { errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode, extractApiErrorDetail };

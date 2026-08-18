@@ -27,7 +27,7 @@ const {
 
 const schema = {
   name: 'list_appointments_global',
-  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico e mesa. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
+  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico e mesa. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -64,6 +64,8 @@ function renderAppointmentItem(appt) {
     const attendanceLabel = ATTENDANCE_LABELS[val.attendance] || val.attendance || 'N/A';
     let valLine = `  💰 ${attendanceLabel}`;
     if (val.value != null && val.value !== '') valLine += ` · ${currencyBRL(val.value)}`;
+    if (val.guarantee === true) valLine += ' · 🛡️ Garantia';
+    if (val.manual_value === true) valLine += ' · ✋ Valor manual';
     text += valLine + '\n';
 
     if (val.shift_owner_ticket) {
@@ -112,8 +114,8 @@ async function execute(args, { api, verbosity }) {
   if (resolvedIds.error) return resolvedIds.response;
   const { userIds: finalUserIds, deskIds: finalDeskIds } = resolvedIds;
 
-  const effectiveOffset = Math.max(1, parseInt(offset) || 1);
-  const effectiveLimit = Math.min(200, Math.max(1, parseInt(limit) || 20));
+  const effectiveOffset = Math.max(1, Number.parseInt(offset) || 1);
+  const effectiveLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
 
   try {
     const response = await api.listAppointmentsGlobal({
