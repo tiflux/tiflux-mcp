@@ -2707,6 +2707,220 @@ class TiFluxAPI {
       return { error: `Erro interno ao deletar contato: ${error.message}`, status: 'INTERNAL_ERROR' };
     }
   }
+
+  // ─── Services Catalogs ────────────────────────────────────────────────────
+
+  /**
+   * Lista catálogos de serviços da organização.
+   * GET /services-catalogs
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {object} filters - { name, offset, limit }
+   */
+  async listServicesCatalogs(filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, parseInt(filters.limit) || 20)));
+    if (filters.name != null && filters.name !== '') params.append('name', filters.name);
+    const response = await this.makeRequest(`/services-catalogs?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Cria um catálogo de serviços.
+   * POST /services-catalogs
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {object} body - { services_catalog: { name } }
+   */
+  async createServicesCatalog(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest('/services-catalogs', 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um catálogo de serviços.
+   * PUT /services-catalogs/{id}
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} id
+   * @param {object} body - { services_catalog: { name } }
+   */
+  async updateServicesCatalog(id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(`/services-catalogs/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Remove um catálogo de serviços (soft delete).
+   * DELETE /services-catalogs/{id}
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} id
+   */
+  async deleteServicesCatalog(id) {
+    try {
+      const response = await this.makeRequest(`/services-catalogs/${encodeURIComponent(id)}`, 'DELETE');
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar catálogo: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
+   * Lista áreas de um catálogo de serviços.
+   * GET /services-catalogs/{services_catalog_id}/areas
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} catalogId
+   * @param {object} filters - { name, offset, limit }
+   */
+  async listServicesCatalogAreas(catalogId, filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, parseInt(filters.limit) || 20)));
+    if (filters.name != null && filters.name !== '') params.append('name', filters.name);
+    const response = await this.makeRequest(
+      `/services-catalogs/${encodeURIComponent(catalogId)}/areas?${params.toString()}`
+    );
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Cria uma área em um catálogo de serviços.
+   * POST /services-catalogs/{services_catalog_id}/areas
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} catalogId
+   * @param {object} body - { area: { name } }
+   */
+  async createServicesCatalogArea(catalogId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(
+      `/services-catalogs/${encodeURIComponent(catalogId)}/areas`, 'POST', jsonData, headers
+    );
+  }
+
+  /**
+   * Atualiza uma área de um catálogo de serviços.
+   * PUT /services-catalogs/{services_catalog_id}/areas/{id}
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} catalogId
+   * @param {number|string} id
+   * @param {object} body - { area: { name } }
+   */
+  async updateServicesCatalogArea(catalogId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(
+      `/services-catalogs/${encodeURIComponent(catalogId)}/areas/${encodeURIComponent(id)}`,
+      'PUT', jsonData, headers
+    );
+  }
+
+  /**
+   * Remove uma área de um catálogo de serviços (soft delete).
+   * DELETE /services-catalogs/{services_catalog_id}/areas/{id}
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} catalogId
+   * @param {number|string} id
+   */
+  async deleteServicesCatalogArea(catalogId, id) {
+    try {
+      const response = await this.makeRequest(
+        `/services-catalogs/${encodeURIComponent(catalogId)}/areas/${encodeURIComponent(id)}`, 'DELETE'
+      );
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar área: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
+   * Lista itens de uma área de catálogo de serviços.
+   * GET /services-catalogs-areas/{services_catalogs_area_id}/items
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} areaId
+   * @param {object} filters - { name, offset, limit }
+   */
+  async listServicesCatalogItems(areaId, filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, parseInt(filters.limit) || 20)));
+    if (filters.name != null && filters.name !== '') params.append('name', filters.name);
+    const response = await this.makeRequest(
+      `/services-catalogs-areas/${encodeURIComponent(areaId)}/items?${params.toString()}`
+    );
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Cria um item em uma área de catálogo de serviços.
+   * POST /services-catalogs-areas/{services_catalogs_area_id}/items
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} areaId
+   * @param {object} body - { item: { name, start_time, end_time } }
+   */
+  async createServicesCatalogItem(areaId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(
+      `/services-catalogs-areas/${encodeURIComponent(areaId)}/items`, 'POST', jsonData, headers
+    );
+  }
+
+  /**
+   * Atualiza um item de uma área de catálogo de serviços.
+   * PUT /services-catalogs-areas/{services_catalogs_area_id}/items/{id}
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} areaId
+   * @param {number|string} id
+   * @param {object} body - { item: { name?, start_time?, end_time? } }
+   */
+  async updateServicesCatalogItem(areaId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(
+      `/services-catalogs-areas/${encodeURIComponent(areaId)}/items/${encodeURIComponent(id)}`,
+      'PUT', jsonData, headers
+    );
+  }
+
+  /**
+   * Remove um item de uma área de catálogo de serviços (soft delete).
+   * DELETE /services-catalogs-areas/{services_catalogs_area_id}/items/{id}
+   * Guardrail BE-003: só transporte.
+   *
+   * @param {number|string} areaId
+   * @param {number|string} id
+   */
+  async deleteServicesCatalogItem(areaId, id) {
+    try {
+      const response = await this.makeRequest(
+        `/services-catalogs-areas/${encodeURIComponent(areaId)}/items/${encodeURIComponent(id)}`, 'DELETE'
+      );
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar item: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
 }
 
 module.exports = TiFluxAPI;

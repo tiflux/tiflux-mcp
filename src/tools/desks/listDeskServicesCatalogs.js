@@ -22,7 +22,7 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_desk_services_catalogs',
-  description: 'Listar catalogos de servicos vinculados a uma mesa do TiFlux. Catalogos sao os "containers" pai — diferentes dos itens de catalogo (use search_catalog_item para itens). Aceita desk_id (numerico) OU desk_name (nome parcial/fuzzy). Se ambos informados, desk_id prevalece. O filtro catalog_name e feito client-side com fuzzy match.',
+  description: 'Listar catálogos de serviços vinculados a uma mesa específica (visão de operação). Aceita desk_id (numérico) OU desk_name (nome parcial/fuzzy). Se ambos informados, desk_id prevalece. O filtro catalog_name é feito client-side com fuzzy match. DIFERENTE de list_services_catalogs (todos os catálogos da organização, visão de configuração) e de search_catalog_item (itens selecionáveis em tickets de uma mesa).',
   inputSchema: {
     type: 'object',
     properties: {

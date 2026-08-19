@@ -19,7 +19,7 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'search_catalog_item',
-  description: 'Buscar itens de catálogo de serviços por termo livre (catálogo, área ou item) ou por nome/filtro dentro de uma mesa específica. Use o parâmetro `search` para busca server-side por termo aproximado em nome de catálogo, área ou item — retorna listagem com hierarquia completa. Use `catalog_item_name` para localizar um item específico por nome (busca client-side, colapsa para detalhe único quando há 1 match). Os itens de catálogo representam os tipos de solicitações que podem ser criadas em uma mesa.',
+  description: 'Buscar itens selecionáveis em tickets de uma mesa específica (por termo livre ou nome). DIFERENTE de list_services_catalog_items (itens de uma área específica, incluindo inativos não visíveis aqui) e de list_desk_services_catalogs (catálogos vinculados à mesa). Use search para busca server-side por catálogo, área ou item; use catalog_item_name para localizar um item por nome (colapsado para detalhe único quando há 1 match).',
   inputSchema: {
     type: 'object',
     properties: {

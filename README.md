@@ -149,6 +149,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
 - **Faturamentos**: consultar o histórico de faturamentos da organização com filtros por período de emissão, vencimento, cliente (por ID ou nome), NFe, ticket e situação (`get_billings_history`); exige permissão "Faturar serviços avulsos e contratos" e licença Tickets
+- **Catálogo de serviços (CRUD)**: criar, listar, atualizar e remover catálogos, áreas e itens de catálogo nos três níveis da hierarquia (catálogo → área → item); remoção em cascata com contagem pre-flight informativa (não é gate: não há confirmação nem dry-run); resolução automática de nome em todos os níveis (`services_catalog_name`, `area_name`); requer role `service_catalogs_manage`
 
 O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
@@ -1246,6 +1247,8 @@ Search for stages of a specific desk to use in ticket updates.
 ### search_catalog_item
 Search for service catalog items by free-text term or by name/filter within a specific desk. Use `search` to explore items by keyword (server-side, matches catalog name, area name, or item name). Use `catalog_item_name` to locate a specific item by name (client-side, collapses to single detail when exactly 1 match).
 
+> **Disambiguation:** this tool is desk-scoped (items selectable in tickets of a specific desk). To list items for a specific catalog **area** across the whole organization (CRUD management), use `list_services_catalog_items`. To list catalogs org-wide, use `list_services_catalogs`.
+
 **Parameters:**
 - `desk_id` (number, optional): Desk ID to search catalog items
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution)
@@ -2263,6 +2266,8 @@ Accepts `desk_id` (direct) **or** `desk_name` (fuzzy). If both are provided, `de
 ### list_desk_services_catalogs
 Listar catalogos de servicos vinculados a uma mesa do Tiflux. Catalogos sao os containers pai — diferentes dos itens de catalogo (use `search_catalog_item` para itens selecionaveis em tickets). O filtro `catalog_name` e feito client-side com fuzzy match.
 
+> **Disambiguation:** this tool is **desk-scoped** (catalogs linked to a specific desk, operations view). To list, create, update or delete catalogs org-wide (configuration/management view), use `list_services_catalogs` and the other `*_services_catalog*` tools.
+
 Accepts `desk_id` (direct) **or** `desk_name` (fuzzy). If both are provided, `desk_id` takes precedence.
 
 **Parameters:**
@@ -2908,6 +2913,12 @@ This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage
 
 All three apply the same 0/1/N behavior: 0 matches → error with suggestion to use the corresponding `get_ticket_*` tool; 1 match → resolved; N matches → disambiguation list with IDs. When both the ID field and the name field are given, the ID takes precedence.
 
+**Services catalog resolution** (all `*_services_catalog*` and `*_services_catalog_item*` tools): two additional name parameters resolve catalog and area IDs server-side using the API's built-in `ilike` filter (no client-side fuzzy):
+- `services_catalog_name` → resolves to `services_catalog_id` via `GET /services-catalogs?name={value}&limit=50`
+- `area_name` → resolves to `services_catalogs_area_id` via `GET /services-catalogs/{catalog_id}/areas?name={value}&limit=50`
+
+Both apply the same 0/1/N behavior: 0 matches → error; 1 match → resolved; N matches → disambiguation list with IDs. When both the ID field and the name field are given, the ID takes precedence.
+
 ---
 
 ### get_billings_history
@@ -2953,6 +2964,264 @@ Returns the organization's billing history. Filters are all optional: billing pe
 | 2 | Zemlak-Cremin | 2024-10-10 | 2024-10-15 | 4310034 | Faturado | R$ 755,90 |
 
 **Soma desta página (sem estornos):** R$ 755,90
+```
+
+## Services Catalogs Tools
+
+Manage the three-level catalog hierarchy: **catalog → area → item**. Catalogs and areas are containers; items are the SLA-bearing leaves that can be selected when creating tickets. All write operations require the **`service_catalogs_manage`** role ("Gerenciar catálogos de serviço").
+
+> **No `get_*` shortcut exists.** The API does not expose `GET /services-catalogs/{id}`, `GET /services-catalogs-areas/{id}`, or `GET /services-catalogs-areas/{id}/items/{id}`. To retrieve details of a specific catalog, area, or item, use the corresponding `list_*` tool with the `name` filter.
+
+> **Smart name resolution:** `services_catalog_name` and `area_name` are resolved server-side (API `ilike` filter, no fuzzy fallback). See [Smart Name Resolution](#smart-name-resolution).
+
+### list_services_catalogs
+List all service catalogs in the organization (org-wide configuration view). Use the `name` filter to locate a specific catalog.
+
+**Different from** `list_desk_services_catalogs` (catalogs linked to one desk) and `search_catalog_item` (items selectable in tickets of a desk).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | no | — | Filter by name (partial, case/accent-insensitive, server-side) |
+| `offset` | number | no | 1 | Page number |
+| `limit` | number | no | 20 | Results per page (max 200) |
+
+**Returns:** List of catalogs with `id` and `name`. Header `X-Total-Items` for total count.
+
+**Example:**
+```json
+{ "name": "Infra" }
+```
+
+### create_services_catalog
+Create a new service catalog. The name must be unique across the organization (uniqueness validated only on create).
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | — | Catalog name (unique org-wide) |
+
+**Returns:** Created catalog with `id` and `name`.
+
+**Example:**
+```json
+{ "name": "Infraestrutura" }
+```
+
+### update_services_catalog
+Update the name of an existing service catalog.
+
+**Permissions:** Requires `service_catalogs_manage`. Note: uniqueness is validated only on create — the update accepts duplicate names without error (API v2 behavior).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `id` | number | yes | — | Catalog ID |
+| `name` | string | yes | — | New catalog name |
+
+**Example:**
+```json
+{ "id": 5, "name": "Infraestrutura TI" }
+```
+
+### delete_services_catalog
+Remove (soft delete) a service catalog and **all** its areas and items in cascade.
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**Warning:** The deletion cascade silently deactivates all areas, items, and recurring activities that reference those items — including items currently in use by tickets. The pre-flight count is **informational only, not a gate**: it runs before the DELETE (afterwards the records are already inactive and no longer countable) and its result is only appended to the success message. There is no `confirm` / `dry_run` parameter — the DELETE always proceeds, even if the pre-flight fails.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `id` | number | yes | — | Catalog ID to delete |
+
+**Example:**
+```json
+{ "id": 5 }
+```
+
+### list_services_catalog_areas
+List active areas belonging to a service catalog. Use `services_catalog_id` (direct) or `services_catalog_name` (auto-resolved). Use the `name` filter to locate a specific area.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalog_id` | number | one of | — | Catalog ID (takes precedence over `services_catalog_name`) |
+| `services_catalog_name` | string | one of | — | Catalog name for auto-resolution |
+| `name` | string | no | — | Filter areas by name (partial, server-side) |
+| `offset` | number | no | 1 | Page number |
+| `limit` | number | no | 20 | Results per page (max 200) |
+
+**Returns:** List of areas with `id`, `name`, and parent catalog name.
+
+**Example:**
+```json
+{ "services_catalog_name": "Infraestrutura", "name": "Redes" }
+```
+
+### create_services_catalog_area
+Create a new area inside a service catalog.
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalog_id` | number | one of | — | Catalog ID (takes precedence over `services_catalog_name`) |
+| `services_catalog_name` | string | one of | — | Catalog name for auto-resolution |
+| `name` | string | yes | — | Area name (unique per catalog) |
+
+**Example:**
+```json
+{ "services_catalog_name": "Infraestrutura", "name": "Servidores" }
+```
+
+### update_services_catalog_area
+Update the name of an area inside a service catalog.
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalog_id` | number | one of | — | Catalog ID (takes precedence over `services_catalog_name`) |
+| `services_catalog_name` | string | one of | — | Catalog name for auto-resolution |
+| `id` | number | yes | — | Area ID |
+| `name` | string | yes | — | New area name |
+
+**Example:**
+```json
+{ "services_catalog_id": 1, "id": 10, "name": "Servidores Linux" }
+```
+
+### delete_services_catalog_area
+Remove (soft delete) an area and **all** its items in cascade.
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**Warning:** All items in the area are deactivated. The pre-flight count is **informational only, not a gate** — it runs before the DELETE just to report the number of affected items; there is no confirmation step and the DELETE always proceeds.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalog_id` | number | one of | — | Catalog ID (takes precedence over `services_catalog_name`) |
+| `services_catalog_name` | string | one of | — | Catalog name for auto-resolution |
+| `id` | number | yes | — | Area ID to delete |
+
+**Example:**
+```json
+{ "services_catalog_id": 1, "id": 10 }
+```
+
+### list_services_catalog_items
+List active items in a service catalog area. Use `services_catalogs_area_id` (direct) or the combination `area_name` + `services_catalog_id`/`services_catalog_name`.
+
+**Different from** `search_catalog_item` which is desk-scoped (items selectable in tickets of a specific desk).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalogs_area_id` | number | one of | — | Area ID (takes precedence over `area_name`) |
+| `area_name` | string | one of | — | Area name for auto-resolution (requires catalog id or name) |
+| `services_catalog_id` | number | — | — | Catalog ID (used in area resolution; takes precedence over `services_catalog_name`) |
+| `services_catalog_name` | string | — | — | Catalog name for auto-resolution |
+| `name` | string | no | — | Filter items by name (partial, server-side) |
+| `offset` | number | no | 1 | Page number |
+| `limit` | number | no | 20 | Results per page (max 200) |
+
+**Returns:** List of items with `id`, `name`, parent area/catalog names, `start_time` (SLA atendimento), `end_time` (SLA solução).
+
+**Example:**
+```json
+{ "area_name": "Redes", "services_catalog_name": "Infraestrutura" }
+```
+
+### create_services_catalog_item
+Create a new item in a service catalog area.
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**SLA fields:** `start_time` = attendance deadline (SLA de atendimento); `end_time` = solution deadline (SLA de solução). Format `"HH:MM"` with hours 0–999 (e.g. `"120:30"` = 120 h 30 min). `end_time` must be >= `start_time`. Both fields are required by the API (the Swagger declares `required: []` but the model enforces them).
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalogs_area_id` | number | one of | — | Area ID (takes precedence over `area_name`) |
+| `area_name` | string | one of | — | Area name for auto-resolution |
+| `services_catalog_id` | number | — | — | Catalog ID (used in area resolution) |
+| `services_catalog_name` | string | — | — | Catalog name for auto-resolution |
+| `name` | string | yes | — | Item name |
+| `start_time` | string | yes | — | SLA de atendimento (`HH:MM`, hours 0-999) |
+| `end_time` | string | yes | — | SLA de solução (`HH:MM`, hours 0-999, >= `start_time`) |
+
+**Example:**
+```json
+{
+  "services_catalogs_area_id": 10,
+  "name": "Troca de Switch",
+  "start_time": "08:00",
+  "end_time": "24:00"
+}
+```
+
+### update_services_catalog_item
+Update an item in a service catalog area (partial update — only provided fields are sent).
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+At least one of `name`, `start_time`, or `end_time` must be provided. SLA format and `end_time >= start_time` constraint apply when both time fields are supplied.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalogs_area_id` | number | one of | — | Area ID (takes precedence over `area_name`) |
+| `area_name` | string | one of | — | Area name for auto-resolution |
+| `services_catalog_id` | number | — | — | Catalog ID (used in area resolution) |
+| `services_catalog_name` | string | — | — | Catalog name for auto-resolution |
+| `id` | number | yes | — | Item ID |
+| `name` | string | no | — | New item name |
+| `start_time` | string | no | — | New SLA de atendimento (`HH:MM`) |
+| `end_time` | string | no | — | New SLA de solução (`HH:MM`, >= `start_time`) |
+
+**Example:**
+```json
+{ "services_catalogs_area_id": 10, "id": 50, "end_time": "48:00" }
+```
+
+### delete_services_catalog_item
+Remove (soft delete) a service catalog item. No cascade — items are leaf nodes.
+
+**Permissions:** Requires `service_catalogs_manage`.
+
+**Warning:** An item in use by tickets is silently deactivated (no blocking, no confirmation prompt). There is no pre-flight count for items.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `services_catalogs_area_id` | number | one of | — | Area ID (takes precedence over `area_name`) |
+| `area_name` | string | one of | — | Area name for auto-resolution |
+| `services_catalog_id` | number | — | — | Catalog ID (used in area resolution) |
+| `services_catalog_name` | string | — | — | Catalog name for auto-resolution |
+| `id` | number | yes | — | Item ID to delete |
+
+**Example:**
+```json
+{ "services_catalogs_area_id": 10, "id": 50 }
 ```
 
 ## API Endpoints Used
@@ -3059,6 +3328,18 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /pre-tickets` - Create a new pre-ticket (`create_pre_ticket`). `multipart/form-data`. Required: `title`, `description`, `requestor_name`, `requestor_email`, `requestor_telephone`. Optional: `requestor_ramal`, `requestor_country`, `client_id`, `files[]` (max 10, 25MB each).
 - `GET /templates/gupshup` - List HSM templates from the Gupshup integration (`list_gupshup_templates`). Filters: `integration_id`, `offset`, `limit`. Header `X-Total-Items` for total count. Requires "Gerenciar Modelos" permission.
 - `GET /templates/whatsapp_cloud` - List templates from the WhatsApp Cloud (Meta) integration (`list_whatsapp_cloud_templates`). Filters: `integration_id`, `status` (enum: APPROVED/MISSING_VARS/REJECTED/PENDING), `offset`, `limit`. Header `X-Total-Items` for total count. Requires "Gerenciar Modelos" permission.
+- `GET /services-catalogs` - List org-wide service catalogs (`list_services_catalogs`). Filter by `name` (ilike). Header `X-Total-Items`. Requires `service_catalogs_manage` role for write operations (read is unrestricted).
+- `POST /services-catalogs` - Create a service catalog (`create_services_catalog`). Body `{ services_catalog: { name } }`. Name must be unique. Requires `service_catalogs_manage`.
+- `PUT /services-catalogs/{id}` - Update a service catalog name (`update_services_catalog`). Body `{ services_catalog: { name } }`. Requires `service_catalogs_manage`.
+- `DELETE /services-catalogs/{id}` - Soft-delete a service catalog and cascade-deactivate its areas and items (`delete_services_catalog`). Returns 204. Requires `service_catalogs_manage`.
+- `GET /services-catalogs/{id}/areas` - List areas of a catalog (`list_services_catalog_areas`). Filter by `name`. Header `X-Total-Items`.
+- `POST /services-catalogs/{id}/areas` - Create an area in a catalog (`create_services_catalog_area`). Body `{ area: { name } }`. Requires `service_catalogs_manage`.
+- `PUT /services-catalogs/{catalog_id}/areas/{id}` - Update an area name (`update_services_catalog_area`). Body `{ area: { name } }`. Requires `service_catalogs_manage`.
+- `DELETE /services-catalogs/{catalog_id}/areas/{id}` - Soft-delete an area and cascade-deactivate its items (`delete_services_catalog_area`). Returns 204. Requires `service_catalogs_manage`.
+- `GET /services-catalogs-areas/{id}/items` - List items of an area (`list_services_catalog_items`). Filter by `name`. Header `X-Total-Items`.
+- `POST /services-catalogs-areas/{id}/items` - Create an item in an area (`create_services_catalog_item`). Body `{ item: { name, start_time, end_time } }`. `start_time`/`end_time` in `HH:MM` format (hours 0-999). Requires `service_catalogs_manage`.
+- `PUT /services-catalogs-areas/{area_id}/items/{id}` - Partial update of an item (`update_services_catalog_item`). Body `{ item: { name?, start_time?, end_time? } }`. Requires `service_catalogs_manage`.
+- `DELETE /services-catalogs-areas/{area_id}/items/{id}` - Soft-delete an item (`delete_services_catalog_item`). Returns 204. Requires `service_catalogs_manage`.
 
 ## Avançado: execução local (SDK via npx)
 
