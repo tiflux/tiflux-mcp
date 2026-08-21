@@ -12,6 +12,7 @@
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { markdownToHtml } = require('../_shared/markdownToHtml');
 
 const OPTIONAL_FIELDS = [
   'tags',
@@ -23,7 +24,7 @@ const OPTIONAL_FIELDS = [
 
 const schema = {
   name: 'create_knowledge',
-  description: 'Criar um novo conhecimento na base de conhecimento do TiFlux. Campos obrigatorios: title, description (HTML) e knowledge_folder_ids (array com ao menos 1 ID de pasta). Os campos client_ids e technical_group_ids so se aplicam quando private = true. Requer a permissao "Gerenciar conhecimento".',
+  description: 'Criar um novo conhecimento na base de conhecimento do TiFlux. Campos obrigatorios: title, description e knowledge_folder_ids (array com ao menos 1 ID de pasta). O campo description aceita Markdown (o MCP converte para HTML antes de enviar); HTML cru tambem e valido. Os campos client_ids e technical_group_ids so se aplicam quando private = true. Requer a permissao "Gerenciar conhecimento". ATENCAO: a API v2 nao permite editar nem apagar um conhecimento existente.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -33,7 +34,7 @@ const schema = {
       },
       description: {
         type: 'string',
-        description: 'Corpo do conhecimento em HTML (obrigatorio). Exemplo: "<p>Conteudo do artigo.</p>"'
+        description: 'Corpo do conhecimento (obrigatorio). Aceita Markdown (o MCP converte para HTML antes de enviar) ou HTML cru (idempotente). Imagem so por URL: use ![alt](https://url). Base64 e arquivos locais nao sao suportados pela API. Exemplo Markdown: "## Titulo\n\n- Passo 1\n- Passo 2"'
       },
       knowledge_folder_ids: {
         type: 'array',
@@ -82,7 +83,7 @@ async function execute(args, { api }) {
 
     const body = {
       title: args.title,
-      description: args.description,
+      description: markdownToHtml(args.description),
       knowledge_folder_ids: args.knowledge_folder_ids
     };
 

@@ -2341,6 +2341,8 @@ Use the `id` as `department_id` in `list_inbox_chats`, `list_my_chats`, `list_in
 
 Search and manage the organization's knowledge base articles. Without the "Gerenciar base de conhecimento" permission, only public articles and those from the user's attendant group are returned.
 
+**API limitations (v2):** There is no `PUT` or `DELETE` for knowledge articles — editing an existing article is not possible via the public API. To update content, create a new article with `create_knowledge`. There is also no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`).
+
 ### list_knowledges
 List knowledge base articles with optional search and folder filters. Returns a Markdown table with ID, title, visibility, folders, tags, and last updated date.
 
@@ -2374,12 +2376,70 @@ List knowledge base articles with optional search and folder filters. Returns a 
 
 *A descricao e exibida truncada em ate 300 caracteres pela API (preview parcial).*
 
+### get_knowledge
+Fetch the full detail of a knowledge base article by ID. The `description` body is returned in **Markdown** (converted from HTML by the MCP — no raw HTML noise in context).
+
+**Important:** The API v2 does **not** allow editing or deleting an existing article. To update content, create a new article with `create_knowledge`.
+
+**Parameters:**
+- `knowledge_id` (number, required): ID of the knowledge article (obtained from `list_knowledges`).
+
+**Returns:** Article detail with title, visibility, tags, creation/update dates, and the full body in Markdown.
+
+**Note on links:** the HTML→Markdown conversion is not a general-purpose HTML sanitizer (final sanitization is the MCP client renderer's responsibility), but it does neutralize the one vector that survives conversion: links and images with an executable URI scheme (`javascript:`, `vbscript:`, and `data:` for links) lose the URL and keep only the visible text/alt. Regular `http(s)` links and inline `data:image/...` images are preserved.
+
+**Example:**
+```json
+{ "knowledge_id": 101 }
+```
+
+**Example response:**
+```
+**Conhecimento: Como configurar VPN**
+
+**ID:** 101
+**Visibilidade:** Privado
+**Tags:** VPN, acesso remoto
+**Criado em:** 10/01/2026
+**Atualizado em:** 01/06/2026
+
+---
+
+## Introducao
+
+Este guia cobre a configuracao de VPN...
+```
+
+### list_knowledge_folders
+List knowledge base folders with optional search and pagination. Returns a Markdown table with ID, title, description (truncated), icon, article count, and tags.
+
+**Parameters:**
+- `search` (string, optional): Search by folder title (case-insensitive).
+- `limit` (number, optional): Results per page (default: 20, min: 1, max: 200). Values outside the range are clamped; a non-integer value (`"abc"`, `"0x10"`, `1.5`, negative) is rejected with a validation error instead of being silently coerced.
+- `offset` (number, optional): Page number, 1-based (default: 1, min: 1). Same strict validation as `limit`.
+
+**Returns:** Markdown table with columns `ID | Titulo | Descricao | Icone | Qtd | Tags`.
+
+**Example:**
+```json
+{ "search": "rede", "limit": 10 }
+```
+
+**Example response:**
+```
+| ID | Titulo | Descricao | Icone | Qtd | Tags |
+|---|---|---|---|---|---|
+| 1 | Rede e VPN | Artigos sobre redes... | — | 5 | rede, VPN |
+```
+
 ### create_knowledge
 Create a new knowledge base article. Requires the "Gerenciar conhecimento" permission.
 
+**Note:** The `description` field accepts **Markdown** (the MCP converts it to HTML before sending). HTML is also accepted (idempotent). Images must be embedded by URL: `![alt](https://url)` — base64 and local files are not supported by the API.
+
 **Required fields:**
 - `title` (string): Article title.
-- `description` (string): Article body in HTML (e.g. `"<p>Content here.</p>"`).
+- `description` (string): Article body in Markdown or HTML. Example: `"## Section\n\n- Step 1\n- Step 2"`.
 - `knowledge_folder_ids` (array of numbers, min 1): IDs of the folders where the article will be published. Example: `[12, 34]`.
 
 **Optional fields:**
@@ -3312,7 +3372,9 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
-- `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Requires "Gerenciar conhecimento" permission
+- `GET /knowledges/{id}` - Fetch full detail of a knowledge article by ID (`get_knowledge`). Returns `description` converted from HTML to Markdown
+- `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Accepts Markdown in `description` (converted to HTML before sending). Requires "Gerenciar conhecimento" permission
+- `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).

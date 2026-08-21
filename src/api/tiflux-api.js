@@ -2169,6 +2169,56 @@ class TiFluxAPI {
   }
 
   /**
+   * Busca detalhe de um conhecimento pelo ID.
+   * GET /knowledges/{id}
+   *
+   * So transporte: endpoint → makeRequest (guardrail BE-003).
+   * Logica (conversao HTML→Markdown, formatacao) vive no slice.
+   *
+   * @param {number} id - ID do conhecimento
+   * @returns {Promise<{data, status, error}>}
+   */
+  async getKnowledge(id) {
+    return await this.makeRequest(`/knowledges/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Lista pastas de conhecimento com paginacao e busca.
+   * GET /knowledge-folders
+   *
+   * So transporte: query params → makeRequest, com surfacing de x-total-items
+   * → response.total (identico a listKnowledges — guardrail BE-003).
+   *
+   * @param {object} filters - { offset?, limit?, search? }
+   * @returns {Promise<{data, status, total?, error}>}
+   */
+  async listKnowledgeFolders(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(filters.limit || 20, 200);
+    const offset = Math.max(filters.offset || 1, 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    if (filters.search) {
+      params.append('search', filters.search);
+    }
+
+    const response = await this.makeRequest(`/knowledge-folders?${params.toString()}`);
+
+    // Surface o total real (header X-Total-Items) para a listagem distinguir
+    // "quantidade nesta pagina" de "total que satisfaz o filtro".
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
    * Relatório de avaliações de atendimento — chats.
    * GET /reports/feedbacks/chats
    *
