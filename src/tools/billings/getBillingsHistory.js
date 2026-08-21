@@ -34,6 +34,7 @@ const { errorResponse } = require('../_shared/errors');
 const { footer, pagination, currencyBRL } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { resolveClientName } = require('../_shared/clientResolver');
+const { escapeCell } = require('../_shared/markdown');
 
 const schema = {
   name: 'get_billings_history',
@@ -92,21 +93,6 @@ function deriveSituacao(billing) {
   if (billing.reversal) return 'Estornado';
   if (billing.paid) return 'Pago';
   return 'Faturado';
-}
-
-/**
- * Sanitiza uma celula de tabela Markdown.
- *
- * Os valores vem da API (client_name e cadastrado pelo usuario final, real_value
- * pode ser passthrough nao-numerico em currencyBRL): interpolar cru permite que um
- * `|` no dado crie/quebre colunas e que um `\n` quebre a linha da tabela.
- * Escapa `|` e colapsa qualquer quebra de linha em espaco.
- */
-function escapeCell(value) {
-  return String(value)
-    .replace(/\|/g, '\\|')
-    .replace(/[\r\n]+/g, ' ')
-    .trim();
 }
 
 /**

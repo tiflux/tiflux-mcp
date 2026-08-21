@@ -136,7 +136,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 - **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada)
-- **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`)
+- **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
@@ -1850,6 +1850,37 @@ The report paginates through all available data automatically (no `offset`/`limi
 }
 ```
 
+### list_pre_appointments
+List open (in-progress) time records for a specific ticket. A pre-appointment represents a running stopwatch: `init_time` is filled in and `end_time` is `null` (meaning the timer is still running). Once stopped, it becomes a consolidated appointment (see `list_appointments` for closed records).
+
+> **Permission note:** Requires the "Criar e editar apontamentos" (create and edit appointments) permission and a Tickets license. If your API key returns a `403`, check these permissions or use an admin key.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number to list pre-appointments from
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Pre-appointments per page (default: 20, max: 200)
+
+**Returns:**
+Markdown table with 5 columns: ID, Data (date), Inicio (start time), Fim (end time), Usuario (user name). When `end_time` is `null` (or an empty string), the cell shows **"em andamento"** — this is the normal state of an open pre-appointment, not missing data. Null fields in `date`, `init_time`, or `user.name` are shown as `—`. Cell values are escaped (`|` and line breaks) so API data cannot break the table layout. Footer includes pagination info with total count from the `X-Total-Items` response header.
+
+When no pre-appointments exist for the ticket, a friendly message is returned (not an error).
+
+**Example:**
+```json
+{
+  "ticket_number": "258"
+}
+```
+
+**Typical output:**
+```
+**Pre-apontamentos do Ticket #258 (1 de 1)**
+
+| ID | Data | Inicio | Fim | Usuario |
+|---|---|---|---|---|
+| 3 | 2026-07-07 | 14:35 | em andamento | Velda Windler |
+```
+
 ## Chats
 
 ### get_chat
@@ -3359,6 +3390,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters; returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments`.
+- `GET /tickets/{ticket_number}/pre-appointments` - List open (in-progress) time records for a ticket; returns X-Total-Items header. Requires "Criar e editar apontamentos" permission and Tickets license. Used by `list_pre_appointments`.
 - `GET /chats/{id}` - Retrieve chat details
 - `GET /chats/inbox` - List inbox chats
 - `GET /chats/mine` - List chats assigned to the authenticated user

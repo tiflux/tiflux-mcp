@@ -1003,6 +1003,21 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista pre-apontamentos de um ticket (registros de tempo em aberto).
+   * GET /tickets/{ticket_number}/pre-appointments
+   * Apenas transporte: clamp offset/limit, sem filtros adicionais.
+   */
+  async listPreAppointments(ticketNumber, filters = {}) {
+    const params = new URLSearchParams();
+    const offset = Math.max(1, parseInt(filters.offset) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
+    params.append('offset', offset);
+    params.append('limit', limit);
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/pre-appointments?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
    * Busca o historico de estagios e SLAs de um ticket
    * GET /tickets/{ticket_number}/stages-slas
    */

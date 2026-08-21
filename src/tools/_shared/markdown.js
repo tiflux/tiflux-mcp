@@ -41,4 +41,18 @@ function stripHtml(text) {
   return out;
 }
 
-module.exports = { formatFileSize, stripHtml };
+/**
+ * Sanitiza um valor para uso como celula de tabela Markdown.
+ *
+ * Valores vindos da API podem conter `|` (ex: nome de usuario "Ana | Admin") ou
+ * quebras de linha — interpolados crus, criam/quebram colunas e desalinham a
+ * tabela inteira. Escapa `|` e colapsa qualquer quebra de linha em espaco.
+ */
+function escapeCell(value) {
+  return String(value)
+    .replace(/\|/g, '\\|')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+}
+
+module.exports = { formatFileSize, stripHtml, escapeCell };
