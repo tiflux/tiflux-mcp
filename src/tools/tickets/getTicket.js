@@ -1,21 +1,22 @@
 /**
- * Slice: get_ticket — busca detalhes completos de um ticket pelo numero.
+ * Slice: get_ticket — busca detalhes completos de um ticket pelo número.
  *
  * Endpoint: GET /tickets/{ticket_number} (via api.fetchTicket).
- * Retorna: status, prioridade, mesa, estagio, catalogo, responsavel,
- * cliente, criado_por, atualizado_por, SLA, URLs, campos personalizados.
+ * Retorna: hierarquia (ticket pai / tickets filhos), solicitante, resumo de
+ * checklists (com aviso de bloqueio de fechamento), status, prioridade, mesa,
+ * estágio, catálogo, responsável, cliente, criado por, SLA, URLs, campos
+ * personalizados e demais campos descartados anteriormente pelo formatter.
  */
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, truncate } = require('../_shared/format');
-const { stripHtml } = require('../_shared/markdown');
 const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
   name: 'get_ticket',
-  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), criado por (ID e nome), atualizado por (ID e nome), seguidores, tags, datas (criação, atualização, fechamento), horas trabalhadas, SLA (status detalhado), URLs (interna e externa) e campos personalizados opcionais.',
+  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) e campos personalizados opcionais.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -40,6 +41,42 @@ function formatTicket(ticketNumber, ticket, v) {
     const client = ticket.client?.name || 'N/A';
     const desc = truncate(ticket.description || '', 800);
 
+    // Hierarquia (compact: linha única com números, sem títulos)
+    let hierarchyCompact = '';
+    const hasParent = ticket.ticket_reference && ticket.ticket_reference.ticket_number;
+    const children = (ticket.ticket_children || []).filter(c => c && c.ticket_number);
+    if (hasParent || children.length > 0) {
+      const parts = [];
+      if (hasParent) {
+        parts.push(`Pai: #${ticket.ticket_reference.ticket_number}`);
+      }
+      if (children.length > 0) {
+        parts.push(`Filhos: ${children.map(c => `#${c.ticket_number}`).join(', ')}`);
+      }
+      hierarchyCompact = `\n${parts.join(' | ')}`;
+    }
+
+    // Solicitante (compact: nome e email)
+    let requestorCompact = '';
+    if (ticket.requestor && ticket.requestor.name) {
+      const reqParts = [ticket.requestor.name];
+      if (ticket.requestor.email) reqParts.push(ticket.requestor.email);
+      requestorCompact = `\nSolicitante: ${reqParts.join(' ')}`;
+    }
+
+    // Checklists (compact: só quando bloqueia fechamento ou há obrigatórios pendentes)
+    let checklistCompact = '';
+    const cs = ticket.checklists_summary;
+    if (cs && (cs.blocks_close || cs.required_pending > 0)) {
+      checklistCompact = `\n⚠️ Checklist: ${cs.required_pending} obrigatório(s) pendente(s)`;
+      if (cs.missing_required_checklists && cs.missing_required_checklists.length > 0) {
+        checklistCompact += ` — ${cs.missing_required_checklists.join(', ')}`;
+      }
+      if (cs.blocks_close) {
+        checklistCompact += ' (BLOQUEIA FECHAMENTO)';
+      }
+    }
+
     // Campos personalizados (compact: apenas nome e valor)
     let entitiesText = '';
     if (ticket.entities && ticket.entities.length > 0) {
@@ -63,12 +100,15 @@ function formatTicket(ticketNumber, ticket, v) {
            `Status: ${status} | Prioridade: ${priority} | Mesa: ${desk} (id:${ticket.desk?.id || 'N/A'})\n` +
            `Estagio: ${stage} (id:${ticket.stage?.id || 'N/A'}) | Responsavel: ${responsible}\n` +
            `Cliente: ${client} | Criado: ${ticket.created_at || 'N/A'}` +
+           `${hierarchyCompact}` +
+           `${requestorCompact}` +
+           `${checklistCompact}` +
            `${slaCompact}` +
            (desc ? `\nDescricao: ${desc}` : '') +
            `${entitiesText}`;
   }
 
-  // rich: saida atual completa
+  // rich: saida completa
   // Campos personalizados
   let entitiesText = '';
   if (ticket.entities || ticket.entity_fields) {
@@ -109,17 +149,47 @@ function formatTicket(ticketNumber, ticket, v) {
     }
   }
 
+  // --- Bloco A: Hierarquia (pai/filho) ---
+  let hierarchyInfo = '';
+  const hasParent = ticket.ticket_reference && ticket.ticket_reference.ticket_number;
+  const children = (ticket.ticket_children || []).filter(c => c && c.ticket_number);
+  if (hasParent || children.length > 0) {
+    hierarchyInfo = `\n**Hierarquia:**\n`;
+    if (hasParent) {
+      const ref = ticket.ticket_reference;
+      hierarchyInfo += `  • Ticket pai: #${ref.ticket_number} — ${ref.title || '(sem título)'}\n`;
+    }
+    if (children.length > 0) {
+      hierarchyInfo += `  • Tickets filhos (${children.length}):\n`;
+      children.forEach(child => {
+        hierarchyInfo += `    - #${child.ticket_number} — ${child.title || '(sem título)'}\n`;
+      });
+    }
+  }
+
   // Informacoes expandidas por bloco
   let statusInfo = '';
   if (ticket.status) {
     statusInfo = `**Status:** ${ticket.status.name || 'N/A'} (ID: ${ticket.status.id || 'N/A'})\n`;
     statusInfo += `  • Aberto: ${ticket.status.default_open ? 'Sim' : 'Não'}\n`;
     statusInfo += `  • Fechado: ${ticket.is_closed ? 'Sim' : 'Não'}\n`;
+    if (ticket.status.default_close) {
+      statusInfo += `  • Status padrão de fechamento: Sim\n`;
+    }
+    if (ticket.status.default_canceled) {
+      statusInfo += `  • Status padrão de cancelamento: Sim\n`;
+    }
   }
 
   let priorityInfo = '';
   if (ticket.priority) {
     priorityInfo = `**Prioridade:** ${ticket.priority.name || 'N/A'} (ID: ${ticket.priority.id || 'N/A'})\n`;
+    if (ticket.priority.start_time || ticket.priority.end_time) {
+      priorityInfo += `  • Janela SLA: ${ticket.priority.start_time || '?'} → ${ticket.priority.end_time || '?'}\n`;
+    }
+    if (ticket.priority.order !== undefined && ticket.priority.order !== null) {
+      priorityInfo += `  • Ordem: ${ticket.priority.order}\n`;
+    }
   } else {
     priorityInfo = `**Prioridade:** Não definida\n`;
   }
@@ -129,6 +199,9 @@ function formatTicket(ticketNumber, ticket, v) {
     deskInfo = `**Mesa:** ${ticket.desk.display_name || ticket.desk.name || 'N/A'} (ID: ${ticket.desk.id || 'N/A'})\n`;
     deskInfo += `  • Nome interno: ${ticket.desk.name || 'N/A'}\n`;
     deskInfo += `  • Ativa: ${ticket.desk.active ? 'Sim' : 'Não'}\n`;
+    if (ticket.desk.appointment_type) {
+      deskInfo += `  • Tipo de apontamento: ${ticket.desk.appointment_type}\n`;
+    }
   }
 
   let stageInfo = '';
@@ -171,8 +244,25 @@ function formatTicket(ticketNumber, ticket, v) {
     if (ticket.responsible.technical_group_id) {
       responsibleInfo += `  • Grupo técnico ID: ${ticket.responsible.technical_group_id}\n`;
     }
+    // responsible.gauth_enabled e responsible.last_login_at: NAO expor (decisao consciente —
+    // detalhe de autenticacao e dado de sessao sem relacao com o conteudo do ticket)
   } else {
     responsibleInfo = `**Responsável:** Não atribuído\n`;
+  }
+
+  // --- Bloco B: Solicitante ---
+  let requestorInfo = '';
+  if (ticket.requestor && ticket.requestor.name) {
+    requestorInfo = `**Solicitante:** ${ticket.requestor.name}\n`;
+    if (ticket.requestor.email) {
+      requestorInfo += `  • Email: ${ticket.requestor.email}\n`;
+    }
+    if (ticket.requestor.telephone) {
+      requestorInfo += `  • Telefone: ${ticket.requestor.telephone}\n`;
+    }
+    if (ticket.requestor.ramal) {
+      requestorInfo += `  • Ramal: ${ticket.requestor.ramal}\n`;
+    }
   }
 
   let clientInfo = '';
@@ -181,17 +271,21 @@ function formatTicket(ticketNumber, ticket, v) {
     if (ticket.client.social) {
       clientInfo += `  • Razão social: ${ticket.client.social}\n`;
     }
+    if (ticket.client.social_revenue) {
+      // A API documenta social_revenue do cliente como filtro "CPF ou CNPJ"
+      // (ver list_clients/search_client no README). Rótulo "CPF/CNPJ" — não "CNPJ"
+      // isolado, que assumiria pessoa jurídica sem base (pode ser CPF de PF).
+      clientInfo += `  • CPF/CNPJ: ${ticket.client.social_revenue}\n`;
+    }
     clientInfo += `  • Ativo: ${ticket.client.status ? 'Sim' : 'Não'}\n`;
   }
 
   let createdByInfo = '';
   if (ticket.created_by_id) {
     createdByInfo = `**Criado por:** `;
-    if (ticket.created_by && ticket.created_by.name) {
-      createdByInfo += `${ticket.created_by.name} (ID: ${ticket.created_by_id})`;
-    } else {
-      createdByInfo += `ID ${ticket.created_by_id}`;
-    }
+    // created_by{} retorna null na amostra Fase 0 — usar created_by_id. Fallback barato
+    // para o nome caso algum tenant/tipo de ticket fora da amostra o devolva.
+    createdByInfo += ticket.created_by?.name ? `${ticket.created_by.name} (ID ${ticket.created_by_id})` : `ID ${ticket.created_by_id}`;
     if (ticket.created_by_way_of) {
       createdByInfo += ` (via ${ticket.created_by_way_of})`;
     }
@@ -201,11 +295,9 @@ function formatTicket(ticketNumber, ticket, v) {
   let updatedByInfo = '';
   if (ticket.updated_by_id) {
     updatedByInfo = `**Atualizado por:** `;
-    if (ticket.updated_by && ticket.updated_by.name) {
-      updatedByInfo += `${ticket.updated_by.name} (ID: ${ticket.updated_by_id})`;
-    } else {
-      updatedByInfo += `ID ${ticket.updated_by_id}`;
-    }
+    // updated_by{} retorna null na amostra Fase 0 — usar updated_by_id. Fallback barato
+    // para o nome caso algum tenant/tipo de ticket fora da amostra o devolva.
+    updatedByInfo += ticket.updated_by?.name ? `${ticket.updated_by.name} (ID ${ticket.updated_by_id})` : `ID ${ticket.updated_by_id}`;
     updatedByInfo += `\n`;
   }
 
@@ -225,8 +317,65 @@ function formatTicket(ticketNumber, ticket, v) {
     if (ticket.sla_info.solve_expiration) {
       slaInfo += `  • Expiração resolução: ${ticket.sla_info.solve_expiration}\n`;
     }
-    if (ticket.sla_info.solved_in_time !== null) {
+    if (ticket.sla_info.solved_in_time !== null && ticket.sla_info.solved_in_time !== undefined) {
       slaInfo += `  • Resolvido no prazo: ${ticket.sla_info.solved_in_time ? 'Sim' : 'Não'}\n`;
+    }
+    if (ticket.sla_info.attend_sla_solution !== null && ticket.sla_info.attend_sla_solution !== undefined) {
+      slaInfo += `  • SLA atendimento/solução: ${ticket.sla_info.attend_sla_solution ? 'Sim' : 'Não'}\n`;
+    }
+    if (ticket.sla_info.desactivate_sla_reason) {
+      slaInfo += `  • Motivo desativação SLA: ${ticket.sla_info.desactivate_sla_reason}\n`;
+    }
+  }
+
+  // --- Bloco B: Checklists summary ---
+  let checklistInfo = '';
+  const cs = ticket.checklists_summary;
+  if (cs && cs.total > 0) {
+    checklistInfo = `\n**Checklists:** ${cs.total} total`;
+    if (cs.pending > 0) checklistInfo += `, ${cs.pending} pendente(s)`;
+    if (cs.required_pending > 0) checklistInfo += `, ${cs.required_pending} obrigatório(s) pendente(s)`;
+    checklistInfo += `\n`;
+    if (cs.blocks_close || cs.required_pending > 0) {
+      checklistInfo += `  ⚠️ **Bloqueio de fechamento:** checklists obrigatórios pendentes`;
+      if (cs.missing_required_checklists && cs.missing_required_checklists.length > 0) {
+        checklistInfo += ` — ${cs.missing_required_checklists.join(', ')}`;
+      }
+      checklistInfo += `\n`;
+    }
+  }
+
+  // --- Bloco B: Equipamento ---
+  let equipmentInfo = '';
+  if (ticket.equipment && ticket.equipment.id !== null && ticket.equipment.id !== undefined) {
+    equipmentInfo = `\n**Equipamento:** ${ticket.equipment.name || 'N/A'} (ID: ${ticket.equipment.id})\n`;
+    if (ticket.equipment.group_id) {
+      equipmentInfo += `  • Grupo ID: ${ticket.equipment.group_id}\n`;
+    }
+    if (ticket.equipment.user_id) {
+      equipmentInfo += `  • Usuário ID: ${ticket.equipment.user_id}\n`;
+    }
+  }
+
+  // --- Bloco B: Feedback ---
+  let feedbackInfo = '';
+  if (ticket.feedback) {
+    // Shape confirmado contra a API real: { id, comments, rating } — ver api-shapes.md
+    // da spec. A escala do rating nao e documentada na Swagger ("Nota da avaliacao do
+    // ticket", integer), por isso exibimos o numero cru sem afirmar "/5".
+    const fb = ticket.feedback;
+    const comments = typeof fb.comments === 'string' ? fb.comments.trim() : '';
+    if (fb.rating !== null && fb.rating !== undefined) {
+      feedbackInfo = `\n**Feedback/Avaliação:**\n  • Nota: ${fb.rating}\n`;
+      if (comments) {
+        feedbackInfo += `  • Comentário: ${truncate(comments)}\n`;
+      }
+    } else if (comments) {
+      feedbackInfo = `\n**Feedback/Avaliação:**\n  • Comentário: ${truncate(comments)}\n`;
+    } else {
+      // Shape inesperado (fora do contrato confirmado) — dump com cap de tamanho para
+      // nao perder o dado nem estourar tokens caso venha grande/aninhado.
+      feedbackInfo = `\n**Feedback/Avaliação:** ${truncate(JSON.stringify(fb))}\n`;
     }
   }
 
@@ -234,16 +383,13 @@ function formatTicket(ticketNumber, ticket, v) {
   if (ticket.followers) {
     additionalInfo += `**Seguidores:** ${ticket.followers}\n`;
   }
-  if (ticket.tags && Array.isArray(ticket.tags) && ticket.tags.length > 0) {
-    additionalInfo += `**Tags:** ${ticket.tags.join(', ')}\n`;
-  } else if (ticket.tags && typeof ticket.tags === 'string' && ticket.tags.trim()) {
-    additionalInfo += `**Tags:** ${ticket.tags}\n`;
-  }
+  // tags: campo fantasma (null na API real) — removido
   if (ticket.worked_hours) {
     additionalInfo += `**Horas trabalhadas:** ${ticket.worked_hours}\n`;
   }
-  if (ticket.closed_at) {
-    additionalInfo += `**Fechado em:** ${ticket.closed_at}\n`;
+  // closed_at: campo fantasma (null na API real) — substituído por closed_ticket_total_spent_solving
+  if (ticket.closed_ticket_total_spent_solving) {
+    additionalInfo += `**Tempo total de resolução:** ${ticket.closed_ticket_total_spent_solving}\n`;
   }
   if (ticket.reopen_count > 0) {
     additionalInfo += `**Reaberturas:** ${ticket.reopen_count}\n`;
@@ -256,6 +402,18 @@ function formatTicket(ticketNumber, ticket, v) {
   }
   if (ticket.is_revised) {
     additionalInfo += `**Revisado:** Sim\n`;
+  }
+  if (ticket.last_answer_type) {
+    additionalInfo += `**Última resposta:** ${ticket.last_answer_type}\n`;
+  }
+  if (ticket.created_with_ai) {
+    additionalInfo += `**Criado com IA:** Sim\n`;
+  }
+  if (ticket.is_duplicating) {
+    additionalInfo += `**Duplicação em andamento:** Sim\n`;
+  }
+  if (ticket.priority_change_reason) {
+    additionalInfo += `**Motivo de mudança de prioridade:** ${ticket.priority_change_reason}\n`;
   }
 
   let urlInfo = '';
@@ -277,12 +435,17 @@ function formatTicket(ticketNumber, ticket, v) {
          `${stageInfo}\n` +
          `${catalogInfo}\n` +
          `${responsibleInfo}\n` +
+         `${requestorInfo ? requestorInfo + '\n' : ''}` +
          `${clientInfo}\n` +
          `${createdByInfo}` +
          `**Criado em:** ${ticket.created_at || 'N/A'}\n` +
          `${updatedByInfo}` +
          `**Atualizado em:** ${ticket.updated_at || 'N/A'}\n` +
          `${additionalInfo}` +
+         `${hierarchyInfo}` +
+         `${checklistInfo}` +
+         `${equipmentInfo}` +
+         `${feedbackInfo}` +
          `${slaInfo}` +
          `${urlInfo}\n` +
          `**Descrição:**\n${ticket.description || 'Sem descrição'}${entitiesText}\n\n` +

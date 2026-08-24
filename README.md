@@ -162,7 +162,7 @@ O servidor suporta dois modos de verbosidade para controlar o consumo de tokens:
 | Modo | Descrição |
 |------|-----------|
 | `rich` | Saída completa em Markdown com emojis, rodapés e blocos de paginação detalhados (padrão) |
-| `compact` | Saída enxuta — sem rodapé decorativo, resumo de paginação em uma linha, `get_ticket` omite flags de baixo valor e trunca descrições longas, `list_tickets` usa linhas ultracompactas por ticket |
+| `compact` | Saída enxuta — sem rodapé decorativo, resumo de paginação em uma linha; `get_ticket` omite SLA sub-fields, equipment, feedback, resolution time, and low-value flags — hierarchy shows as `Pai: #N \| Filhos: #A, #B` (numbers only), requestor as `Solicitante: <name> <email>`, checklists only when blocking; trunca descrições longas; `list_tickets` usa linhas ultracompactas por ticket |
 
 **SDK (stdio) — variável de ambiente:**
 
@@ -190,7 +190,7 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
 ## Available Tools
 
 ### get_ticket
-Retrieve a specific ticket by ID with comprehensive information including status, priority, desk, stage, catalog, responsible, client, audit data, SLA and URLs.
+Retrieve a specific ticket by ID with comprehensive information including hierarchy (parent ticket and child tickets/sub-tasks), requestor, checklists summary, status, priority, desk, stage, catalog, responsible, client, audit data, SLA and URLs.
 
 **Parameters:**
 - `ticket_number` (string, required): Number of the ticket to retrieve
@@ -199,19 +199,30 @@ Retrieve a specific ticket by ID with comprehensive information including status
 
 **Returns:**
 Comprehensive ticket information including:
-- Status (ID, name, open/closed flags)
-- Priority (ID, name)
-- Desk (ID, internal name, display name, active status)
+- **Hierarchy**: parent ticket (`#N — title`) and child tickets (count + `#N — title` list) — shown only when a link exists
+- **Requestor**: who opened the ticket (name, email, phone, extension) — distinct from the responsible (assignee)
+- **Checklists summary**: total, pending, required pending, with explicit ⚠️ warning when `blocks_close` is true or required checklists are missing (lists them by name)
+- Status (ID, name, open/close/canceled default flags)
+- Priority (ID, name, SLA window `start_time → end_time`, order)
+- Desk (ID, internal name, display name, active status, appointment type)
 - Stage (ID, name, first/last stage flags, max time)
 - Service Catalog (item ID, item name, area, catalog)
 - Responsible (ID, name, email, type, technical group)
-- Client (ID, name, social reason, active status)
+- Client (ID, name, social reason, CPF/CNPJ `social_revenue` when set, active status)
 - Audit (created by ID, origin, created/updated dates)
-- SLA (status, expirations, deadlines)
-- Additional info (followers, worked hours, reopens, internal/external URLs)
+- SLA (status, expirations, deadlines, `attend_sla_solution`, `desactivate_sla_reason` when set)
+- Equipment linked to the ticket (when `equipment.id` is not null)
+- Feedback/rating (when available) — rating and comment from the client's evaluation
+- Additional info: followers, worked hours, total resolution time (`closed_ticket_total_spent_solving`), last answer type, reopens, URLs
 - Custom fields: when present, includes field type, current value, `required` flag (shown as `(obrigatório)` suffix), and options already set for `single_select`/`checkbox` fields (with IDs for `list_entity_field_options`)
 
-**New in v1.4.0:** Expanded fields for complete ticket metadata in a single call.
+**Verbosity (`compact` mode):**
+- Hierarchy: single line `Pai: #N | Filhos: #A, #B` (numbers only, no titles)
+- Requestor: `Solicitante: <name> <email>`
+- Checklists: shown only when `blocks_close` or `required_pending > 0`
+- Equipment, feedback, resolution time, SLA sub-fields, and low-value flags are omitted in compact
+
+**New in v2.43.0:** Hierarchy (parent/child tickets), requestor, checklists summary, equipment, SLA sub-fields, priority/desk/client sub-fields, and cleanup of phantom fields (tags, closed_at).
 
 ### create_ticket
 Create a new ticket in Tiflux.
