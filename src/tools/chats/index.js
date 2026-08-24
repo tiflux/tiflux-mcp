@@ -1,7 +1,7 @@
 /**
  * ChatTools — agregador do módulo chats.
  *
- * Expõe as 5 tools de consulta de chats via HandlerRegistry.
+ * Expõe as 10 tools de consulta e operação de chats via HandlerRegistry.
  * Seguindo o padrão de src/tools/appointments/index.js.
  */
 

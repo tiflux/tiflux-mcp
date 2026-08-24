@@ -11,10 +11,11 @@ const { footer, pagination } = require('../_shared/format');
 const { createdAtFilterSchemaProperties, paginationSchemaProperties } = require('../_shared/schemaProps');
 const { commonChatListFilters } = require('../_shared/chatFilters');
 const { ticketLine } = require('../_shared/chatTicket');
+const { originLabel, assumedAtLine } = require('../_shared/chatFields');
 
 const schema = {
   name: 'list_in_attendance_chats',
-  description: 'Listar todos os chats em atendimento da organização com filtros opcionais de responsável, status e paginação.',
+  description: 'Listar todos os chats em atendimento da organização com filtros opcionais de responsável, status e paginação. O campo assumed_at vem da coluna crua da API e pode divergir do get_chat em chats legados (assumidos antes da coluna existir).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -59,7 +60,7 @@ const schema = {
 
 function formatChatItem(chat, index) {
   const id = chat.id || 'N/A';
-  const origin = chat.origin || 'N/A';
+  const origin = originLabel(chat.origin);
   const clientName = chat.client?.name || 'N/A';
   const requestorName = chat.requestor?.name || 'N/A';
   const department = chat.department?.name || 'N/A';
@@ -77,7 +78,8 @@ function formatChatItem(chat, index) {
     `   Departamento: ${department}\n` +
     ticketLine(chat.ticket) +
     `   Última mensagem: ${lastMsg}\n` +
-    `   Criado em: ${createdAt}\n`
+    `   Criado em: ${createdAt}\n` +
+    assumedAtLine(chat.assumed_at)
   );
 }
 

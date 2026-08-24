@@ -10,6 +10,7 @@ const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer } = require('../_shared/format');
 const { ticketReference } = require('../_shared/chatTicket');
+const { originLabel } = require('../_shared/chatFields');
 
 const schema = {
   name: 'get_chat',
@@ -35,7 +36,7 @@ function formatChatCard(chat, verbosity) {
   const requestorName = chat.requestor?.name || 'Não informado';
   const department = chat.department?.name || 'Não informado';
   const responsible = chat.responsible?.name || 'Sem responsável';
-  const origin = chat.origin || 'Não informado';
+  const origin = originLabel(chat.origin, 'Não informado');
   const room = chat.room || 'Não informado';
   const online = chat.online ? 'Online' : 'Offline';
   const waitingAnswer = chat.waiting_answer ? 'Sim' : 'Não';

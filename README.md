@@ -1894,11 +1894,11 @@ Card with all relevant chat fields including:
 - Status (archived, canceled, online, waiting for answer)
 - Client and requestor names
 - Department and responsible attendant
-- Origin channel and room
+- Origin channel (the API returns `origin` as an object `{ integration_id, _type, fields }`; the card displays `_type`, e.g. `whatsapp`, `site_widget`, `chat`) and room
 - Linked ticket (number + title, e.g. `#127 — Erro no login`); title is normalized to a single line and truncated at 150 chars; shows `Sem ticket vinculado` when no ticket is linked
 - Assessment rating (1–5) if available
 - Last client message (truncated at 150 chars)
-- Timestamps (created, updated, assumed)
+- Timestamps (created, updated, assumed). **Note:** `assumed_at` in `get_chat` may differ from the listing tools for legacy chats (assumed before the column existed) — the `get_chat` view synthesizes the current timestamp when the column is null but a responsible is set; the listings return the raw column value.
 
 **Example:**
 ```json
@@ -1923,7 +1923,7 @@ Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
 **Returns:**
-Paginated list of chats. Each item includes origin, online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of chats. Each item includes origin (displayed as `_type`, e.g. `chat`, `whatsapp`), online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked). `Assumido em:` is omitted for inbox chats because they are not yet assumed.
 
 **Example:**
 ```json
@@ -1951,7 +1951,7 @@ Listar chats assumidos pelo usuário autenticado (dono da API key) com filtros o
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
 **Returns:**
-Paginated list of chats assumed by the authenticated user. Each item includes origin, online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of chats assumed by the authenticated user. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `chat`), online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, `Assumido em:` timestamp (raw column from the API — may differ from `get_chat` for legacy chats), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
 
 **Example:**
 ```json
@@ -1980,7 +1980,7 @@ Listar todos os chats em atendimento da organização com filtros opcionais de r
 - `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
 
 **Returns:**
-Paginated list of all chats currently in attendance in the organization. Each item includes origin, online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of all chats currently in attendance in the organization. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `site_widget`), online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, `Assumido em:` timestamp (raw column from the API — may differ from `get_chat` for legacy chats), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
 
 **Example:**
 ```json
@@ -2010,7 +2010,7 @@ Listar chats arquivados (finalizados ou cancelados) com filtros opcionais de dat
 - `finished_at_end` (string, optional): Filter chats finished on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `finished_at_start`. Only applicable to archived chats
 
 **Returns:**
-Paginated list of archived chats. Each item includes origin, canceled/assessment status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of archived chats. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `chat`), canceled/assessment status, client, requestor, department, last client message (truncated at 150 chars), creation date, `Assumido em:` timestamp (raw column from the API — may differ from `get_chat` for legacy chats), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
 
 **Example:**
 ```json
@@ -3391,11 +3391,11 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters; returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments`.
 - `GET /tickets/{ticket_number}/pre-appointments` - List open (in-progress) time records for a ticket; returns X-Total-Items header. Requires "Criar e editar apontamentos" permission and Tickets license. Used by `list_pre_appointments`.
-- `GET /chats/{id}` - Retrieve chat details
-- `GET /chats/inbox` - List inbox chats
-- `GET /chats/mine` - List chats assigned to the authenticated user
-- `GET /chats/in_attendance` - List chats currently in attendance
-- `GET /chats/archived` - List archived (finished or canceled) chats
+- `GET /chats/{id}` - Retrieve chat details. `origin` is an object `{ integration_id, _type, fields }`; displayed as `_type`. `assumed_at` synthesized for legacy chats (may differ from listing)
+- `GET /chats/inbox` - List inbox chats. `origin` object → `_type`; `assumed_at` always null (unassumed chats)
+- `GET /chats/mine` - List chats assigned to the authenticated user. `origin` object → `_type`; `assumed_at` raw column
+- `GET /chats/in_attendance` - List chats currently in attendance. `origin` object → `_type`; `assumed_at` raw column
+- `GET /chats/archived` - List archived (finished or canceled) chats. `origin` object → `_type`; `assumed_at` raw column
 - `GET /chats/{id}/messages` - List messages of a chat in chronological order (`list_chat_messages`)
 - `PUT /chats/{id}` - Update a chat (transfer attendant/department, link ticket)
 - `POST /chats/send_message` - Send a WhatsApp message (free text or HSM template), creating the chat
