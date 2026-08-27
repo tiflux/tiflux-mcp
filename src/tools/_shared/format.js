@@ -40,7 +40,10 @@ function footer(v) {
  * @param {number} opts.offset  - Pagina atual (comeca em 1)
  * @param {number} opts.limit   - Itens por pagina
  * @param {number} opts.count   - Itens retornados nesta pagina
- * @param {number} [opts.total] - Total de itens (opcional; quando disponivel, exibido)
+ * @param {number} [opts.total] - Total de itens (opcional; quando disponivel, exibido e usado
+ *   para decidir hasMore: se total conhecido e currentOffset*currentLimit >= total, nao ha
+ *   proxima pagina mesmo que a pagina venha cheia. Coercido via Number.parseInt para o
+ *   calculo; valor nao-numerico e tratado como total desconhecido)
  * @param {string} [opts.unit]  - Palavra para o item (ex: 'tickets', 'chats'). Default 'itens'.
  * @param {string} [v='rich']   - Modo de verbosidade
  * @returns {string}
@@ -48,7 +51,15 @@ function footer(v) {
 function pagination({ offset, limit, count, total, unit = 'itens' }, v) {
   const currentOffset = Math.max(1, Number.parseInt(offset) || 1);
   const currentLimit = Math.max(1, Number.parseInt(limit) || 20);
-  const hasMore = count === currentLimit;
+  // offset na API v2 e numero de pagina 1-based: itens ja vistos ao final da pag N = N * limit.
+  // Se total e conhecido e ja foi integralmente alcancado, nao ha proxima pagina mesmo com
+  // pagina cheia. Se total e desconhecido, mantem a heuristica estrita (pagina cheia = tem mais).
+  // Coercao defensiva: pagination() e exportado e chamavel direto por qualquer slice.
+  // Se `total` vier como string nao-numerica, NaN cairia silenciosamente em "ultima pagina"
+  // (esconderia paginas). Coercao invalida => trata como total desconhecido (direcao segura).
+  const totalNum = Number.parseInt(total, 10);
+  const knownTotal = !Number.isNaN(totalNum);
+  const hasMore = count === currentLimit && (!knownTotal || currentOffset * currentLimit < totalNum);
 
   if (v === 'compact') {
     let line = `[Pág ${currentOffset} · ${currentLimit}/${unit} · ${count} nesta pág`;
