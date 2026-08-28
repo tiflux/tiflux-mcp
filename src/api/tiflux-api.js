@@ -708,6 +708,10 @@ class TiFluxAPI {
       const ids = [...new Set(filters.priority_ids.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
       if (ids.length > 0) params.append('priority_ids', ids.join(','));
     }
+    // created_by_way_of: numero inteiro convertido pelo slice (0..12).
+    if (filters.created_by_way_of !== undefined && filters.created_by_way_of !== null) {
+      params.append('created_by_way_of', filters.created_by_way_of);
+    }
 
     const response = await this.makeRequest(`/tickets?${params.toString()}`);
 
@@ -2195,6 +2199,33 @@ class TiFluxAPI {
    */
   async getKnowledge(id) {
     return await this.makeRequest(`/knowledges/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Arquiva (soft-delete) um conhecimento.
+   * DELETE /knowledges/{id}
+   *
+   * So transporte: ID → makeRequest DELETE (guardrail BE-003).
+   * Resposta de sucesso: 204 sem corpo.
+   *
+   * @param {number} id - ID do conhecimento a ser arquivado
+   * @returns {Promise<{data, status, error}>}
+   */
+  async deleteKnowledge(id) {
+    return await this.makeRequest(`/knowledges/${encodeURIComponent(id)}`, 'DELETE');
+  }
+
+  /**
+   * Busca detalhe de uma pasta de conhecimento pelo ID.
+   * GET /knowledge-folders/{id}
+   *
+   * So transporte: ID → makeRequest (guardrail BE-003).
+   *
+   * @param {number} id - ID da pasta de conhecimento
+   * @returns {Promise<{data, status, error}>}
+   */
+  async getKnowledgeFolder(id) {
+    return await this.makeRequest(`/knowledge-folders/${encodeURIComponent(id)}`);
   }
 
   /**

@@ -8,7 +8,9 @@ const slices = [
   require('./listKnowledges'),
   require('./createKnowledge'),
   require('./getKnowledge'),
-  require('./listKnowledgeFolders')
+  require('./listKnowledgeFolders'),
+  require('./deleteKnowledge'),
+  require('./getKnowledgeFolder')
 ];
 
 class KnowledgeTools {

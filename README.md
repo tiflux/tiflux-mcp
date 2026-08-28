@@ -397,8 +397,9 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
+- `created_by_way_of` (string, optional): Filter tickets by creation origin. Accepted values: `"web"` (Tiflux Web), `"agent"` (Agente), `"chat_widget"` (Chat Widget), `"whatsapp"` (WhatsApp), `"email"` (E-mail), `"external_form"` (Formulario Externo), `"mobile"` (Mobile), `"api"` (API), `"chat"` (Chat), `"recurrent_activity"` (Atividade Recorrente), `"trigger"` (Gatilho), `"ticket_group"` (Grupo de Tickets), `"ai_agent"` (Agente de IA). Invalid values are rejected locally without calling the API.
 
-**Note:** At least one filter is required (desk, client, requestor, responsible, stage, date range, SLA, catalog, or priority).
+**Note:** At least one filter is required (desk, client, requestor, responsible, stage, date range, SLA, catalog, priority, or `created_by_way_of`).
 
 **Guard-rails for `date_type="solved_in_time"`:**
 - If `filter_by` is **not** provided, the MCP assumes `filter_by="closed"` and announces it in the response (e.g., "Status: Fechados — assumido; use 'all' para incluir cancelados"). Use `filter_by="all"` to include cancelled tickets too.
@@ -2421,7 +2422,7 @@ List knowledge base articles with optional search and folder filters. Returns a 
 ### get_knowledge
 Fetch the full detail of a knowledge base article by ID. The `description` body is returned in **Markdown** (converted from HTML by the MCP — no raw HTML noise in context).
 
-**Important:** The API v2 does **not** allow editing or deleting an existing article. To update content, create a new article with `create_knowledge`.
+**Important:** The API v2 does **not** allow editing an existing article. To update content, create a new article with `create_knowledge`. To archive (soft-delete) an article, use `delete_knowledge`.
 
 **Parameters:**
 - `knowledge_id` (number, required): ID of the knowledge article (obtained from `list_knowledges`).
@@ -2451,6 +2452,59 @@ Fetch the full detail of a knowledge base article by ID. The `description` body 
 
 Este guia cobre a configuracao de VPN...
 ```
+
+### delete_knowledge
+Archive (soft-delete) a knowledge base article by ID. Requires the "Gerenciar base de conhecimento" permission.
+
+**⚠ Warning:** The archiving is **irreversible via the API** — there is no restore or edit endpoint. The article is also unlinked from **all folders** where it was published.
+
+A pre-flight lookup fetches the article title before the DELETE (for the confirmation message). If the pre-flight fails, the DELETE proceeds anyway.
+
+**Parameters:**
+- `knowledge_id` (number, required): ID of the knowledge article to archive (obtained from `list_knowledges` or `get_knowledge`).
+
+**Returns:** Confirmation message with the article ID and title, listing the effects (archived + unlinked from folders).
+
+**Example:**
+```json
+{ "knowledge_id": 101 }
+```
+
+**Errors:**
+- `404`: Article not found or not visible to the user. Without the "Gerenciar base de conhecimento" permission, only public articles and those in the user's attendant groups are accessible.
+- `403`: Missing the "Gerenciar base de conhecimento" permission.
+
+### get_knowledge_folder
+Fetch the full detail of a knowledge base folder by ID, including the list of articles published in it.
+
+**Parameters:**
+- `folder_id` (number, required): ID of the knowledge folder (obtained from `list_knowledge_folders`).
+
+**Returns:** Folder detail with title, description, icon, tags, total article count, and a table of visible articles (`ID | Titulo`). If `qty_knowledges` is greater than the number of listed articles, the user lacks permission to see all of them — both numbers are shown.
+
+**Example:**
+```json
+{ "folder_id": 1 }
+```
+
+**Example response:**
+```
+**Pasta de Conhecimento: Rede e VPN**
+
+**ID:** 1
+**Icone:** —
+**Tags:** rede, VPN
+**Descricao:** Artigos sobre redes corporativas.
+**Artigos:** 5
+
+| ID | Titulo |
+|---|---|
+| 101 | Como configurar VPN |
+| 102 | Politica de Senhas |
+```
+
+**Errors:**
+- `404`: Folder not found or not visible to the user. Without the "Gerenciar base de conhecimento" permission, only folders containing public articles or articles from the user's attendant groups are returned.
 
 ### list_knowledge_folders
 List knowledge base folders with optional search and pagination. Returns a Markdown table with ID, title, description (truncated), icon, article count, and tags.
@@ -3417,6 +3471,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `GET /knowledges/{id}` - Fetch full detail of a knowledge article by ID (`get_knowledge`). Returns `description` converted from HTML to Markdown
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Accepts Markdown in `description` (converted to HTML before sending). Requires "Gerenciar conhecimento" permission
+- `DELETE /knowledges/{id}` - Archive (soft-delete) a knowledge base article (`delete_knowledge`). Sets `archived: true` and unlinks from all folders. Irreversible. Requires "Gerenciar base de conhecimento" permission
+- `GET /knowledge-folders/{id}` - Fetch full detail of a knowledge folder by ID (`get_knowledge_folder`). Returns title, description, icon, tags, total article count, and list of visible articles
 - `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).

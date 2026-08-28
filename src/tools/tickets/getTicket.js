@@ -286,6 +286,12 @@ function formatTicket(ticketNumber, ticket, v) {
     // created_by{} retorna null na amostra Fase 0 — usar created_by_id. Fallback barato
     // para o nome caso algum tenant/tipo de ticket fora da amostra o devolva.
     createdByInfo += ticket.created_by?.name ? `${ticket.created_by.name} (ID ${ticket.created_by_id})` : `ID ${ticket.created_by_id}`;
+    // created_by_way_of vem do RESPONSE como string ja legivel — nao como o numero
+    // 0..12 que o filtro de INPUT do list_tickets usa. Confirmado em payload real de
+    // producao (2026-08-28, GET /tickets/{n}): "Tiflux Web" (#99693), "Tiflux API"
+    // (#99689), "Whatsapp" (#99685), "Email" (#99662) — batendo com o swagger
+    // (`created_by_way_of: { type: string }`, exemplos "Tiflux Web"/"Tiflux API").
+    // Nao ha conversao numero→label aqui: ela nunca dispararia.
     if (ticket.created_by_way_of) {
       createdByInfo += ` (via ${ticket.created_by_way_of})`;
     }

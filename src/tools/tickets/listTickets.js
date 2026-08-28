@@ -38,6 +38,7 @@ const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
+const { slugToNumber, validSlugs } = require('./createdByWayOf');
 
 // Contrato de GET /tickets (Swagger): services_catalogs_item_ids e priority_ids aceitam
 // no maximo 15 IDs, sem duplicados (erro 42201 "cannot have more than 15 items").
@@ -328,7 +329,12 @@ const schema = {
         description: 'Filtra tickets ABERTOS (e não parados) cujo SLA de RESOLUÇÃO vence até a data/hora informada (ISO 8601), incluindo já vencidos. Use para "SLA em risco" / "o que pode estourar". Ex: para "hoje", passe o fim do dia. Combine com group_by="desk" para "mesas com SLA em risco".'
       },
       start_datetime: { type: 'string', description: 'Data/hora inicial do filtro no formato ISO 8601 (ex: "2024-05-15T00:00:00Z" ou "2024-05-15T00:00:00-03:00"). Filtra tickets com data >= start_datetime' },
-      end_datetime: { type: 'string', description: 'Data/hora final do filtro no formato ISO 8601 (ex: "2024-05-15T23:59:59Z" ou "2024-05-15T23:59:59-03:00"). Filtra tickets com data <= end_datetime' }
+      end_datetime: { type: 'string', description: 'Data/hora final do filtro no formato ISO 8601 (ex: "2024-05-15T23:59:59Z" ou "2024-05-15T23:59:59-03:00"). Filtra tickets com data <= end_datetime' },
+      created_by_way_of: {
+        type: 'string',
+        enum: validSlugs(),
+        description: 'Filtra tickets pela origem de criacao. Valores aceitos: "web" (Tiflux Web), "agent" (Agente), "chat_widget" (Chat Widget), "whatsapp" (WhatsApp), "email" (E-mail), "external_form" (Formulario Externo), "mobile" (Mobile), "api" (API), "chat" (Chat), "recurrent_activity" (Atividade Recorrente), "trigger" (Gatilho), "ticket_group" (Grupo de Tickets), "ai_agent" (Agente de IA). Valor invalido e rejeitado localmente sem chamar a API.'
+      }
     },
     required: []
   }
@@ -359,8 +365,24 @@ async function execute(args, { api, verbosity }) {
     group_by,
     sla_expiring_before,
     start_datetime,
-    end_datetime
+    end_datetime,
+    created_by_way_of
   } = args;
+
+  // Validar created_by_way_of localmente — rejeitar slug invalido ANTES de chamar a API
+  // (API responde 200 com lista incorreta para numero errado, nao 422).
+  let finalCreatedByWayOf = null;
+  if (created_by_way_of !== undefined) {
+    const num = slugToNumber(created_by_way_of);
+    if (num === null) {
+      return errorResponse(
+        `**❌ Valor invalido para created_by_way_of: "${created_by_way_of}"**\n\n` +
+        `Valores aceitos: ${validSlugs().join(', ')}.\n\n` +
+        `*Verifique o valor informado e tente novamente.*`
+      );
+    }
+    finalCreatedByWayOf = num;
+  }
 
   // Validar o escopo da busca. Filtro de STATUS sozinho (filter_by / is_closed) NAO
   // basta: "tickets abertos" sem mais nada traria um volume enorme e gastaria creditos
@@ -371,7 +393,8 @@ async function execute(args, { api, verbosity }) {
     client_ids || client_name || stage_ids || stage_name ||
     responsible_ids || responsible_name || requestor_ids || requestor_email ||
     start_datetime || end_datetime || sla_expiring_before || group_by ||
-    services_catalogs_item_ids || catalog_query || priority_ids || priority_name;
+    services_catalogs_item_ids || catalog_query || priority_ids || priority_name ||
+    created_by_way_of;
 
   if (!hasDesk && !hasOtherScope) {
     return errorResponse(
@@ -645,6 +668,7 @@ async function execute(args, { api, verbosity }) {
     if (sla_expiring_before) filters.sla_expiring_before = sla_expiring_before;
     if (start_datetime) filters.start_datetime = start_datetime;
     if (end_datetime) filters.end_datetime = end_datetime;
+    if (finalCreatedByWayOf !== null) filters.created_by_way_of = finalCreatedByWayOf;
 
     // Chamar API para listar tickets
     const response = await api.listTickets(filters);

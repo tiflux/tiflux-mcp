@@ -5,8 +5,9 @@
  * Retorna: id, title, description (convertido de HTML para Markdown), tags,
  *          private, created_at, updated_at.
  *
- * Limitacao da API v2: NAO existe PUT/DELETE /knowledges/{id}.
+ * Limitacao da API v2: NAO existe PUT /knowledges/{id} (sem edicao).
  * Para editar um artigo, e necessario criar um novo com create_knowledge.
+ * Para arquivar, use delete_knowledge (soft-delete irreversivel pela API).
  *
  * Permissao: sem permissao especial retorna apenas conhecimentos publicos e
  * os do grupo de atendentes do usuario. 404 se nao visivel.
@@ -19,7 +20,7 @@ const { htmlToMarkdown } = require('../_shared/htmlToMarkdown');
 
 const schema = {
   name: 'get_knowledge',
-  description: 'Buscar detalhe completo de um conhecimento da base de conhecimento pelo ID. O corpo (description) e retornado em Markdown (convertido de HTML). ATENCAO: a API v2 NAO permite editar nem apagar um conhecimento existente — para atualizar o conteudo, crie um artigo novo com create_knowledge.',
+  description: 'Buscar detalhe completo de um conhecimento da base de conhecimento pelo ID. O corpo (description) e retornado em Markdown (convertido de HTML). ATENCAO: a API v2 NAO permite editar um conhecimento existente — para atualizar o conteudo, crie um artigo novo com create_knowledge. Para arquivar, use delete_knowledge.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -56,7 +57,7 @@ function formatKnowledge(knowledge) {
     text += `\n---\n\n${body}\n`;
   }
 
-  text += '\n*Nota: a API v2 nao permite editar nem apagar este conhecimento. Para atualizar o conteudo, crie um artigo novo com create_knowledge.*';
+  text += '\n*Nota: a API v2 nao permite editar este conhecimento. Para atualizar o conteudo, crie um artigo novo com create_knowledge. Para arquivar o artigo, use delete_knowledge (arquivamento irreversivel pela API).*';
 
   return text;
 }
