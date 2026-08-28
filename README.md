@@ -1713,7 +1713,7 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 **Parameters (valorization — required for desks with valorization enabled):**
 - `attendance` (integer, optional): Attendance type: `1` = External (presencial), `2` = Remote, `3` = Internal. Required on desks with valorization.
 - `attendance_kind` (integer, optional): Service type: `1` = Loose (avulso), `2` = Contract. Required on desks with valorization.
-- `contract_rider_id` (integer, optional): Contract add-on ID. Required when `attendance_kind=2`. Use `contract_name` to resolve by name.
+- `contract_rider_id` (integer, optional): Contract add-on ID **valid (in-period) on the appointment's `date`**. Required when `attendance_kind=2`. Use `contract_name` to resolve by name. **Caution:** `get_ticket_service_types` may list riders outside their validity period even when the `date=` filter is used — always verify `start_date`/`cancel_date` of the chosen rider before using this field.
 - `loose_service_id` (integer, optional): Loose service ID. Required when `attendance_kind=1`. Use `loose_service_name` to resolve by name.
 - `shift_id` (integer, optional): Travel/displacement ID (visit cost). Only with `attendance=1`. Exclusive with `shift_owner_ticket_number`. Use `shift_name` to resolve by name.
 - `shift_owner_ticket_number` (integer, optional): Ticket number of another open ticket from the same client that already has the travel cost charged (carona). Only with `attendance=1`. Exclusive with `shift_id`.
@@ -1734,6 +1734,8 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 - `value` requires an explicit `attendance_kind=1` (rejected when `attendance_kind` is omitted)
 - `guarantee=true` rejects `value`
 - `external_user_name` max 255 chars, no `<` or `>`
+
+> **Contract rider out of validity period (item 5):** If the chosen `contract_rider_id` is cancelled or outside its validity period on the appointment's `date`, the API returns a `422`. The tool detects this and returns a descriptive error, reminding you to check `start_date`/`cancel_date` of the rider — and that `get_ticket_service_types` may include expired riders even with the `date=` filter active.
 
 > **Desks with valorization enabled:** When the ticket's desk requires valorization, calling `create_appointment` without `attendance` and `attendance_kind` results in a `422` from the API. The tool catches this and returns a guided error message:
 >
@@ -1798,7 +1800,7 @@ Geolocation lines (`📍 Localização: lat, lon`) are rendered when the API ret
 ```
 
 ### list_appointments_global
-List all appointments across all tickets for a date range with optional filters by technician and desk. Requires permission to access the global appointments endpoint. Use `list_appointments_report` for an aggregated summary by technician (N2 support report).
+List all appointments across all tickets for a date range with optional filters by technician, desk, client and contract. Requires permission to access the global appointments endpoint. Use `list_appointments_report` for an aggregated summary by technician (N2 support report).
 
 > **Permission note:** Requires access to the `GET /appointments` endpoint. Users without the "Visualizar relatórios dos técnicos" (view_users_manage) permission may have their `user_ids` filter silently ignored by the API, receiving only their own appointments. When `user_ids` or `user_names` is provided and the API returns data, the tool emits an advisory note about this behavior. Non-admin users may receive `403` if the route itself is blocked at the permission level.
 
@@ -1809,26 +1811,29 @@ List all appointments across all tickets for a date range with optional filters 
 - `user_names` (string, optional): Comma-separated technician names for automatic resolution (alternative to `user_ids`). Ambiguity returns a disambiguation list.
 - `desk_ids` (string, optional): Comma-separated desk IDs (max 15). Use `desk_names` for name-based resolution.
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (alternative to `desk_ids`).
+- `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. **Note (A2):** when this filter is active, appointments without a contract are excluded from results. **Note (A1 — Shared contracts):** in Shared contract mode, the `contract.id` returned may differ from the id you filtered on — the API expands the group to its member, which is expected behavior; do NOT filter client-side by `contract.id` equality.
+- `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated, same rule as `client_ids`). `client_ids` takes precedence when both are provided.
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error.
 - `include_valorization` (boolean, optional): Include valorization data (attendance type, value). Default: `false`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 
 **Returns:**
-Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, desk, ticket number and title, description (truncated at 120 chars). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis.
+Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, contract name (or "sem contrato" when none), desk, ticket number and title, description (truncated at 120 chars). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis. When `contract_ids` is active, a footer warns that appointments without a contract are not shown.
 
 **Example:**
 ```json
 {
   "start_date": "2026-07-01",
   "end_date": "2026-07-31",
-  "user_ids": "123,456",
-  "desk_ids": "85",
+  "client_names": "Acme Corp",
+  "contract_ids": "55082",
   "limit": 50
 }
 ```
 
 ### list_appointments_report
-Generate an aggregated N2 support report: count and total hours per technician for a date range, with optional desk sub-breakdown and grand totals. Ideal for recurring N2 support metrics (how many times and how many hours each N2 technician assisted others in a period).
+Generate an aggregated N2 support report: count and total hours per technician for a date range, with optional desk sub-breakdown and grand totals. Supports filtering by client and contract. Ideal for recurring N2 support metrics (how many times and how many hours each N2 technician assisted others in a period).
 
 > **Permission note:** Same as `list_appointments_global`. Non-admin users without route-level permission receive a `403` error.
 
@@ -1839,6 +1844,9 @@ Generate an aggregated N2 support report: count and total hours per technician f
 - `user_names` (string, optional): Comma-separated N2 technician names for automatic resolution.
 - `desk_ids` (string, optional): Comma-separated desk IDs (max 15) to enable desk sub-breakdown in the report. Use `desk_names` for name-based resolution.
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (enables desk sub-breakdown).
+- `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. See caveats A1/A2 in `list_appointments_global`.
+- `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated).
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Appointments without a contract are excluded when active. See caveat A1 in `list_appointments_global`.
 - `include_valorization` (boolean, optional): Include total value per technician (and per desk when breakdown enabled). Default: `false`.
 
 **Returns:**
@@ -1846,6 +1854,7 @@ Markdown report with:
 - Global totals: total appointments count, total hours, total value with manual sub-total in parentheses when applicable (e.g. `**Valor total:** R$ 1.200,00 (R$ 400,00 em valor manual)`)
 - Per-technician section (sorted by appointment count desc): appointment count, total hours, total value — with `(R$ X manual)` suffix when any manual-value appointment exists for that technician
 - Desk sub-breakdown per technician (shown only when `desk_ids`/`desk_names` provided): count + hours + value per desk, with manual suffix when applicable
+- Warning footer when `contract_ids` is active: appointments without a contract are excluded from the aggregation (same notice as `list_appointments_global` — relevant for billing audits, since totals may be under-reported)
 - Footer with real-time data notice
 
 The `manual_value` breakdown (when `include_valorization=true`) makes it immediately clear how much of the billed total came from manually-entered values vs. contract-calculated rates — important for billing audits.
@@ -3453,7 +3462,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
 - `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
-- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments_global` and `list_appointments_report`.
+- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, client_ids, contract_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name`, `valorization.shift_owner_ticket`, and `contract` at the item top level (view :global). Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters; returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments`.
 - `GET /tickets/{ticket_number}/pre-appointments` - List open (in-progress) time records for a ticket; returns X-Total-Items header. Requires "Criar e editar apontamentos" permission and Tickets license. Used by `list_pre_appointments`.
 - `GET /chats/{id}` - Retrieve chat details. `origin` is an object `{ integration_id, _type, fields }`; displayed as `_type`. `assumed_at` synthesized for legacy chats (may differ from listing)

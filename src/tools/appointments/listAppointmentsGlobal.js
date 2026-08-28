@@ -17,8 +17,10 @@ const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
 const { renderList, currencyBRL } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
+const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const {
   ATTENDANCE_LABELS,
+  CONTRACT_FILTER_NOTICE,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,
@@ -27,7 +29,7 @@ const {
 
 const schema = {
   name: 'list_appointments_global',
-  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico e mesa. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
+  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico, mesa, cliente e contrato. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Filtro por cliente (client_ids/client_names) e por contrato (contract_ids) disponíveis — note que apontamentos sem contrato somem do resultado quando contract_ids está ativo. Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -43,16 +45,19 @@ function renderAppointmentItem(appt) {
   const initTime = appt.init_time || '?';
   const endTime = appt.end_time || '?';
   const userName = appt.user?.name || '—';
+  // item 7: client e campo de TOPO do item (appt.client), nao vem de appt.ticket.client
   const clientName = appt.client?.name || '—';
   const deskName = appt.desk?.name || '—';
   const ticketNum = appt.ticket?.number || '—';
   const ticketTitle = appt.ticket?.title || '—';
+  // item 6: contract e campo de topo do apontamento (view :global); sem exigir include_valorization
+  const contractName = appt.contract?.name || 'sem contrato';
 
   let desc = appt.description || '';
   if (desc.length > 120) desc = desc.substring(0, 120) + '...';
 
   let text = `**#${appt.id}** · ${date} · ${initTime}–${endTime}\n`;
-  text += `  👤 ${userName} · 🏢 ${clientName} · 🗂️ ${deskName} · 🎫 #${ticketNum} — ${ticketTitle}\n`;
+  text += `  👤 ${userName} · 🏢 ${clientName} · 📋 ${contractName} · 🗂️ ${deskName} · 🎫 #${ticketNum} — ${ticketTitle}\n`;
   if (desc) text += `  📝 ${desc}\n`;
 
   if (appt.external_user_name) {
@@ -100,6 +105,9 @@ async function execute(args, { api, verbosity }) {
     user_names,
     desk_ids,
     desk_names,
+    client_ids,
+    client_names,
+    contract_ids,
     include_valorization,
     offset = 1,
     limit = 20
@@ -110,9 +118,9 @@ async function execute(args, { api, verbosity }) {
 
   const userNamesRequested = !!(user_names || user_ids);
 
-  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names });
+  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids });
   if (resolvedIds.error) return resolvedIds.response;
-  const { userIds: finalUserIds, deskIds: finalDeskIds } = resolvedIds;
+  const { userIds: finalUserIds, deskIds: finalDeskIds, clientIds: finalClientIds, contractIds: finalContractIds } = resolvedIds;
 
   const effectiveOffset = Math.max(1, Number.parseInt(offset) || 1);
   const effectiveLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
@@ -123,6 +131,8 @@ async function execute(args, { api, verbosity }) {
       end_date,
       user_ids: finalUserIds,
       desk_ids: finalDeskIds,
+      client_ids: finalClientIds,
+      contract_ids: finalContractIds,
       include_valorization: include_valorization === true,
       offset: effectiveOffset,
       limit: effectiveLimit
@@ -145,6 +155,19 @@ async function execute(args, { api, verbosity }) {
     // Nota informativa: user_ids pode ter sido silenciado pela API se sem view_users_manage
     if (userNamesRequested && appointments.length > 0) {
       result += '\n\n> ⚠️ **Nota:** se este usuário não tem a permissão "Visualizar relatórios dos técnicos", o filtro por técnico pode ter sido ignorado pela API — os resultados podem incluir apontamentos de outros técnicos.';
+    }
+
+    // Rodape quando contract_ids ativo: avisa sobre A2 (sem contrato some) e A1 (Shared expande id)
+    if (finalContractIds) {
+      const footer = renderAppliedFilters([
+        {
+          label: 'contract_ids',
+          value: finalContractIds,
+          origin: 'informado'
+        }
+      ], verbosity);
+      if (footer) result += `\n\n${footer}`;
+      result += `\n\n${CONTRACT_FILTER_NOTICE}`;
     }
 
     return textResponse(result);

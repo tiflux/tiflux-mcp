@@ -63,7 +63,7 @@ const schema = {
       },
       contract_rider_id: {
         type: 'integer',
-        description: 'ID do aditivo de contrato vigente do cliente. Obrigatório quando attendance_kind=2 (Contrato). Proibido quando attendance_kind=1 (Avulso). Use contract_name para resolver por nome.'
+        description: 'ID do aditivo de contrato **vigente na `date` do apontamento**. Obrigatório quando attendance_kind=2 (Contrato). Proibido quando attendance_kind=1 (Avulso). Use contract_name para resolver por nome. Atenção: a lista de get_ticket_service_types pode incluir aditivos fora de vigência — confirme start_date/cancel_date do aditivo antes de usar.'
       },
       loose_service_id: {
         type: 'integer',
@@ -217,6 +217,43 @@ function formatCreatedAppointment(appointment, ticketNumber, hadLooseService) {
 }
 
 /**
+ * Detecta o 422 de aditivo cancelado ou fora de vigencia (item 5).
+ * Casa: status 422 + detail.contract_rider_id contendo "is cancelled or no longer valid".
+ * Null quando o 422 tem outra causa — nunca engolir 422 desconhecido.
+ *
+ * A5: a lista de get_ticket_service_types pode vazar aditivos fora de vigencia mesmo
+ * com o filtro date= ativo. Por isso a mensagem orienta conferir start_date/cancel_date
+ * do aditivo escolhido, e nao apenas culpar o fluxo do usuario.
+ *
+ * @param {object} response - resposta de erro da API
+ * @param {string|number} ticketNumber
+ * @returns {object|null}
+ */
+function contractRiderPeriodResponse(response, ticketNumber) {
+  if (response.status !== 422) return null;
+
+  const detail = extractApiErrorDetail(response);
+  if (!detail) return null;
+
+  const msgs = [detail.contract_rider_id].flat();
+  const hasVigencia = msgs.some(
+    msg => typeof msg === 'string' && msg.includes('is cancelled or no longer valid')
+  );
+  if (!hasVigencia) return null;
+
+  return errorResponse(
+    `**❌ Aditivo de contrato cancelado ou fora de vigência**\n\n` +
+    `O aditivo informado em \`contract_rider_id\` não é válido para a data do apontamento no ticket #${ticketNumber}.\n\n` +
+    `**Possíveis causas:**\n` +
+    `• O aditivo foi cancelado (\`cancel_date\` anterior à data do apontamento).\n` +
+    `• A data do apontamento é anterior ao início da vigência do aditivo (\`start_date\`).\n\n` +
+    `**Atenção:** a lista de \`get_ticket_service_types\` pode incluir aditivos fora de vigência ` +
+    `mesmo com o filtro \`date=\` ativo (comportamento da API). Confirme \`start_date\` e \`cancel_date\` ` +
+    `do aditivo escolhido antes de usar \`contract_rider_id\`.`
+  );
+}
+
+/**
  * Detecta o 422 de mesa com valorizacao obrigatoria (attendance/attendance_kind
  * "can't be blank") e devolve mensagem orientada. Null quando o 422 tem outra causa.
  *
@@ -261,6 +298,9 @@ function appointmentApiErrorResponse(response, ticketNumber) {
       `*Entre em contato com o suporte TiFlux para verificar o licenciamento.*`
     );
   }
+
+  const periodError = contractRiderPeriodResponse(response, ticketNumber);
+  if (periodError) return periodError;
 
   const valorizationError = valorizationRequiredResponse(response, ticketNumber);
   if (valorizationError) return valorizationError;

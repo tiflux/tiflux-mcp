@@ -18,6 +18,7 @@ const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
 const { currencyBRL } = require('../_shared/format');
 const {
+  CONTRACT_FILTER_NOTICE,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,
@@ -26,7 +27,7 @@ const {
 
 const schema = {
   name: 'list_appointments_report',
-  description: 'Relatório agregado de apontamentos por técnico N2 e mesa para um período. Agrupa por técnico (user) com contagem de apontamentos e soma de horas; sub-quebra opcional por mesa quando desk_ids/desk_names informados. Com include_valorization=true, inclui soma de valor por técnico e mesa, com montante de valor manual apartado nos totalizadores quando houver apontamentos com manual_value=true — essencial para auditorias de faturamento. Ideal para relatórios de apoio N2. Requer permissão de acesso ao endpoint de apontamentos.',
+  description: 'Relatório agregado de apontamentos por técnico N2 e mesa para um período. Agrupa por técnico (user) com contagem de apontamentos e soma de horas; sub-quebra opcional por mesa quando desk_ids/desk_names informados. Com include_valorization=true, inclui soma de valor por técnico e mesa, com montante de valor manual apartado nos totalizadores quando houver apontamentos com manual_value=true — essencial para auditorias de faturamento. Filtros por cliente (client_ids/client_names) e contrato (contract_ids) disponíveis. Ideal para relatórios de apoio N2. Requer permissão de acesso ao endpoint de apontamentos.',
   inputSchema: {
     type: 'object',
     properties: appointmentFilterSchemaProperties({
@@ -240,6 +241,9 @@ async function execute(args, { api }) {
     user_names,
     desk_ids,
     desk_names,
+    client_ids,
+    client_names,
+    contract_ids,
     include_valorization
   } = args;
 
@@ -248,9 +252,9 @@ async function execute(args, { api }) {
 
   const hasDeskFilter = !!(desk_ids || desk_names);
 
-  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names });
+  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids });
   if (resolvedIds.error) return resolvedIds.response;
-  const { userIds: finalUserIds, deskIds: finalDeskIds } = resolvedIds;
+  const { userIds: finalUserIds, deskIds: finalDeskIds, clientIds: finalClientIds, contractIds: finalContractIds } = resolvedIds;
 
   const includeValorization = include_valorization === true;
 
@@ -260,6 +264,8 @@ async function execute(args, { api }) {
       end_date,
       user_ids: finalUserIds,
       desk_ids: finalDeskIds,
+      client_ids: finalClientIds,
+      contract_ids: finalContractIds,
       include_valorization: includeValorization
     });
 
@@ -269,11 +275,17 @@ async function execute(args, { api }) {
 
     const allAppointments = paged.appointments;
 
+    // A2/A1: com contract_ids ativo a API exclui apontamentos sem contrato — em
+    // auditoria de faturamento essa omissao nao pode ser silenciosa (paridade
+    // com o rodape de list_appointments_global).
+    const contractNotice = finalContractIds ? `${CONTRACT_FILTER_NOTICE}\n\n` : '';
+
     if (allAppointments.length === 0) {
       return textResponse(
         `## Relatório de Apontamentos por Técnico\n\n` +
         `**Período:** ${start_date} a ${end_date}\n\n` +
         '_Nenhum apontamento encontrado para os filtros informados._\n\n' +
+        contractNotice +
         '*✅ Dados obtidos da API TiFlux em tempo real*'
       );
     }
@@ -292,7 +304,7 @@ async function execute(args, { api }) {
       totalManualValue
     });
 
-    return textResponse(reportText + '\n*✅ Dados obtidos da API TiFlux em tempo real*');
+    return textResponse(reportText + contractNotice + '\n*✅ Dados obtidos da API TiFlux em tempo real*');
   } catch (error) {
     return internalErrorResponse('**❌ Erro interno ao gerar relatório de apontamentos**', error);
   }

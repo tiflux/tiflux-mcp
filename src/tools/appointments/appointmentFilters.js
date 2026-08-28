@@ -16,8 +16,20 @@ const { errorResponse, apiFailureResponse, extractApiErrorCode } = require('../_
 const { capIds } = require('../_shared/reportMath');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { resolveDeskName } = require('../_shared/deskResolver');
+const { resolveClientName } = require('../_shared/clientResolver');
+
+// Limite maximo de IDs por filtro — definido pela API v2 (erro 422 se excedido).
+const MAX_IDS = 15;
 
 const PARAM_HINT = '*Verifique os parâmetros (start_date/end_date obrigatórios, desk_ids deve ser numérico).*';
+
+/**
+ * Aviso exibido quando contract_ids esta ativo (A2 + A1).
+ * Compartilhado entre list_appointments_global e list_appointments_report — a
+ * exclusao de apontamentos sem contrato precisa ser visivel nos dois (o report
+ * e usado em auditoria de faturamento; omissao silenciosa subnotifica horas).
+ */
+const CONTRACT_FILTER_NOTICE = '> ⚠️ **Filtro por contrato ativo:** apontamentos sem contrato são excluídos do resultado. Em contratos Shared, o `contract.id` retornado pode diferir do id filtrado (comportamento esperado da API — expande grupo→membro).';
 
 /**
  * Mapeamento de tipo de atendimento (string da API → label PT-BR).
@@ -78,8 +90,50 @@ function appointmentFilterSchemaProperties(descriptions = {}) {
     include_valorization: {
       type: 'boolean',
       description: desc('include_valorization', 'Incluir dados de valorização (tipo de atendimento, contrato/avulso, deslocamento, valor). Padrão: false.')
+    },
+    client_ids: {
+      type: 'string',
+      description: desc('client_ids', 'IDs dos clientes separados por vírgula (máximo 15). Use client_names para resolução por nome. Apontamentos sem contrato somem do resultado quando este filtro está ativo (comportamento da API). Em contratos Shared, o contract.id retornado pode diferir do id filtrado — isso é esperado (a API expande o grupo para o membro).')
+    },
+    client_names: {
+      type: 'string',
+      description: desc('client_names', 'Nomes dos clientes separados por vírgula para resolução automática (alternativa a client_ids). Máximo 15 clientes resolvidos — acima disso a chamada é rejeitada (não trunca). Ambiguidade → lista para desambiguação. Precedência: client_ids vence quando ambos forem informados.')
+    },
+    contract_ids: {
+      type: 'string',
+      description: desc('contract_ids', 'IDs dos contratos separados por vírgula (máximo 15). Atenção (A2): apontamentos sem contrato somem do resultado quando este filtro está ativo. Atenção (A1): em contratos Shared, o contract.id retornado pode ser diferente do id filtrado — isso é comportamento da API (expande grupo → membro) e NÃO indica erro nem filtragem incorreta.')
     }
   };
+}
+
+/**
+ * Valida o limite de IDs para campos que rejeitam via 422 na API (D6).
+ * Diferente de capIds() — que trunca silenciosamente — esta funcao rejeita
+ * localmente quando o usuario passa mais que MAX_IDS ids, evitando relatorio
+ * sobre amostra parcial sem aviso.
+ *
+ * Aplica-se a client_ids, contract_ids e aos ids resolvidos de client_names.
+ * user_ids/desk_ids continuam truncando via capIds() por compatibilidade
+ * retroativa (comportamento legado).
+ *
+ * @param {string} csv - CSV de IDs
+ * @param {string} fieldName - nome do campo (para mensagem de erro)
+ * @returns {{ error: boolean, ids?: string, response?: object }}
+ */
+function validateAndNormalizeIds(csv, fieldName) {
+  if (!csv) return { error: false, ids: null };
+  const ids = [...new Set(String(csv).split(',').map(s => s.trim()).filter(Boolean))];
+  if (ids.length > MAX_IDS) {
+    return {
+      error: true,
+      response: errorResponse(
+        `**❌ Limite de IDs excedido em \`${fieldName}\`**\n\n` +
+        `Recebidos: **${ids.length}** IDs. Limite: **${MAX_IDS}**.\n\n` +
+        `*Reduza a lista para no máximo ${MAX_IDS} IDs e tente novamente.*`
+      )
+    };
+  }
+  return { error: false, ids: ids.join(',') };
 }
 
 /**
@@ -104,14 +158,19 @@ function validateRequiredPeriod({ start_date, end_date }) {
 }
 
 /**
- * Resolve um CSV de nomes para um CSV de IDs (cap de 15 via capIds).
+ * Resolve um CSV de nomes para um CSV de IDs.
  * Aborta no primeiro nome ambiguo/inexistente, propagando a resposta do resolver.
+ *
+ * `cap: true` (padrao) trunca em 15 via capIds — comportamento legado de
+ * user_names/desk_names. `cap: false` devolve todos os ids resolvidos, para o
+ * chamador aplicar a validacao D6 (rejeitar em vez de truncar).
  *
  * @param {string} csvNames - nomes separados por virgula
  * @param {(name: string) => Promise<{error: boolean, id?: number|string, response?: object}>} resolveOne
+ * @param {{cap?: boolean}} [options]
  * @returns {Promise<{error: boolean, ids?: string|null, response?: object}>}
  */
-async function resolveCsvNamesToIds(csvNames, resolveOne) {
+async function resolveCsvNamesToIds(csvNames, resolveOne, { cap = true } = {}) {
   const names = String(csvNames).split(',').map(s => s.trim()).filter(Boolean);
   const resolved = [];
 
@@ -121,18 +180,26 @@ async function resolveCsvNamesToIds(csvNames, resolveOne) {
     resolved.push(String(r.id));
   }
 
-  return { error: false, ids: capIds(resolved.join(',')) };
+  const joined = resolved.join(',');
+  return { error: false, ids: cap ? capIds(joined) : (joined || null) };
 }
 
 /**
- * Normaliza user_ids/desk_ids, resolvendo user_names/desk_names quando os IDs
+ * Normaliza user_ids/desk_ids/client_ids/contract_ids, resolvendo nomes quando os IDs
  * nao forem informados diretamente (IDs tem precedencia sobre nomes).
  *
+ * D6: client_ids, client_names (apos resolucao) e contract_ids sao validados com
+ *     rejeicao local (nao truncados).
+ * D8: contract_ids e repassado direto a API sem re-checagem client-side por contract.id —
+ *     decisao de design deliberada: em contratos Shared, a API retorna o id do membro
+ *     (diferente do id do grupo filtrado). Filtrar client-side descartaria todos os
+ *     resultados de contratos Shared silenciosamente. Nao "consertar" este comportamento.
+ *
  * @param {object} api - instancia de TiFluxAPI
- * @param {object} args - { user_ids, user_names, desk_ids, desk_names }
- * @returns {Promise<{error: boolean, userIds?: string|null, deskIds?: string|null, response?: object}>}
+ * @param {object} args - { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids }
+ * @returns {Promise<{error: boolean, userIds?: string|null, deskIds?: string|null, clientIds?: string|null, contractIds?: string|null, response?: object}>}
  */
-async function resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names }) {
+async function resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids }) {
   let userIds = user_ids ? capIds(user_ids) : null;
   let deskIds = desk_ids ? capIds(desk_ids) : null;
 
@@ -154,7 +221,36 @@ async function resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids
     deskIds = r.ids;
   }
 
-  return { error: false, userIds, deskIds };
+  // client_ids: D6 — rejeita se >15, sem truncar
+  let clientIds = null;
+  if (client_ids) {
+    const v = validateAndNormalizeIds(client_ids, 'client_ids');
+    if (v.error) return v;
+    clientIds = v.ids;
+  } else if (client_names) {
+    // client_names: resolucao automatica via resolveClientName (client_ids tem precedencia).
+    // D6 vale tambem aqui: sem cap silencioso — os ids resolvidos passam pela mesma
+    // validacao de limite de client_ids, para nao gerar relatorio sobre amostra parcial.
+    const r = await resolveCsvNamesToIds(client_names, async (name) => {
+      const resolved = await resolveClientName(api, name);
+      return resolved.error ? resolved : { error: false, id: resolved.clientId };
+    }, { cap: false });
+    if (r.error) return r;
+    const v = validateAndNormalizeIds(r.ids, 'client_names');
+    if (v.error) return v;
+    clientIds = v.ids;
+  }
+
+  // contract_ids: D6 — rejeita se >15, sem truncar
+  // D8: repassado direto a API; sem re-checagem client-side (ver jsdoc acima)
+  let contractIds = null;
+  if (contract_ids) {
+    const v = validateAndNormalizeIds(contract_ids, 'contract_ids');
+    if (v.error) return v;
+    contractIds = v.ids;
+  }
+
+  return { error: false, userIds, deskIds, clientIds, contractIds };
 }
 
 /**
@@ -190,9 +286,11 @@ function appointmentsApiErrorResponse(response, failureTitle) {
 
 module.exports = {
   ATTENDANCE_LABELS,
+  CONTRACT_FILTER_NOTICE,
   ATTENDANCE_KIND_LABELS,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,
+  validateAndNormalizeIds,
   appointmentsApiErrorResponse
 };

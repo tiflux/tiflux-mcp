@@ -2597,6 +2597,8 @@ class TiFluxAPI {
     if (filters.end_date) params.append('end_date', filters.end_date);
     if (filters.user_ids) params.append('user_ids', filters.user_ids);
     if (filters.desk_ids) params.append('desk_ids', filters.desk_ids);
+    if (filters.client_ids) params.append('client_ids', filters.client_ids);
+    if (filters.contract_ids) params.append('contract_ids', filters.contract_ids);
     if (filters.include_valorization === true) params.append('include_valorization', 'true');
 
     const response = await this.makeRequest(`/appointments?${params.toString()}`);
