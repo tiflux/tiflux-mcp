@@ -2393,7 +2393,7 @@ Use the `id` as `department_id` in `list_inbox_chats`, `list_my_chats`, `list_in
 
 Search and manage the organization's knowledge base articles. Without the "Gerenciar base de conhecimento" permission, only public articles and those from the user's attendant group are returned.
 
-**API limitations (v2):** There is no `PUT` or `DELETE` for knowledge articles — editing an existing article is not possible via the public API. To update content, create a new article with `create_knowledge`. There is also no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`).
+**API limitations (v2):** There is no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`). To edit an existing article, use `update_knowledge`. To archive an article (soft-delete), use `delete_knowledge`.
 
 ### list_knowledges
 List knowledge base articles with optional search and folder filters. Returns a Markdown table with ID, title, visibility, folders, tags, and last updated date.
@@ -2431,7 +2431,7 @@ List knowledge base articles with optional search and folder filters. Returns a 
 ### get_knowledge
 Fetch the full detail of a knowledge base article by ID. The `description` body is returned in **Markdown** (converted from HTML by the MCP — no raw HTML noise in context).
 
-**Important:** The API v2 does **not** allow editing an existing article. To update content, create a new article with `create_knowledge`. To archive (soft-delete) an article, use `delete_knowledge`.
+**Important:** To edit an existing article, use `update_knowledge`. To archive (soft-delete) an article, use `delete_knowledge`.
 
 **Parameters:**
 - `knowledge_id` (number, required): ID of the knowledge article (obtained from `list_knowledges`).
@@ -2463,9 +2463,9 @@ Este guia cobre a configuracao de VPN...
 ```
 
 ### delete_knowledge
-Archive (soft-delete) a knowledge base article by ID. Requires the "Gerenciar base de conhecimento" permission.
+Archive (soft-delete) a knowledge base article by ID. Requires the "Gerenciar conhecimento" permission.
 
-**⚠ Warning:** The archiving is **irreversible via the API** — there is no restore or edit endpoint. The article is also unlinked from **all folders** where it was published.
+**⚠ Warning:** The archiving is **irreversible via the API** — there is no restore endpoint. The article is also unlinked from **all folders** where it was published. To edit the article before archiving, use `update_knowledge`.
 
 A pre-flight lookup fetches the article title before the DELETE (for the confirmation message). If the pre-flight fails, the DELETE proceeds anyway.
 
@@ -2578,6 +2578,46 @@ Conhecimento criado com sucesso!
 **Pastas:** 1, 2
 **Tags:** VPN, remote access
 **Grupos tecnicos vinculados:** 5
+```
+
+### update_knowledge
+Partially update an existing knowledge base article. Only the fields provided are sent — omitted fields remain unchanged. Requires the "Gerenciar conhecimento" permission.
+
+**Required fields:**
+- `knowledge_id` (number): ID of the knowledge article to update (obtained from `list_knowledges` or `get_knowledge`).
+
+**Optional fields (at least one must be provided):**
+- `title` (string): New article title (max 255 chars; empty string rejected by API).
+- `description` (string): New article body in Markdown or HTML. **⚠ Sending this field creates a new version** — per the API contract, only the 10 latest versions are retained (retention is not observable through the public API). Empty string is rejected by the API (422).
+- `private` (boolean): If `false`, makes the article public and automatically clears `client_ids` and `technical_group_ids`. Do not send non-empty `client_ids`/`technical_group_ids` together with `private: false`.
+- `tags` (array of strings): Replaces current tags. Tags must not contain commas.
+- `client_ids` (array of numbers): Replaces current client access list. Empty array removes all. Only applicable to private articles.
+- `technical_group_ids` (array of numbers): Replaces current technical group access list. Empty array removes all. Only applicable to private articles.
+- `knowledge_folder_ids` (array of numbers): Replaces current folder associations. **Empty array is rejected by the API** — the article must belong to at least one folder.
+- `services_catalogs_item_ids` (array of numbers): Replaces current service catalog item associations. Empty array removes all.
+
+**Returns:** Confirmation with the article ID, title, visibility, tags, and updated fields. Includes a notice when a new version was created or when `private: false` zeroed the access bindings.
+
+**Contract validated against the live API (2026-09-01, test org, disposable article created and archived):** `PUT /knowledges/{id}` responds `200`; all 8 updatable field names are accepted (an unknown field returns `400`); a partial update sending only `title` preserves `description`; `knowledge_folder_ids: []`, `title: ""` and `description: ""` each return `422 can't be blank`; `private: false` alone clears `client_ids` and `technical_group_ids`; `private: false` together with non-empty bindings returns `422` (the MCP guard pre-empts this); a non-existent ID returns `404`. The 10-version retention is the only claim that could not be observed (there is no versions endpoint) and is therefore stated conditionally.
+
+**Example:**
+```json
+{
+  "knowledge_id": 4,
+  "title": "VPN Setup Guide (revised)",
+  "tags": ["VPN", "remote access", "updated"]
+}
+```
+
+**Example response:**
+```
+Conhecimento #4 atualizado com sucesso!
+
+**ID:** 4
+**Titulo:** VPN Setup Guide (revised)
+**Visibilidade:** Privado
+**Tags:** VPN, remote access, updated
+**Campos alterados:** title, tags
 ```
 
 ### list_contracts
@@ -3480,7 +3520,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `GET /knowledges/{id}` - Fetch full detail of a knowledge article by ID (`get_knowledge`). Returns `description` converted from HTML to Markdown
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Accepts Markdown in `description` (converted to HTML before sending). Requires "Gerenciar conhecimento" permission
-- `DELETE /knowledges/{id}` - Archive (soft-delete) a knowledge base article (`delete_knowledge`). Sets `archived: true` and unlinks from all folders. Irreversible. Requires "Gerenciar base de conhecimento" permission
+- `PUT /knowledges/{id}` - Partially update an existing knowledge base article (`update_knowledge`). Only fields provided are sent. Sending `description` creates a new version. Requires "Gerenciar conhecimento" permission. **Note:** absent from the public Swagger snapshot as of 2026-09-01; the contract (verb, field names, partial-update and validation semantics) was confirmed empirically against the live API on 2026-09-01. A documentation request has been registered with the API team
+- `DELETE /knowledges/{id}` - Archive (soft-delete) a knowledge base article (`delete_knowledge`). Sets `archived: true` and unlinks from all folders. Irreversible. Requires "Gerenciar conhecimento" permission
 - `GET /knowledge-folders/{id}` - Fetch full detail of a knowledge folder by ID (`get_knowledge_folder`). Returns title, description, icon, tags, total article count, and list of visible articles
 - `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).

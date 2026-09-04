@@ -7,6 +7,7 @@ const TiFluxAPI = require('../../api/tiflux-api');
 const slices = [
   require('./listKnowledges'),
   require('./createKnowledge'),
+  require('./updateKnowledge'),
   require('./getKnowledge'),
   require('./listKnowledgeFolders'),
   require('./deleteKnowledge'),

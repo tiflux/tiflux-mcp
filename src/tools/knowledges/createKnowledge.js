@@ -24,7 +24,7 @@ const OPTIONAL_FIELDS = [
 
 const schema = {
   name: 'create_knowledge',
-  description: 'Criar um novo conhecimento na base de conhecimento do TiFlux. Campos obrigatorios: title, description e knowledge_folder_ids (array com ao menos 1 ID de pasta). O campo description aceita Markdown (o MCP converte para HTML antes de enviar); HTML cru tambem e valido. Os campos client_ids e technical_group_ids so se aplicam quando private = true. Requer a permissao "Gerenciar conhecimento". ATENCAO: a API v2 nao permite editar um conhecimento existente — para arquivar, use delete_knowledge.',
+  description: 'Criar um novo conhecimento na base de conhecimento do TiFlux. Campos obrigatorios: title, description e knowledge_folder_ids (array com ao menos 1 ID de pasta). O campo description aceita Markdown (o MCP converte para HTML antes de enviar); HTML cru tambem e valido. Os campos client_ids e technical_group_ids so se aplicam quando private = true. Requer a permissao "Gerenciar conhecimento". Para editar um conhecimento existente, use update_knowledge. Para arquivar, use delete_knowledge.',
   inputSchema: {
     type: 'object',
     properties: {

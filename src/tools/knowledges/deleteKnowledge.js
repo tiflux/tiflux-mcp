@@ -7,7 +7,7 @@
  * Efeitos do DELETE: archived=true + desvincula o artigo de todas as pastas.
  * NAO existe endpoint de restore — o arquivamento e permanente pela API.
  *
- * Permissao requerida: "Gerenciar base de conhecimento".
+ * Permissao requerida: "Gerenciar conhecimento".
  *
  * Pre-flight best-effort: consulta GET /knowledges/{id} antes do DELETE apenas
  * para ecoar o titulo na mensagem de confirmacao. Se o pre-flight falhar, o
@@ -22,9 +22,9 @@ const schema = {
   name: 'delete_knowledge',
   description:
     'Arquivar (soft delete) um conhecimento da base de conhecimento pelo ID. ' +
-    'ATENCAO: o ARQUIVAMENTO E IRREVERSIVEL PELA API — nao existe endpoint de restore nem de edicao. ' +
+    'ATENCAO: o ARQUIVAMENTO E IRREVERSIVEL PELA API — nao existe endpoint de restore. ' +
     'O artigo e desvinculado de TODAS as pastas em que estava publicado. ' +
-    'Requer a permissao "Gerenciar base de conhecimento".',
+    'Requer a permissao "Gerenciar conhecimento". Para editar o conteudo antes de arquivar, use update_knowledge.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -62,9 +62,9 @@ async function execute(args, { api }) {
         `**Erro ao arquivar conhecimento #${knowledge_id}**`,
         response,
         isNotFound
-          ? '*Conhecimento inexistente ou nao visivel para o usuario. Sem a permissao "Gerenciar base de conhecimento", apenas conhecimentos publicos e os do grupo de atendentes sao acessiveis.*'
+          ? '*Conhecimento inexistente ou nao visivel para o usuario. Sem a permissao "Gerenciar conhecimento", apenas conhecimentos publicos e os do grupo de atendentes sao acessiveis.*'
           : isForbidden
-            ? '*A permissao "Gerenciar base de conhecimento" e necessaria para arquivar conhecimentos.*'
+            ? '*A permissao "Gerenciar conhecimento" e necessaria para arquivar conhecimentos.*'
             : '*Verifique se o conhecimento existe e se voce tem permissao para arquiva-lo.*'
       );
     }
@@ -73,7 +73,7 @@ async function execute(args, { api }) {
     text += `**Efeitos:**\n`;
     text += `  • Artigo marcado como arquivado (archived = true)\n`;
     text += `  • Desvinculado de todas as pastas onde estava publicado\n\n`;
-    text += `*Atencao: o arquivamento e irreversivel pela API TiFlux — nao existe endpoint de restore nem de edicao.*`;
+    text += `*Atencao: o arquivamento e irreversivel pela API TiFlux — nao existe endpoint de restore.*`;
 
     return textResponse(text);
   } catch (error) {

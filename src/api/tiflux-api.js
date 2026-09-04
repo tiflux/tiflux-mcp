@@ -2188,6 +2188,26 @@ class TiFluxAPI {
   }
 
   /**
+   * Atualiza parcialmente um conhecimento existente.
+   * PUT /knowledges/{id}
+   *
+   * So transporte: ID + body → makeRequest PUT (guardrail BE-003).
+   * Logica (guards, markdownToHtml, formatacao) vive no slice.
+   *
+   * @param {number} id - ID do conhecimento
+   * @param {object} body - campos a atualizar (apenas os informados)
+   * @returns {Promise<{data, status, error}>}
+   */
+  async updateKnowledge(id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/knowledges/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
    * Busca detalhe de um conhecimento pelo ID.
    * GET /knowledges/{id}
    *
