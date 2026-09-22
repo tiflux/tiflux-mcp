@@ -1774,6 +1774,95 @@ class TiFluxAPI {
   }
 
   /**
+   * Cria um campo personalizado (entity).
+   * POST /entities
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {object} body - { name, applied_in, description?, menu_item?, desk_ids?, equipment_type_id?, services_catalog_id?, services_catalogs_area_id?, services_catalogs_item_id? }
+   */
+  async createEntity(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest('/entities', 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um campo personalizado (entity). Update parcial.
+   * PUT /entities/{id}
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} id
+   * @param {object} body - { name?, description?, active?, menu_item?, desk_ids?, equipment_type_id? }
+   */
+  async updateEntity(id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(`/entities/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Cria um subcampo (entity_field) de um campo personalizado.
+   * POST /entities/{entity_id}/fields
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} entityId
+   * @param {object} body - { name, field_type, required?, options?[{value}] }
+   */
+  async createEntityField(entityId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(`/entities/${encodeURIComponent(entityId)}/fields`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um subcampo (entity_field). Update parcial.
+   * PUT /entities/{entity_id}/fields/{id}
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} entityId
+   * @param {number|string} id
+   * @param {object} body - { name?, required? }
+   */
+  async updateEntityField(entityId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(
+      `/entities/${encodeURIComponent(entityId)}/fields/${encodeURIComponent(id)}`, 'PUT', jsonData, headers
+    );
+  }
+
+  /**
+   * Cria uma opcao de um subcampo single_select/checkbox.
+   * POST /entity_fields/{entity_field_id}/options
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} entityFieldId
+   * @param {object} body - { value }
+   */
+  async createEntityFieldOption(entityFieldId, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(`/entity_fields/${encodeURIComponent(entityFieldId)}/options`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza (renomeia) uma opcao de um subcampo single_select/checkbox.
+   * PUT /entity_fields/{entity_field_id}/options/{id}
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} entityFieldId
+   * @param {number|string} id
+   * @param {object} body - { value }
+   */
+  async updateEntityFieldOption(entityFieldId, id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest(
+      `/entity_fields/${encodeURIComponent(entityFieldId)}/options/${encodeURIComponent(id)}`, 'PUT', jsonData, headers
+    );
+  }
+
+  /**
    * Lista respostas (comunicacoes com cliente) de um ticket com paginacao
    * GET /tickets/{ticket_number}/answers
    */

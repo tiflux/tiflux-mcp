@@ -2,8 +2,12 @@
  * catalogResolver.js — resolucao de catalogo/area por nome para o modulo services_catalogs.
  *
  * Usa o filtro `name` server-side (ilike) da propria API v2 — sem fuzzyMatch.
- * Fica local ao modulo porque apenas os slices deste modulo o consomem.
- * (Regra CLAUDE.md: _shared/ apenas quando >=3 slices de modulos diferentes.)
+ * Alem dos slices deste modulo, `resolveCatalogContext`/`resolveAreaContext` tambem sao
+ * consumidos por `src/tools/entities/createEntity.js` (precisa resolver o mesmo vinculo
+ * catalogo/area ao criar um campo personalizado com applied_in="services_catalog(s_area)").
+ * Ainda nao promovido a `_shared/` porque so ha 2 modulos consumidores ate agora
+ * (Regra CLAUDE.md: _shared/ quando >=3 slices/modulos diferentes) — reavaliar promocao
+ * se um 3o modulo passar a precisar do mesmo resolver.
  *
  * Precedencia: *_id vence *_name quando ambos forem passados — responsabilidade do slice chamador.
  */

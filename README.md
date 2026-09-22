@@ -142,7 +142,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
 - **Solicitantes**: buscar, criar, atualizar e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
 - **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat
-- **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente
+- **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente; criar e editar a estrutura (grupos, subcampos e opções) diretamente via IA — sem exclusão na API v2, correções via `update_*` ou pelo portal
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
 - **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
 - **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; exibir detalhes completos de hardware e inventário de um recurso individual (processador, memória, discos, rede, SO, fabricante, campos personalizados) via `get_equipment`; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
@@ -3074,6 +3074,154 @@ List options of a custom subfield (entity_field) of type `single_select` or `che
 | 14 | (nenhuma) | Sim |
 ```
 
+### Writing custom fields (create/update)
+
+The 6 tools below write to the organization's custom field structure (entities, entity_fields and their options). Read this before using any of them:
+
+- **Prerequisites:** all 6 require the **`manage_entities`** role on the API key's user permission group (403 otherwise). `create_entity` with `applied_in` in `ticket`, `equipment`, `services_catalog`, `services_catalogs_area` or `services_catalogs_item` additionally requires a **Tickets license** on the user (403 with a message citing `applied_in` otherwise). Organizations without the newer catalog custom-fields format enabled get an error citing "cannot create entities applied in catalogs" — there's no way to enable this via API; contact TiFlux support.
+- **Confirm before executing:** all 6 tools change structure that affects ticket/catalog/client forms for the entire organization, not a single record — the assistant should confirm with the user before calling them, summarizing what will be created/changed. Extra confirmation is warranted for `update_entity` with `active: false`, `update_entity_field` with `required: true`, and `create_entity` targeting `services_catalog`/`services_catalogs_area` (broader reach than an item).
+- **No delete in the API v2:** there is no DELETE for entity, entity_field or entity_field_option at any level. Corrections go through the `update_*` tools (rename, `required`, `active`) or the portal. The reversible way to "undo" a group created by mistake is `update_entity { active: false }` (re-enable with `active: true`).
+- **Immutable after creation:** `applied_in`, the catalog link (`services_catalog_id`/`services_catalogs_area_id`/`services_catalogs_item_id`) and `field_type` cannot be changed after creation (the API returns 400 `found unpermitted parameter` if sent to an update tool). To change any of these, create a new entity/field and inactivate/replace the old one.
+
+#### create_entity
+Create a custom field group (entity) in the organization, optionally linked to a services catalog, area or item, to desks (ticket) or to an equipment type. First step of building a custom field — follow with `create_entity_field`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | yes | — | Name of the custom field group |
+| `applied_in` | string | yes | — | `"ticket"`, `"equipment"`, `"client"`, `"solicitant"`, `"services_catalog"`, `"services_catalogs_area"`, `"services_catalogs_item"` |
+| `description` | string | no | — | Description of the group |
+| `menu_item` | boolean | no | — | Whether the field is a menu item. Forced to `false` by the API when `applied_in` is `solicitant` or any catalog level |
+| `desk_ids` | number[] | no | all desks | Only valid with `applied_in="ticket"` (local error otherwise) |
+| `equipment_type_id` | number | no | all types | Only valid with `applied_in="equipment"` (local error otherwise) |
+| `services_catalog_id` / `services_catalog_name` | number / string | conditional | — | Required (one of them) when `applied_in="services_catalog"`. ID takes precedence over name |
+| `services_catalogs_area_id` / `area_name` | number / string | conditional | — | Required (one of them, `area_name` needs a catalog too) when `applied_in="services_catalogs_area"` |
+| `services_catalogs_item_id` | number | conditional | — | Required when `applied_in="services_catalogs_item"`. Obtain via `search_catalog_item` or `list_services_catalog_items` — name resolution is not supported for items |
+
+Link parameters passed with an incompatible `applied_in` are rejected locally (no API call): `services_catalog_id`/`services_catalog_name` only with `services_catalog` or `services_catalogs_area` (as context for `area_name`), `services_catalogs_area_id`/`area_name` only with `services_catalogs_area`, `services_catalogs_item_id` only with `services_catalogs_item`.
+
+Only 1 active entity can exist per catalog/area/item — a second attempt returns 422 on the link field; use `list_entities applied_in=<...>` to find the existing one.
+
+**Example:**
+```json
+{
+  "name": "Dados do pedido",
+  "applied_in": "services_catalogs_item",
+  "services_catalogs_item_id": 123
+}
+```
+
+**Returns:** ID, name, `applied_in`, resolved link (catalog/area/item names), desk IDs, and a hint to use `create_entity_field` next.
+
+#### update_entity
+Partially update an existing custom field group (entity) — only the informed fields are changed. Also used to activate/inactivate the group (`active`).
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | number | yes | ID of the entity to update |
+| `name` | string | no | New name |
+| `description` | string | no | New description |
+| `active` | boolean | no | Activate (`true`) or inactivate (`false`) the group. `false` hides all its subfields from forms |
+| `menu_item` | boolean | no | Whether the field is a menu item |
+| `desk_ids` | number[] | no | Only meaningful on entities with `applied_in="ticket"` |
+| `equipment_type_id` | number | no | Only meaningful on entities with `applied_in="equipment"` |
+
+At least one updatable field besides `id` is required. `applied_in` and the catalog link cannot be changed (see note above).
+
+**Example:**
+```json
+{ "id": 10, "active": false }
+```
+
+**Returns:** confirmation with the updated fields and the current state (name, `active`, desk IDs). When `active: false` is sent, the response warns that subfields disappear from forms and shows how to reactivate.
+
+#### create_entity_field
+Create a subfield (entity_field) inside an existing custom field group (entity). For `field_type` `single_select`/`checkbox`, accepts inline `options[]` — recommended, since it avoids the "Padrão" placeholder and returns the option IDs in the same response.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `entity_id` | number | yes | — | ID of the parent entity |
+| `name` | string | yes | — | Name of the subfield |
+| `field_type` | string | yes | — | `"email"`, `"date"`, `"currency"`, `"phone"`, `"checkbox"`, `"text"`, `"text_area"`, `"single_select"`, `"link"`. Immutable after creation |
+| `required` | boolean | no | `false` | Whether filling it in is mandatory |
+| `options` | array of `{value}` | no | — | Only for `field_type` `"single_select"`/`"checkbox"` (local error otherwise). Duplicate values (case-insensitive, trimmed) are rejected locally before calling the API |
+
+If `field_type` is `single_select`/`checkbox` and `options` is omitted, the API auto-creates a single "Padrão" option (`null_option: true`, no real value) — use `create_entity_field_option` afterwards to add real options.
+
+**Example:**
+```json
+{
+  "entity_id": 10,
+  "name": "Novo campo do tipo seleção única",
+  "field_type": "single_select",
+  "options": [{ "value": "Opção 1" }, { "value": "Opção 2" }]
+}
+```
+
+**Returns:** ID, name, `field_type`, `required`, and (for single_select/checkbox) the created `options[]` with their IDs — flags when only the "Padrão" placeholder exists.
+
+#### update_entity_field
+Partially update an existing subfield (entity_field) — rename it and/or change `required`. `field_type` is immutable (create a new subfield to change the type).
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entity_id` | number | yes | ID of the parent entity |
+| `id` | number | yes | ID of the subfield to update |
+| `name` | string | no | New name |
+| `required` | boolean | no | `true` blocks opening/closing tickets for whoever uses the linked desk/catalog without filling it in |
+
+At least one of `name`/`required` is required.
+
+**Example:**
+```json
+{ "entity_id": 10, "id": 44101, "required": true }
+```
+
+**Returns:** confirmation with the updated fields and current state (name, `field_type`, `required`, `index`). Warns about the impact when `required` becomes `true`.
+
+#### create_entity_field_option
+Add an option to an existing `single_select`/`checkbox` subfield (entity_field) — e.g. to replace the "Padrão" placeholder or add more choices.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entity_field_id` | number | yes | ID of the subfield where the option is created |
+| `value` | string | yes | Value of the option |
+
+**Example:**
+```json
+{ "entity_field_id": 44101, "value": "Opção C" }
+```
+
+**Returns:** the created option's `id` and `value`.
+
+#### update_entity_field_option
+Rename (update the value of) an existing option of a `single_select`/`checkbox` subfield.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `entity_field_id` | number | yes | ID of the subfield that owns the option |
+| `id` | number | yes | ID of the option to update |
+| `value` | string | yes | New value |
+
+**Example:**
+```json
+{ "entity_field_id": 44101, "id": 501, "value": "Novo valor da opção" }
+```
+
+**Returns:** the updated option's `id` and `value`.
+
 ## Search Heuristics — Mesa-First
 
 When a user references a name without explicitly qualifying the entity type, the following priority applies:
@@ -3517,6 +3665,12 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /entities` - List custom field groups (`list_entities`)
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
+- `POST /entities` - Create a custom field group, optionally linked to a services catalog/area/item, desks or an equipment type (`create_entity`). Requires `manage_entities` role; catalog/ticket/equipment `applied_in` also requires a Tickets license
+- `PUT /entities/{id}` - Partially update a custom field group: rename, change description/desks/equipment type/menu_item, activate/inactivate (`update_entity`). `applied_in` and the catalog link are immutable (400 if sent)
+- `POST /entities/{entity_id}/fields` - Create a subfield (entity_field); accepts inline `options[]` for single_select/checkbox (`create_entity_field`). Omitting `options` on those types auto-creates a "Padrão" placeholder option
+- `PUT /entities/{entity_id}/fields/{id}` - Partially update a subfield: rename, change `required` (`update_entity_field`). `field_type` is immutable (400 if sent)
+- `POST /entity_fields/{entity_field_id}/options` - Add an option to a single_select/checkbox subfield (`create_entity_field_option`)
+- `PUT /entity_fields/{entity_field_id}/options/{id}` - Rename an option of a single_select/checkbox subfield (`update_entity_field_option`). **Note:** there is no DELETE for entity, entity_field or entity_field_option in the API v2 at any level — corrections go through these `update_*` tools or the portal; the reversible way to "undo" a group is `update_entity { active: false }`
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `GET /knowledges/{id}` - Fetch full detail of a knowledge article by ID (`get_knowledge`). Returns `description` converted from HTML to Markdown
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Accepts Markdown in `description` (converted to HTML before sending). Requires "Gerenciar conhecimento" permission

@@ -7,7 +7,13 @@ const TiFluxAPI = require('../../api/tiflux-api');
 const slices = [
   require('./listEntities'),
   require('./listEntityFields'),
-  require('./listEntityFieldOptions')
+  require('./listEntityFieldOptions'),
+  require('./createEntity'),
+  require('./updateEntity'),
+  require('./createEntityField'),
+  require('./updateEntityField'),
+  require('./createEntityFieldOption'),
+  require('./updateEntityFieldOption')
 ];
 
 class EntityTools {
