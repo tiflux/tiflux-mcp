@@ -3126,7 +3126,7 @@ Partially update an existing custom field group (entity) — only the informed f
 | `name` | string | no | New name |
 | `description` | string | no | New description |
 | `active` | boolean | no | Activate (`true`) or inactivate (`false`) the group. `false` hides all its subfields from forms |
-| `menu_item` | boolean | no | Whether the field is a menu item |
+| `menu_item` | boolean | no | Whether the field is a menu item. Cannot be changed on entities with `applied_in="solicitant"` or a catalog `applied_in` (API returns 422) |
 | `desk_ids` | number[] | no | Only meaningful on entities with `applied_in="ticket"` |
 | `equipment_type_id` | number | no | Only meaningful on entities with `applied_in="equipment"` |
 

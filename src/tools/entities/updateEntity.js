@@ -50,7 +50,7 @@ const schema = {
       },
       menu_item: {
         type: 'boolean',
-        description: 'Se o campo e um item de menu (opcional).'
+        description: 'Se o campo e um item de menu (opcional). Nao alteravel em entities com applied_in="solicitant" ou de catalogo (a API recusa com 422).'
       },
       desk_ids: {
         type: 'array',
