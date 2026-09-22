@@ -4,8 +4,11 @@
  * Encapsula o bloco duplicado nos 5 slices (createTicket, updateTicket,
  * listTickets, searchStage, searchCatalogItem).
  *
- * Usa api.smartSearchDesks() — tenta busca direta; se 0 resultados,
- * aciona fallback fuzzy automaticamente.
+ * Usa smartSearchDesks(api, deskName) — tenta busca direta; se 0 resultados,
+ * aciona fallback fuzzy automaticamente. Fica neste modulo (nao em
+ * tiflux-api.js) por ser logica de negocio — busca direta GET /desks,
+ * fallback paginado via listAllActiveDesks() + fuzzyMatchItems (guardrail
+ * BE-003: tiflux-api.js e so transporte).
  *
  * O branching 0/1/N/erro vive em entityResolver.js (compartilhado com userResolver).
  *
@@ -25,6 +28,51 @@
 const { resolveEntityByName } = require('./entityResolver');
 
 /**
+ * Busca mesas por nome com fallback fuzzy.
+ *
+ * 1. Tenta busca direta: GET /desks?active=true&name={deskName}
+ * 2. Se retornar erro ou pelo menos 1 resultado → devolve como esta.
+ * 3. Senao, pagina todas as mesas ativas via api.listAllActiveDesks() e aplica
+ *    fuzzyMatchItems contra `name` + `display_name` de cada mesa.
+ * 4. Se fuzzy encontrou matches → retorna apenas o grupo de maior score
+ *    (top-score winners) como { data: items, status: 200 }.
+ *    Senao → devolve o resultado vazio original da busca direta.
+ *
+ * So usa metodos de transporte de `api` (searchDesks, listAllActiveDesks).
+ *
+ * @param {object} api - instancia de TiFluxAPI
+ * @param {string} deskName - nome (parcial ou exato) da mesa
+ */
+async function smartSearchDesks(api, deskName) {
+  const { fuzzyMatchItems } = require('./fuzzyMatch');
+
+  const directResult = await api.searchDesks(deskName);
+
+  // Propaga erro ou retorna direto se ha resultados
+  if (directResult.error) return directResult;
+  if (directResult.data && directResult.data.length > 0) return directResult;
+
+  // Fallback: buscar TODAS as mesas ativas (paginado) e aplicar fuzzy matching
+  const allDesksResult = await api.listAllActiveDesks();
+
+  if (allDesksResult.error) return directResult; // se falhou, devolve o vazio original
+  if (!allDesksResult.data || allDesksResult.data.length === 0) return directResult;
+
+  const { matches } = fuzzyMatchItems(
+    deskName,
+    allDesksResult.data,
+    (desk) => `${desk.name || ''} ${desk.display_name || ''}`.trim()
+  );
+
+  if (matches.length === 0) return directResult;
+
+  // Devolver apenas o grupo de maior score (evita matches fracos / falsa disambiguacao)
+  const topScore = matches[0].score;
+  const winners = matches.filter(m => m.score === topScore);
+  return { data: winners.map(m => m.item), status: 200 };
+}
+
+/**
  * Resolve um nome de mesa para desk_id usando smartSearchDesks.
  *
  * @param {object} api - instancia de TiFluxAPI
@@ -32,7 +80,7 @@ const { resolveEntityByName } = require('./entityResolver');
  * @returns {Promise<{error: boolean, deskId?: number, desk?: object, response?: object}>}
  */
 async function resolveDeskName(api, deskName) {
-  const response = await api.smartSearchDesks(deskName);
+  const response = await smartSearchDesks(api, deskName);
 
   return resolveEntityByName(response, {
     idKey: 'deskId',
@@ -59,4 +107,4 @@ async function resolveDeskName(api, deskName) {
   });
 }
 
-module.exports = { resolveDeskName };
+module.exports = { resolveDeskName, smartSearchDesks };

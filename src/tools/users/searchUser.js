@@ -1,7 +1,7 @@
 /**
  * Slice: search_user — busca usuarios no TiFlux por nome.
  *
- * Endpoint: GET /users (via api.smartSearchUsers).
+ * Endpoint: GET /users (via smartSearchUsers em _shared/userResolver).
  * Para usuarios admin: usa GET /users diretamente (caminho rapido).
  * Para usuarios nao-admin (403 em /users): aciona fallback automatico via
  * GET /technical-groups/{id}/users, com dedup e fuzzy match por nome.
@@ -12,6 +12,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
+const { smartSearchUsers } = require('../_shared/userResolver');
 
 const schema = {
   name: 'search_user',
@@ -71,7 +72,7 @@ async function execute(args, { api }) {
     if (type !== undefined) filters.type = type;
     if (active !== undefined) filters.active = active;
 
-    const response = await api.smartSearchUsers(filters);
+    const response = await smartSearchUsers(api, filters);
 
     if (response.error) {
       return errorResponse(

@@ -9,8 +9,6 @@
  * `{ error, status }` em falha — handlers MCP nao precisam mudar.
  */
 
-const querystring = require('querystring');
-
 const HttpClient = require('../infrastructure/http/HttpClient');
 const { APIError, TimeoutError, NetworkError } = require('../utils/errors');
 const ClientFingerprint = require('../telemetry/ClientFingerprint');
@@ -19,15 +17,83 @@ const { MAX_BASE64_BYTES_25MB, MAX_BASE64_BYTES_40MB } = require('../tools/_shar
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
- * Avalia se um usuario do fallback technical-groups esta ativo, de forma
- * tolerante a variacao de shape da API (boolean true, 1, "true", "1" ou campo
- * ausente => ativo). So consideramos inativo quando o campo esta presente e
- * explicitamente "desligado" — evita filtrar todos os usuarios por engano.
+ * Anexa uma lista CSV de ids a `params`, com cap de 15 itens (contrato da
+ * Swagger de GET /tickets: "maximo 15 itens"). Sem dedup — usado pelos filtros
+ * que a API aceita repetidos (desk_ids, client_ids, stage_ids, etc).
  */
-function isUserActive(user) {
-  const v = user.active;
-  if (v === false || v === 0 || v === '0' || v === 'false') return false;
-  return true;
+function appendCsvIds(params, key, value) {
+  if (!value) return;
+  const ids = value.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
+  if (ids.length > 0) params.append(key, ids.join(','));
+}
+
+/**
+ * Igual a appendCsvIds, mas com dedup antes do cap de 15 — usado por
+ * services_catalogs_item_ids/priority_ids (API rejeita duplicados com 42201).
+ */
+function appendDedupedCsvIds(params, key, value) {
+  if (!value) return;
+  const ids = [...new Set(value.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
+  if (ids.length > 0) params.append(key, ids.join(','));
+}
+
+/**
+ * Deriva is_closed a partir de filter_by, para compat com versoes da API sem
+ * suporte a filter_by (ver comentario em buildListTicketsParams).
+ */
+function resolveIsClosed(filters) {
+  if (filters.is_closed !== undefined) return filters.is_closed;
+  if (filters.filter_by === 'closed' || filters.filter_by === 'canceled') return true;
+  return false;
+}
+
+/**
+ * Monta o URLSearchParams de GET /tickets a partir dos filtros do slice.
+ * Extraido de listTickets() para reduzir complexidade cognitiva; gera a
+ * mesma query string, byte-a-byte, que a versao inline anterior.
+ */
+function buildListTicketsParams(filters) {
+  const params = new URLSearchParams();
+
+  const offset = filters.offset || 1;
+  const limit = Math.min(filters.limit || 20, 200);
+  params.append('offset', offset);
+  params.append('limit', limit);
+
+  // filter_by (open/closed/canceled/all) tem precedencia sobre is_closed na API.
+  // Enviamos SEMPRE os dois para retrocompatibilidade com versoes antigas sem
+  // suporte a filter_by — nessas versoes is_closed e o unico mecanismo.
+  if (filters.filter_by) {
+    params.append('filter_by', filters.filter_by);
+  }
+  params.append('is_closed', resolveIsClosed(filters));
+
+  appendCsvIds(params, 'desk_ids', filters.desk_ids);
+  appendCsvIds(params, 'client_ids', filters.client_ids);
+  appendCsvIds(params, 'stage_ids', filters.stage_ids);
+  appendCsvIds(params, 'responsible_ids', filters.responsible_ids);
+  appendCsvIds(params, 'requestor_ids', filters.requestor_ids);
+
+  if (filters.requestor_email) params.append('requestor_email', filters.requestor_email);
+  if (filters.date_type) params.append('date_type', filters.date_type);
+  if (filters.group_by) params.append('group_by', filters.group_by);
+  if (filters.sla_expiring_before) params.append('sla_expiring_before', filters.sla_expiring_before);
+  if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
+  if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);
+
+  // services_catalogs_item_ids e priority_ids: a Swagger de GET /tickets documenta
+  // "maximo 15 itens, sem duplicados" (erro 42201 "cannot have more than 15 items").
+  // Aqui fica a rede de seguranca do contrato (dedup + cap 15); o aviso honesto ao
+  // usuario sobre o corte e emitido em listTickets. Nunca enviar >15 para nao tomar 422.
+  appendDedupedCsvIds(params, 'services_catalogs_item_ids', filters.services_catalogs_item_ids);
+  appendDedupedCsvIds(params, 'priority_ids', filters.priority_ids);
+
+  // created_by_way_of: numero inteiro convertido pelo slice (0..12).
+  if (filters.created_by_way_of !== undefined && filters.created_by_way_of !== null) {
+    params.append('created_by_way_of', filters.created_by_way_of);
+  }
+
+  return params;
 }
 
 /**
@@ -148,9 +214,13 @@ class TiFluxAPI {
   }
 
   /**
-   * Requisicao HTTP base para endpoints JSON da API v2.
+   * Monta headers padrao + envia via HttpClient. Usado por makeRequest (JSON) e
+   * makeRequestBinary (multipart) — o envio em si e identico entre os dois; a
+   * unica diferenca e semantica do caller (body JSON vs buffer multipart).
+   * `User-Agent` e o ponto canonico de telemetria — definido por ULTIMO de
+   * proposito para que nenhum caller sobrescreva o valor do ClientFingerprint.
    */
-  async makeRequest(endpoint, method = 'GET', data = null, headers = {}) {
+  async _sendHttpRequest(endpoint, method, data, headers) {
     if (!this.apiKey) {
       return { error: 'TIFLUX_API_KEY não configurada', status: 'CONFIG_ERROR' };
     }
@@ -160,8 +230,6 @@ class TiFluxAPI {
       'accept': 'application/json',
       'authorization': `Bearer ${this.apiKey}`,
       ...headers,
-      // User-Agent e o ponto canonico de telemetria — definido por ULTIMO de
-      // proposito para que nenhum caller sobrescreva o valor do ClientFingerprint.
       'User-Agent': ClientFingerprint.userAgent()
     };
 
@@ -179,6 +247,13 @@ class TiFluxAPI {
     } catch (error) {
       return this._convertErrorToResponse(error, endpoint, method);
     }
+  }
+
+  /**
+   * Requisicao HTTP base para endpoints JSON da API v2.
+   */
+  async makeRequest(endpoint, method = 'GET', data = null, headers = {}) {
+    return this._sendHttpRequest(endpoint, method, data, headers);
   }
 
   /**
@@ -381,46 +456,6 @@ class TiFluxAPI {
   async searchDesks(deskName = '') {
     const nameParam = deskName ? `&name=${encodeURIComponent(deskName)}` : '';
     return await this.makeRequest(`/desks?active=true${nameParam}`);
-  }
-
-  /**
-   * Busca mesas por nome com fallback fuzzy.
-   *
-   * 1. Tenta busca direta: GET /desks?active=true&name={deskName}
-   * 2. Se retornar erro ou pelo menos 1 resultado → devolve como esta.
-   * 3. Senao, pagina todas as mesas ativas via listAllActiveDesks() e aplica
-   *    fuzzyMatchItems contra `name` + `display_name` de cada mesa.
-   * 4. Se fuzzy encontrou matches → retorna apenas o grupo de maior score
-   *    (top-score winners) como { data: items, status: 200 }.
-   *    Senao → devolve o resultado vazio original da busca direta.
-   */
-  async smartSearchDesks(deskName) {
-    const { fuzzyMatchItems } = require('../tools/_shared/fuzzyMatch');
-
-    const directResult = await this.searchDesks(deskName);
-
-    // Propaga erro ou retorna direto se ha resultados
-    if (directResult.error) return directResult;
-    if (directResult.data && directResult.data.length > 0) return directResult;
-
-    // Fallback: buscar TODAS as mesas ativas (paginado) e aplicar fuzzy matching
-    const allDesksResult = await this.listAllActiveDesks();
-
-    if (allDesksResult.error) return directResult; // se falhou, devolve o vazio original
-    if (!allDesksResult.data || allDesksResult.data.length === 0) return directResult;
-
-    const { matches } = fuzzyMatchItems(
-      deskName,
-      allDesksResult.data,
-      (desk) => `${desk.name || ''} ${desk.display_name || ''}`.trim()
-    );
-
-    if (matches.length === 0) return directResult;
-
-    // Devolver apenas o grupo de maior score (evita matches fracos / falsa disambiguacao)
-    const topScore = matches[0].score;
-    const winners = matches.filter(m => m.score === topScore);
-    return { data: winners.map(m => m.item), status: 200 };
   }
 
   /**
@@ -647,71 +682,11 @@ class TiFluxAPI {
    * Lista tickets com filtros aplicados
    */
   async listTickets(filters = {}) {
-    const params = new URLSearchParams();
-
-    const offset = filters.offset || 1;
-    const limit = Math.min(filters.limit || 20, 200);
-    params.append('offset', offset);
-    params.append('limit', limit);
-
-    // filter_by (open/closed/canceled/all) tem precedencia sobre is_closed na API.
-    // Enviamos SEMPRE os dois para retrocompatibilidade com versoes antigas sem
-    // suporte a filter_by — nessas versoes is_closed e o unico mecanismo.
-    // ATENCAO: o is_closed derivado abaixo e o fallback de compat; quando filter_by
-    // e informado, a API o usa com precedencia. O slice (listTickets.js) e responsavel
-    // por garantir que a combinacao date_type x filter_by e coerente antes de chamar.
-    if (filters.filter_by) {
-      params.append('filter_by', filters.filter_by);
-    }
-    let isClosed;
-    if (filters.is_closed !== undefined) {
-      isClosed = filters.is_closed;
-    } else if (filters.filter_by === 'closed' || filters.filter_by === 'canceled') {
-      // cancelados sao tickets fechados (is_closed=true); derivamos para compat
-      // com APIs sem suporte a filter_by.
-      isClosed = true;
-    } else {
-      // 'open', 'all' ou ausente: 'all' nao tem equivalente em is_closed e
-      // degrada para abertos em APIs sem suporte a filter_by.
-      isClosed = false;
-    }
-    params.append('is_closed', isClosed);
-
-    const appendCsvIds = (key, value) => {
-      if (!value) return;
-      const ids = value.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
-      if (ids.length > 0) params.append(key, ids.join(','));
-    };
-
-    appendCsvIds('desk_ids', filters.desk_ids);
-    appendCsvIds('client_ids', filters.client_ids);
-    appendCsvIds('stage_ids', filters.stage_ids);
-    appendCsvIds('responsible_ids', filters.responsible_ids);
-    appendCsvIds('requestor_ids', filters.requestor_ids);
-
-    if (filters.requestor_email) params.append('requestor_email', filters.requestor_email);
-    if (filters.date_type) params.append('date_type', filters.date_type);
-    if (filters.group_by) params.append('group_by', filters.group_by);
-    if (filters.sla_expiring_before) params.append('sla_expiring_before', filters.sla_expiring_before);
-    if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
-    if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);
-
-    // services_catalogs_item_ids e priority_ids: a Swagger de GET /tickets documenta
-    // "maximo 15 itens, sem duplicados" (erro 42201 "cannot have more than 15 items").
-    // Aqui fica a rede de seguranca do contrato (dedup + cap 15); o aviso honesto ao
-    // usuario sobre o corte e emitido em listTickets. Nunca enviar >15 para nao tomar 422.
-    if (filters.services_catalogs_item_ids) {
-      const ids = [...new Set(filters.services_catalogs_item_ids.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
-      if (ids.length > 0) params.append('services_catalogs_item_ids', ids.join(','));
-    }
-    if (filters.priority_ids) {
-      const ids = [...new Set(filters.priority_ids.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
-      if (ids.length > 0) params.append('priority_ids', ids.join(','));
-    }
-    // created_by_way_of: numero inteiro convertido pelo slice (0..12).
-    if (filters.created_by_way_of !== undefined && filters.created_by_way_of !== null) {
-      params.append('created_by_way_of', filters.created_by_way_of);
-    }
+    // ATENCAO: is_closed e derivado de filter_by para compat com versoes antigas
+    // da API sem suporte a filter_by (ver resolveIsClosed). O slice (listTickets.js)
+    // e responsavel por garantir que a combinacao date_type x filter_by e coerente
+    // antes de chamar.
+    const params = buildListTicketsParams(filters);
 
     const response = await this.makeRequest(`/tickets?${params.toString()}`);
 
@@ -939,34 +914,7 @@ class TiFluxAPI {
    * Delega ao HttpClient, preservando headers do caller (incluindo boundary).
    */
   async makeRequestBinary(endpoint, method = 'GET', data = null, headers = {}) {
-    if (!this.apiKey) {
-      return { error: 'TIFLUX_API_KEY não configurada', status: 'CONFIG_ERROR' };
-    }
-
-    const url = `${this.baseUrl}${endpoint}`;
-    const requestHeaders = {
-      'accept': 'application/json',
-      'authorization': `Bearer ${this.apiKey}`,
-      ...headers,
-      // User-Agent e o ponto canonico de telemetria — definido por ULTIMO de
-      // proposito para que nenhum caller sobrescreva o valor do ClientFingerprint.
-      'User-Agent': ClientFingerprint.userAgent()
-    };
-
-    try {
-      const response = await this.httpClient.request({
-        method,
-        url,
-        headers: requestHeaders,
-        data,
-        timeout: DEFAULT_TIMEOUT_MS,
-        retryCondition: this._retryConditionForMethod(method)
-      });
-
-      return { data: response.data, status: response.statusCode, headers: response.headers };
-    } catch (error) {
-      return this._convertErrorToResponse(error, endpoint, method);
-    }
+    return this._sendHttpRequest(endpoint, method, data, headers);
   }
 
   /**
@@ -1051,7 +999,8 @@ class TiFluxAPI {
     if (filters.date) params.append('date', filters.date);
 
     const query = params.toString();
-    return await this.makeRequest(`/tickets/${ticketNumber}/service-types${query ? `?${query}` : ''}`);
+    const suffix = query ? `?${query}` : '';
+    return await this.makeRequest(`/tickets/${ticketNumber}/service-types${suffix}`);
   }
 
   /**
@@ -1066,7 +1015,8 @@ class TiFluxAPI {
     if (filters.contract_id !== undefined) params.append('contract_id', filters.contract_id);
 
     const query = params.toString();
-    return await this.makeRequest(`/tickets/${ticketNumber}/shifts${query ? `?${query}` : ''}`);
+    const suffix = query ? `?${query}` : '';
+    return await this.makeRequest(`/tickets/${ticketNumber}/shifts${suffix}`);
   }
 
   /**
@@ -1390,115 +1340,6 @@ class TiFluxAPI {
     params.append('offset', offset);
     params.append('limit', limit);
     return await this.makeRequest(`/technical-groups/${groupId}/users?${params.toString()}`);
-  }
-
-  /**
-   * Busca usuarios com fallback para nao-admins via technical-groups.
-   *
-   * Fluxo:
-   *   1. Tenta GET /users (admin: retorna lista completa; nao-admin: 403).
-   *   2. Se 403: enumera GET /technical-groups (cap: MAX_GROUPS_CAP grupos),
-   *      para cada grupo GET /technical-groups/{id}/users, dedup por id,
-   *      aplica fuzzyMatchItems pelo nome, retorna no shape { data: [...] }.
-   *
-   * Cap defensivo: MAX_GROUPS_CAP grupos por busca para evitar custo em orgs grandes.
-   * Se truncado, retorna `_truncated: true` no objeto de resposta.
-   */
-  async smartSearchUsers(filters = {}) {
-    const MAX_GROUPS_CAP = 20;
-
-    const directResponse = await this.searchUsers(filters);
-
-    // Caminho direto (admin ou sucesso): retorna imediatamente
-    if (!directResponse.error) {
-      return directResponse;
-    }
-
-    // Se nao for 403, nao e problema de permissao — repassa o erro
-    if (directResponse.status !== 403) {
-      return directResponse;
-    }
-
-    // Fallback: enumerar grupos e seus usuarios.
-    // Pede um a mais que o cap para distinguir "exatamente o cap" de "ha mais grupos".
-    const groupsResponse = await this.listTechnicalGroups({ offset: 1, limit: MAX_GROUPS_CAP + 1 });
-
-    if (groupsResponse.error) {
-      return {
-        error: `Sem acesso a GET /users (403) e GET /technical-groups tambem falhou: ${groupsResponse.error}`,
-        status: groupsResponse.status
-      };
-    }
-
-    const allGroups = groupsResponse.data || [];
-    const truncated = allGroups.length > MAX_GROUPS_CAP;
-    const groups = truncated ? allGroups.slice(0, MAX_GROUPS_CAP) : allGroups;
-
-    // Buscar usuarios de todos os grupos em paralelo (evita N+1 serializado)
-    const perGroupResponses = await Promise.all(
-      groups.map(group => this.listTechnicalGroupUsers(group.id))
-    );
-
-    // Coletar usuarios (dedup por id) e contabilizar grupos sem acesso
-    const seenIds = new Set();
-    const allUsers = [];
-    let groupErrors = 0;
-
-    for (const usersResponse of perGroupResponses) {
-      if (usersResponse.error) {
-        groupErrors++;
-        continue; // skip grupos sem acesso
-      }
-      const users = usersResponse.data || [];
-      for (const user of users) {
-        if (user && user.id !== undefined && !seenIds.has(user.id)) {
-          seenIds.add(user.id);
-          allUsers.push(user);
-        }
-      }
-    }
-
-    // Se NENHUM grupo respondeu e houve falhas, o problema e de permissao —
-    // nao deixar virar "usuario nao encontrado" silencioso (diagnostico enganoso).
-    if (allUsers.length === 0 && groups.length > 0 && groupErrors === groups.length) {
-      return {
-        error: `Sem acesso a GET /users (403) e nenhum dos ${groups.length} grupos de atendimento retornou usuarios (provavel falta de permissao em /technical-groups/{id}/users).`,
-        status: 403
-      };
-    }
-
-    // Aplicar filtros client-side de forma DEFENSIVA: o shape exato de
-    // /technical-groups/{id}/users nao e garantido pelo Swagger, entao so
-    // excluimos um usuario quando o campo esta presente E contradiz o filtro.
-    // Campo ausente nao derruba o resultado (evita "0 usuarios" silencioso).
-    let filtered = allUsers;
-
-    if (filters.active !== undefined) {
-      filtered = filtered.filter(u => isUserActive(u) === filters.active);
-    }
-
-    if (filters.type) {
-      filtered = filtered.filter(u => {
-        const t = u._type !== undefined ? u._type : u.type;
-        return t === undefined || t === null || t === filters.type;
-      });
-    }
-
-    if (filters.name) {
-      const { fuzzyMatchItems } = require('../tools/_shared/fuzzyMatch');
-      const { matches } = fuzzyMatchItems(filters.name, filtered, u => u.name);
-      filtered = matches.map(m => m.item);
-    }
-
-    if (filters.limit && filters.limit < filtered.length) {
-      filtered = filtered.slice(0, filters.limit);
-    }
-
-    return {
-      data: filtered,
-      _truncated: truncated,
-      _fallback: 'technical-groups'
-    };
   }
 
   /**

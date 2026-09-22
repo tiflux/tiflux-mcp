@@ -124,6 +124,8 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 | `/mcp` | GET | Não | Informações do servidor |
 | `/mcp` | POST | Sim | Operações MCP |
 | `/health` | GET | Não | Health check |
+| `/.well-known/oauth-protected-resource` | GET | Não | Protected Resource Metadata (RFC 9728) — `resource` (`https://mcp.tiflux.com/mcp`), `authorization_servers` e `bearer_methods_supported`. A variante `/.well-known/oauth-protected-resource/mcp` devolve o mesmo conteúdo |
+| `/.well-known/oauth-authorization-server` | GET | Não | Metadata do servidor de autorização OAuth 2.0 (RFC 8414) |
 
 **Métodos de autenticação:**
 
@@ -131,6 +133,14 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 |--------|--------|-------------|
 | Chave de API (direta) | `x-tiflux-api-key: SUA_CHAVE` | Claude Code, n8n, Manus AI, scripts, SDK local |
 | Bearer token (OAuth) | `Authorization: Bearer <token>` | Claude.ai, ChatGPT, conectores web |
+
+**Versões do protocolo MCP:** o servidor hospedado negocia `protocolVersion` no handshake `initialize` — aceita e ecoa qualquer versão suportada pelo cliente entre `2024-11-05` e `2025-11-25` (a mais recente). Se o cliente pedir uma versão desconhecida ou não enviar `protocolVersion`, o servidor responde com a mais recente suportada; nenhuma versão de cliente é rejeitada. `MCP-Protocol-Version` é opcional em requisições subsequentes ao `initialize`.
+
+**Comportamento HTTP do servidor hospedado:**
+
+- **`ping`:** o método JSON-RPC `ping` é suportado e responde `result: {}` (em qualquer versão do protocolo), útil para keep-alive/health do lado do cliente.
+- **Notificações** (ex: `notifications/initialized`): respondem **`202 Accepted`** sem corpo, conforme o transporte Streamable HTTP. Versões anteriores respondiam `204 No Content` — clientes que tratam qualquer `2xx` como sucesso não são afetados.
+- **`401` sem credencial:** além do corpo JSON de erro, a resposta inclui o header `WWW-Authenticate: Bearer resource_metadata="https://mcp.tiflux.com/.well-known/oauth-protected-resource"`, que permite a clientes OAuth descobrirem o servidor de autorização automaticamente.
 
 ## Funcionalidades
 
