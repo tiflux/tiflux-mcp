@@ -2179,6 +2179,26 @@ class TiFluxAPI {
   }
 
   /**
+   * Atualiza parcialmente uma pasta de conhecimento existente.
+   * PUT /knowledge-folders/{id}
+   *
+   * So transporte: ID + body → makeRequest PUT (guardrail BE-003).
+   * Logica (guard de campo informado, formatacao) vive no slice.
+   *
+   * @param {number} id - ID da pasta de conhecimento
+   * @param {object} body - campos a atualizar (apenas os informados: title, description, icon, tags)
+   * @returns {Promise<{data, status, error}>}
+   */
+  async updateKnowledgeFolder(id, body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest(`/knowledge-folders/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
    * Lista pastas de conhecimento com paginacao e busca.
    * GET /knowledge-folders
    *

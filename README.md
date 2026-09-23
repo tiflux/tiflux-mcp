@@ -2465,7 +2465,7 @@ Use the `id` as `department_id` in `list_inbox_chats`, `list_my_chats`, `list_in
 
 Search and manage the organization's knowledge base articles. Without the "Gerenciar base de conhecimento" permission, only public articles and those from the user's attendant group are returned.
 
-**API limitations (v2):** There is no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`). To edit an existing article, use `update_knowledge`. To archive an article (soft-delete), use `delete_knowledge`.
+**API limitations (v2):** There is no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`). To edit an existing article, use `update_knowledge`. To archive an article (soft-delete: content and versions are kept, but it can only be restored in the TiFlux app), use `delete_knowledge`. There is no versions endpoint — the API only exposes `created_at`/`updated_at`; sending `description` via `update_knowledge` creates a new version, but past versions cannot be listed, compared, or restored via MCP. Folders cannot be created via the API (no `POST /knowledge-folders`) or deleted via MCP (`DELETE /knowledge-folders/{id}` exists in the API but is intentionally out of scope: it is a **hard delete** — the folder is removed for good, articles that were only in it are archived, and it is unlinked from any AI Agents that used it as a knowledge source; only the organization's default folder is protected); `update_knowledge_folder` can only edit existing folders.
 
 ### list_knowledges
 List knowledge base articles with optional search and folder filters. Returns a Markdown table with ID, title, visibility, folders, tags, and last updated date.
@@ -2537,7 +2537,7 @@ Este guia cobre a configuracao de VPN...
 ### delete_knowledge
 Archive (soft-delete) a knowledge base article by ID. Requires the "Gerenciar conhecimento" permission.
 
-**⚠ Warning:** The archiving is **irreversible via the API** — there is no restore endpoint. The article is also unlinked from **all folders** where it was published. To edit the article before archiving, use `update_knowledge`.
+**⚠ Warning:** This is a soft delete — the content and version history are kept — but it **cannot be undone via the API**: the archived article disappears from reads (`get_knowledge`/`update_knowledge` return 404) and there is no restore endpoint. It can only be restored in the TiFlux app, where its folders must be linked again, because the article is unlinked from **all folders** where it was published. To edit the article before archiving, use `update_knowledge`.
 
 A pre-flight lookup fetches the article title before the DELETE (for the confirmation message). If the pre-flight fails, the DELETE proceeds anyway.
 
@@ -2586,6 +2586,52 @@ Fetch the full detail of a knowledge base folder by ID, including the list of ar
 
 **Errors:**
 - `404`: Folder not found or not visible to the user. Without the "Gerenciar base de conhecimento" permission, only folders containing public articles or articles from the user's attendant groups are returned.
+
+### update_knowledge_folder
+Partially update an existing knowledge base folder (title, description, icon, tags). Only the fields provided are sent — omitted fields remain unchanged. Requires the "Gerenciar conhecimento" permission. This endpoint does **not** change the folder's published articles — use `get_knowledge_folder` to see them.
+
+**Required fields:**
+- `folder_id` (number): ID of the folder to update (obtained from `list_knowledge_folders` or `get_knowledge_folder`).
+
+**Optional fields (at least one must be provided):**
+- `title` (string): New folder title (max 255 chars; empty string rejected by the API).
+- `description` (string): New folder description. **Plain text** — unlike `update_knowledge`, this field does not accept Markdown/HTML conversion.
+- `icon` (string or `null`): New icon — a single emoji (e.g. `"🚀"`). **Sending `icon: null` explicitly removes the current icon** — this is different from omitting the field, which preserves the existing icon. An empty string (`""`) or more than one emoji is rejected by the API (422).
+- `tags` (array of strings): Replaces all current tags. Tags must not contain commas; the combined length (including separator commas) must not exceed 255 chars. An empty array (`[]`) removes all tags.
+
+**Returns:** Confirmation with the folder ID, title, icon, tags, description, article count (`qty_knowledges`), and the list of changed fields. Does **not** re-print the folder's article list — the endpoint doesn't alter it, and the list can be large.
+
+**Example:**
+```json
+{ "folder_id": 1, "icon": "🚀", "tags": ["rede", "VPN", "infra"] }
+```
+
+**Example response:**
+```
+**Pasta de conhecimento #1 atualizada**
+
+**ID:** 1
+**Titulo:** Rede e VPN
+**Icone:** 🚀
+**Tags:** rede, VPN, infra
+**Descricao:** Artigos sobre configuracao de redes corporativas e VPN.
+**Artigos:** 3
+**Campos alterados:** icon, tags
+
+*Tags substituidas.*
+
+*Use get_knowledge_folder para ver os artigos publicados nesta pasta.*
+```
+
+**Example — removing the icon:**
+```json
+{ "folder_id": 1, "icon": null }
+```
+
+**Errors:**
+- `403`: Missing the "Gerenciar conhecimento" permission.
+- `404`: Folder not found, or belongs to another organization.
+- `422`: Validation error (empty/too-long title, non-emoji icon, tag with comma, tags total over 255 chars) — the API's error detail is shown in the response.
 
 ### list_knowledge_folders
 List knowledge base folders with optional search and pagination. Returns a Markdown table with ID, title, description (truncated), icon, article count, and tags.
@@ -3746,9 +3792,10 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /knowledges` - List knowledge base articles with optional search/folder filter (`list_knowledges`). Without "Gerenciar base de conhecimento" permission: public + attendant group only; with permission: all
 - `GET /knowledges/{id}` - Fetch full detail of a knowledge article by ID (`get_knowledge`). Returns `description` converted from HTML to Markdown
 - `POST /knowledges` - Create a new knowledge base article (`create_knowledge`). Accepts Markdown in `description` (converted to HTML before sending). Requires "Gerenciar conhecimento" permission
-- `PUT /knowledges/{id}` - Partially update an existing knowledge base article (`update_knowledge`). Only fields provided are sent. Sending `description` creates a new version. Requires "Gerenciar conhecimento" permission. **Note:** absent from the public Swagger snapshot as of 2026-09-01; the contract (verb, field names, partial-update and validation semantics) was confirmed empirically against the live API on 2026-09-01. A documentation request has been registered with the API team
-- `DELETE /knowledges/{id}` - Archive (soft-delete) a knowledge base article (`delete_knowledge`). Sets `archived: true` and unlinks from all folders. Irreversible. Requires "Gerenciar conhecimento" permission
+- `PUT /knowledges/{id}` - Partially update an existing knowledge base article (`update_knowledge`). Only fields provided are sent. Sending `description` creates a new version. Requires "Gerenciar conhecimento" permission. **Note:** was absent from the public Swagger snapshot as of 2026-09-01 — the contract (verb, field names, partial-update and validation semantics) was confirmed empirically against the live API on 2026-09-01. The 2026-09-23 snapshot documents the endpoint, confirming the 8 accepted fields match `update_knowledge`'s contract exactly
+- `DELETE /knowledges/{id}` - Archive (soft-delete) a knowledge base article (`delete_knowledge`). Sets `archived: true` (content and versions kept) and unlinks from all folders. Irreversible via API (restorable in the TiFlux app). Requires "Gerenciar conhecimento" permission
 - `GET /knowledge-folders/{id}` - Fetch full detail of a knowledge folder by ID (`get_knowledge_folder`). Returns title, description, icon, tags, total article count, and list of visible articles
+- `PUT /knowledge-folders/{id}` - Partially update an existing knowledge folder: title, description, icon, tags (`update_knowledge_folder`). Only fields provided are sent. `icon: null` explicitly clears the folder's icon (distinct from omitting the field, which preserves it). Does not alter the folder's articles. Requires "Gerenciar conhecimento" permission
 - `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).

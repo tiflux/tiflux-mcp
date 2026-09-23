@@ -12,6 +12,13 @@
  * Nota: description em Markdown e convertido para HTML antes de enviar.
  * Enviar description cria nova versao do artigo.
  *
+ * Contrato agora documentado na Swagger (snapshot 2026-09-23): o body aceito bate
+ * 1:1 com os 8 campos de UPDATABLE_FIELDS abaixo (title, description, private,
+ * tags, client_ids, technical_group_ids, knowledge_folder_ids,
+ * services_catalogs_item_ids), com respostas 200/401/403/404/422 documentadas.
+ * Na epoca da validacao empirica abaixo (2026-09-01) o endpoint nao estava na
+ * Swagger; o contrato foi confirmado contra a API viva e permanece valido.
+ *
  * Contrato validado empiricamente contra a API viva em 2026-09-01 (org de teste,
  * artigo descartavel criado e arquivado no fim). Observado:
  *   - PUT /knowledges/{id} existe e responde 200 (PATCH tambem responde 200).

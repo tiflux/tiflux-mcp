@@ -73,7 +73,7 @@ async function execute(args, { api }) {
         `**Erro ao buscar conhecimento #${knowledge_id}**`,
         response,
         isNotFound
-          ? '*Conhecimento inexistente ou nao visivel para o usuario. Sem a permissao "Gerenciar base de conhecimento", apenas conhecimentos publicos e os do grupo de atendentes sao acessiveis.*'
+          ? '*Conhecimento inexistente, arquivado (artigos arquivados nao sao lidos pela API) ou nao visivel para o usuario. Sem a permissao "Gerenciar base de conhecimento", apenas conhecimentos publicos e os do grupo de atendentes sao acessiveis.*'
           : '*Verifique se o conhecimento existe e se voce tem permissao para acessá-lo.*'
       );
     }

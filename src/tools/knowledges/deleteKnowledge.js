@@ -4,8 +4,10 @@
  * Endpoint: DELETE /knowledges/{id}
  * Resposta de sucesso: 204 sem corpo.
  *
- * Efeitos do DELETE: archived=true + desvincula o artigo de todas as pastas.
- * NAO existe endpoint de restore — o arquivamento e permanente pela API.
+ * Efeitos do DELETE (soft delete, confirmado no api_rails): archived=true — o registro e
+ * as versoes ficam preservados — e o artigo e desvinculado de todas as pastas.
+ * Pela API nao ha restore: o artigo arquivado some das leituras (GET/PUT -> 404).
+ * O app do TiFlux consegue restaurar, mas as pastas precisam ser religadas.
  *
  * Permissao requerida: "Gerenciar conhecimento".
  *
@@ -22,8 +24,10 @@ const schema = {
   name: 'delete_knowledge',
   description:
     'Arquivar (soft delete) um conhecimento da base de conhecimento pelo ID. ' +
-    'ATENCAO: o ARQUIVAMENTO E IRREVERSIVEL PELA API — nao existe endpoint de restore. ' +
-    'O artigo e desvinculado de TODAS as pastas em que estava publicado. ' +
+    'O conteudo e o historico de versoes sao preservados, mas o artigo e desvinculado de TODAS as pastas ' +
+    'em que estava publicado. ATENCAO: NAO PODE SER DESFEITO PELA API — o artigo arquivado some das leituras ' +
+    '(get_knowledge/update_knowledge retornam 404) e so pode ser restaurado pelo app do TiFlux, ' +
+    'onde as pastas precisam ser religadas. ' +
     'Requer a permissao "Gerenciar conhecimento". Para editar o conteudo antes de arquivar, use update_knowledge.',
   inputSchema: {
     type: 'object',
@@ -62,7 +66,7 @@ async function execute(args, { api }) {
         `**Erro ao arquivar conhecimento #${knowledge_id}**`,
         response,
         isNotFound
-          ? '*Conhecimento inexistente ou nao visivel para o usuario. Sem a permissao "Gerenciar conhecimento", apenas conhecimentos publicos e os do grupo de atendentes sao acessiveis.*'
+          ? '*Conhecimento inexistente, ja arquivado ou nao visivel para o usuario. Sem a permissao "Gerenciar conhecimento", apenas conhecimentos publicos e os do grupo de atendentes sao acessiveis.*'
           : isForbidden
             ? '*A permissao "Gerenciar conhecimento" e necessaria para arquivar conhecimentos.*'
             : '*Verifique se o conhecimento existe e se voce tem permissao para arquiva-lo.*'
@@ -71,9 +75,10 @@ async function execute(args, { api }) {
 
     let text = `**Conhecimento #${knowledge_id}${tituloEcho} arquivado com sucesso!**\n\n`;
     text += `**Efeitos:**\n`;
-    text += `  • Artigo marcado como arquivado (archived = true)\n`;
+    text += `  • Artigo marcado como arquivado (archived = true) — conteudo e versoes preservados\n`;
     text += `  • Desvinculado de todas as pastas onde estava publicado\n\n`;
-    text += `*Atencao: o arquivamento e irreversivel pela API TiFlux — nao existe endpoint de restore.*`;
+    text += `*Atencao: o arquivamento nao pode ser desfeito pela API — o artigo some das leituras (404). `;
+    text += `So pode ser restaurado pelo app do TiFlux, religando as pastas.*`;
 
     return textResponse(text);
   } catch (error) {

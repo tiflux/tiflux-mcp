@@ -11,7 +11,8 @@ const slices = [
   require('./getKnowledge'),
   require('./listKnowledgeFolders'),
   require('./deleteKnowledge'),
-  require('./getKnowledgeFolder')
+  require('./getKnowledgeFolder'),
+  require('./updateKnowledgeFolder')
 ];
 
 class KnowledgeTools {
