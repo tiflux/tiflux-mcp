@@ -24,7 +24,8 @@
  *
  * Exibicao (Phase 1, custo zero de API):
  * - rich: card do ticket inclui Prioridade e Catalogo (catalog_name > area_name > item_name).
- * - compact: linha do ticket inclui prioridade e catalogo de forma terse.
+ * - compact: 1 linha por ticket com cliente, mesa, status, estagio, responsavel, prioridade,
+ *   catalogo e dia de criacao (horario de Brasilia). Descricao fica fora.
  */
 
 const { textResponse } = require('../_shared/response');
@@ -32,7 +33,7 @@ const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
-const { footer, pagination } = require('../_shared/format');
+const { footer, pagination, renderWithinBudget, listVerbosity, dateOnly, cutCountLabel } = require('../_shared/format');
 const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -53,6 +54,117 @@ const LIST_TOTAL_WARN_THRESHOLD = 500;
 // load-time entre slices — um require no topo viraria dependencia circular
 // silenciosa se getTicketsComparison passasse a importar listTickets.
 const COMPARISON_TOOL_NAME = 'get_tickets_comparison';
+
+// Catalogo de servico de um ticket: catalog_name › area_name › item_name.
+function formatCatalog(servicesCatalog) {
+  if (!servicesCatalog) return '—';
+  const parts = [
+    servicesCatalog.catalog_name,
+    servicesCatalog.area_name,
+    servicesCatalog.item_name
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' › ') : '—';
+}
+
+// compact: item ultra-terso — 1 linha por ticket
+function ticketCompactLine(ticket) {
+  const n = ticket.ticket_number || 'N/A';
+  const title = ticket.title || '(sem título)';
+  const status = ticket.status?.name || 'N/A';
+  const stage = ticket.stage?.name || 'N/A';
+  const responsible = ticket.responsible?.name || 'N/A';
+  const priority = ticket.priority?.name || '—';
+  const catalog = formatCatalog(ticket.services_catalog);
+  const client = ticket.client?.name || '—';
+  const desk = ticket.desk?.name || '—';
+  const created = dateOnly(ticket.created_at);
+  return `#${n} ${title} | ${client} | ${desk} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog} | criado ${created}\n`;
+}
+
+// Guard de volume: quando o total real (X-Total-Items) supera o limiar e a listagem
+// nao e agregada (sem group_by), orienta a nao paginar em analises. `volumeGuardTruncated`
+// e a versao usada quando o teto de ~40k corta a pagina: a linha de corte manda continuar
+// com offset/limit, entao o aviso nao pode dizer "NAO pagine".
+function volumeGuardTexts(groupBy, total, v, offset = 1) {
+  if (groupBy || typeof total !== 'number' || total <= LIST_TOTAL_WARN_THRESHOLD) {
+    return { volumeGuard: '', volumeGuardTruncated: '' };
+  }
+  // offset > 1: o usuario ja esta seguindo uma continuacao (linha de corte ou
+  // paginacao da pagina anterior) — "NAO pagine" contradiria a pagina 1.
+  const continuing = Number.parseInt(offset, 10) > 1;
+  if (v === 'compact') {
+    const truncated = `\n⚠️ Volume alto: ${total} tickets no total — para analise use group_by ou ${COMPARISON_TOOL_NAME}, ou refine o recorte; para os itens, continue pela linha [cortado].`;
+    return {
+      volumeGuard: continuing
+        ? `\n⚠️ Volume alto: ${total} tickets no total — para analise use group_by ou ${COMPARISON_TOOL_NAME}, ou refine o recorte; para os itens, siga a paginacao.`
+        : `\n⚠️ Volume alto: ${total} tickets no total — NAO pagine para analise. Use group_by ou ${COMPARISON_TOOL_NAME}, ou refine o recorte.`,
+      volumeGuardTruncated: truncated
+    };
+  }
+  const analysis = ` Para contar/comparar/tendência use \`group_by\` ou \`${COMPARISON_TOOL_NAME}\`, ou refine o recorte (mesa, período, cliente).`;
+  return {
+    volumeGuard: continuing
+      ? `\n**⚠️ Volume alto: ${total} tickets no total.**${analysis} Se o usuário precisar dos itens individuais, siga a paginação.`
+      : `\n**⚠️ Volume alto: ${total} tickets no total — NÃO pagine para análise.**${analysis} Só pagine se o usuário precisar dos itens individuais.`,
+    volumeGuardTruncated: `\n**⚠️ Volume alto: ${total} tickets no total.**${analysis} Se o usuário precisar dos itens individuais, continue pela linha de corte (✂️) acima.`
+  };
+}
+
+// Cabecalho, 1 bloco por ticket e a dica final do compact (fora do execute: complexidade).
+// `truncatedHeader(shown)` e o cabecalho quando o teto corta a pagina: conta os
+// tickets MOSTRADOS (o "200 de 1305" original nao batia com os 182 exibidos).
+function ticketListParts(tickets, total, v) {
+  const hasTotal = total !== undefined && total !== null && total !== tickets.length;
+  const countLabel = hasTotal ? `${tickets.length} de ${total}` : `${tickets.length}`;
+  if (v === 'compact') {
+    return {
+      header: `Tickets (${countLabel}):\n`,
+      truncatedHeader: (shown) => `Tickets (${cutCountLabel(shown, total, tickets.length)}):\n`,
+      parts: tickets.map(ticketCompactLine),
+      compactHint: `(use get_ticket #N para detalhes)\n`
+    };
+  }
+  return {
+    header: `**📋 Lista de Tickets** (${countLabel} encontrados)\n\n`,
+    truncatedHeader: (shown) => `**📋 Lista de Tickets** (${cutCountLabel(shown, total, tickets.length, 'encontrados')})\n\n`,
+    parts: tickets.map((ticket, index) => ticketRichBlock(ticket, index)),
+    compactHint: ''
+  };
+}
+
+// rich: card do ticket com catalogo + prioridade
+function ticketRichBlock(ticket, index) {
+  const ticketNumber = ticket.ticket_number || 'N/A';
+  const title = ticket.title || 'Sem título';
+  const clientName = ticket.client?.name || 'Cliente não informado';
+  const deskName = ticket.desk?.name || 'Mesa não informada';
+  const stageName = ticket.stage?.name || 'Estágio não informado';
+  const responsibleName = ticket.responsible?.name || 'Não atribuído';
+  const status = ticket.status?.name || 'Status não informado';
+  const priority = ticket.priority?.name || '—';
+  const catalog = formatCatalog(ticket.services_catalog);
+  const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : 'Data não informada';
+
+  // Resumo da descricao (primeiras 100 caracteres)
+  let descriptionSummary = '';
+  if (ticket.description) {
+    descriptionSummary = ticket.description.length > 100
+      ? ticket.description.substring(0, 100) + '...'
+      : ticket.description;
+    descriptionSummary = `\n   📄 ${descriptionSummary}`;
+  }
+
+  return `**${index + 1}. Ticket #${ticketNumber}**\n` +
+    `   📝 **Título:** ${title}\n` +
+    `   👤 **Responsável:** ${responsibleName}\n` +
+    `   🏢 **Cliente:** ${clientName}\n` +
+    `   🗂️ **Mesa:** ${deskName}\n` +
+    `   📊 **Estágio:** ${stageName}\n` +
+    `   🚨 **Status:** ${status}\n` +
+    `   🔴 **Prioridade:** ${priority}\n` +
+    `   🗃️ **Catálogo:** ${catalog}\n` +
+    `   📅 **Criado em:** ${createdAt}${descriptionSummary}\n\n`;
+}
 
 // Dedup + cap 15 num CSV de IDs. Retorna { ids: string, capped: boolean, total: number }.
 function capFilterIds(csv) {
@@ -255,48 +367,28 @@ function buildFilterEntries(opts) {
 
 const schema = {
   name: 'list_tickets',
-  description: `Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` (agrupado) ou \`get_tickets_comparison\` (dois períodos, sem paginar). Para VER itens individualmente, use a listagem abaixo. Filtrar so por status (filter_by/is_closed) NAO basta — exige MESA (desk) ou outro recorte forte (cliente, solicitante, responsavel, estagio, periodo, sla_expiring_before, catalogo, prioridade ou group_by). Em busca ampla sem recorte, PERGUNTE a mesa antes de chamar.
+  description: `Lista tickets. Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` ou \`get_tickets_comparison\` (dois períodos), sem paginar.
 
-**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade (ex: "tickets do tuitui"), trate o termo como mesa (desk_name) — mesa = equipe e e o filtro mais comum. So use client_name se o usuario disser explicitamente "cliente", "empresa" ou nome corporativo. Para pessoas que abriram o ticket, use requestor_email ou requestor_ids. Para o atendente atribuido, use responsible_name (resolve automaticamente para todos os perfis, incluindo nao-admin). Em duvida, pergunte ao usuario.
+**Regras:**
+- Status sozinho (filter_by/is_closed) NÃO basta: exige MESA ou outro recorte forte (cliente, solicitante, responsável, estágio, período, sla_expiring_before, catálogo, prioridade, group_by). Busca ampla sem recorte → PERGUNTE a mesa antes de chamar.
+- Nome de MESA/equipe ("tickets do tuitui", "do Suporte") = desk_name. Nome de PESSOA: "tickets do João"/"abertos pelo João" = solicitante (requestor_email/requestor_ids); "atribuídos ao João"/"com o João" = responsible_name. client_name só se o usuário disser "cliente"/"empresa" ou der nome corporativo. Na dúvida entre mesa e pessoa, pergunte.
+- date_type="solved_in_time" (data de fechamento) exige filter_by "closed" (assumido se omitido), "canceled" ou "all"; com "open" é erro.
+- catalog_query e priority_name exigem mesa; services_catalogs_item_ids e priority_ids, não.
 
-**Receitas comuns:**
-| Pergunta do usuario | Chamada recomendada |
-|---|---|
-| "fechados por mes na mesa X" | \`desk_name\` + \`date_type="solved_in_time"\` + \`filter_by="closed"\` + \`group_by="month"\` |
-| "abertos hoje na mesa X" | \`desk_name\` + \`date_type="created_at"\` + \`filter_by="all"\` + período |
-| "cancelados no periodo" | \`filter_by="canceled"\` + \`date_type="solved_in_time"\` |
-| "este semestre vs anterior" | \`get_tickets_comparison\` |
-
-**Filtro por status e date_type:**
-- \`date_type="solved_in_time"\` filtra pela data de **fechamento/resolução** — combine com \`filter_by="closed"\` (resolvidos), \`"canceled"\` ou \`"all"\` (fechados + cancelados). Sem \`filter_by\`, o MCP assume \`"closed"\` e avisa no retorno. \`filter_by="open"\` + \`solved_in_time\` é contradição e retorna erro imediato sem chamar a API. Aceita offsets de fuso além de Z (ex: \`-03:00\`).
-
-**Filtro por catalogo:**
-- Termo livre → \`catalog_query\`: faz match parcial server-side contra catalogo/area/item ao mesmo tempo — um termo como "segurança" retorna todos os itens de areas/catalogos cujo nome contém "segurança". Requer mesa (desk_id/desk_name).
-- IDs precisos → \`services_catalogs_item_ids\` (passthrough direto, sem mesa obrigatoria). Para descobrir IDs, use search_catalog_item.
-
-**Filtro por prioridade:**
-- Nome → \`priority_name\`: resolve via fuzzy match em GET /desks/{id}/priorities. Requer mesa.
-- IDs → \`priority_ids\` (passthrough direto, sem mesa obrigatoria).
-
-**Exibicao:** catálogo e prioridade aparecem automaticamente no card de cada ticket (dados ja presentes no retorno do GET /tickets — sem custo extra de API).
-
-| Entrada do usuario | Filtro a usar |
-|---|---|
-| "tickets do tuitui" (nome sem qualificar) | desk_name="tuitui" |
-| "tickets da mesa X" ou "equipe Y" | desk_name |
-| "tickets do cliente Z" ou "empresa ACME" | client_name |
-| "tickets do Joao" (nome de pessoa) | requestor_email ou requestor_ids |
-| "tickets atribuidos ao Joao" | responsible_name="Joao" (ou responsible_ids se tiver o ID) |
-| "tickets aberto por joao@empresa.com" | requestor_email |
-| "tickets do catalogo de infraestrutura" | catalog_query="infraestrutura" + desk_name |
-| "tickets com prioridade alta" | priority_name="alta" + desk_name |`,
+**Receitas:**
+- fechados por mês na mesa X → desk_name + date_type="solved_in_time" + filter_by="closed" + group_by="month"
+- abertos hoje na mesa X → desk_name + date_type="created_at" + filter_by="all" + período
+- cancelados no período → filter_by="canceled" + date_type="solved_in_time" + desk_name (mesmo com período, pergunte a mesa se não vier)
+- tickets de um catálogo → catalog_query="infraestrutura" + desk_name
+- prioridade alta → priority_name="alta" + desk_name
+- este semestre vs anterior → get_tickets_comparison`,
   inputSchema: {
     type: 'object',
     properties: {
       desk_ids: { type: 'string', description: 'IDs das mesas separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
-      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_ids). Aceita nomes parciais ou multi-palavra (ex: "cansados" resolve para "Dev - Cansados", "dev experimentos" resolve para "DEV - Experimentos"). O fallback fuzzy lista todas as mesas ativas (paginado) para cobrir orgs com muitas mesas. **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_ids). Aceita nomes parciais ou multi-palavra (ex: "cansados" resolve para "Dev - Cansados", "dev experimentos" resolve para "DEV - Experimentos"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
       client_ids: { type: 'string', description: 'IDs dos clientes (empresas) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar pela empresa contratante, nao pela pessoa que abriu o ticket.' },
-      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_ids). Use **apenas** quando o usuario disser explicitamente "cliente", "empresa" ou der um nome corporativo conhecido. Para pessoa fisica, prefira requestor_email.' },
+      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_ids). Use apenas quando o usuário disser "cliente"/"empresa" ou der nome corporativo; para pessoa, requestor_email.' },
       stage_ids: { type: 'string', description: 'IDs dos estágios separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática. Use junto com desk_name ou desk_ids.' },
       responsible_ids: { type: 'string', description: 'IDs dos responsáveis (atendentes atribuidos) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use quando ja tiver o ID do responsavel.' },
@@ -312,12 +404,12 @@ const schema = {
       filter_by: {
         type: 'string',
         enum: ['open', 'closed', 'canceled', 'all'],
-        description: 'Modo de filtro por status, com PRECEDÊNCIA sobre is_closed. "open" = apenas abertos; "closed" = apenas FECHADOS (resolvidos, NÃO inclui cancelados); "canceled" = apenas CANCELADOS; "all" = TODOS os status numa única consulta. Sob date_type="solved_in_time": all = closed + canceled (ex: 358 + 31 = 389). Use filter_by="canceled" quando o usuário pedir especificamente "cancelados". Use filter_by="all" para "independente de status". Omitir com solved_in_time → MCP assume "closed".'
+        description: 'Modo de filtro por status, com PRECEDÊNCIA sobre is_closed. "open" = apenas abertos; "closed" = apenas FECHADOS (resolvidos, NÃO inclui cancelados); "canceled" = apenas CANCELADOS; "all" = TODOS os status numa única consulta. Sob date_type="solved_in_time": all = closed + canceled (ex: 358 + 31 = 389); omitido → o MCP assume "closed" e avisa; "open" é contradição e retorna erro sem chamar a API.'
       },
       date_type: {
         type: 'string',
         enum: ['created_at', 'solved_in_time'],
-        description: 'Tipo de data para filtro temporal. "created_at" (padrão) filtra pela data de CRIAÇÃO. "solved_in_time" filtra pela data de FECHAMENTO/CANCELAMENTO/RESOLUÇÃO — requer status encerrado; combine com filter_by="closed" (resolvidos), "canceled" ou "all". Sem filter_by, o MCP assume "closed" e avisa no retorno. filter_by="open" + solved_in_time é contradição e retorna erro. Aceita offsets de fuso além de Z (ex: "2026-01-01T00:00:00-03:00").'
+        description: 'Eixo da data: "created_at" (padrão) = CRIAÇÃO; "solved_in_time" = FECHAMENTO/CANCELAMENTO (regras de status em filter_by). Aceita offsets de fuso além de Z (ex: "2026-01-01T00:00:00-03:00").'
       },
       group_by: {
         type: 'string',
@@ -340,8 +432,75 @@ const schema = {
   }
 };
 
-async function execute(args, { api, verbosity }) {
-  const v = verbosity || 'rich';
+// group_by sem buckets: sem tabela — exibe filtros + diagnostico para nao deixar o modelo inventar zeros.
+async function renderEmptyGroupBy({ api, filters, filtersBlock, unitLabel, dtSuffix, filterByAssumed, v }) {
+  const diagFilters = { ...filters };
+  delete diagFilters.group_by;
+  const diagText = await diagnoseZero({ api, filters: diagFilters, verbosity: v });
+
+  if (v === 'compact') {
+    let out = `Contagem por ${unitLabel}${dtSuffix}: nenhum ticket no período/filtros informados.`;
+    if (filtersBlock) out += `\n${filtersBlock}`;
+    if (diagText) out += `\n${diagText}`;
+    return textResponse(out);
+  }
+
+  let out = `**📊 Contagem por ${unitLabel}**${dtSuffix}\n\n`;
+  if (filtersBlock) out += `${filtersBlock}\n`;
+  if (filterByAssumed) {
+    out += `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`.\n\n`;
+  }
+  out += `Nenhum ticket no período/filtros informados.`;
+  if (diagText) out += `\n\n${diagText}`;
+  return textResponse(out);
+}
+
+/**
+ * Modo agregado (group_by): API retorna { group_by, date_type, total, buckets } em vez de lista.
+ * Extraido do execute (complexidade cognitiva); comportamento identico nos 2 modos.
+ */
+async function renderGroupByResponse({ api, response, filters, filterEntries, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v }) {
+  const payload = response.data || {};
+  const buckets = Array.isArray(payload.buckets) ? payload.buckets : [];
+  const agg = response.total ?? payload.total ?? buckets.reduce((s, b) => s + (b.count || 0), 0);
+  const isDesk = group_by === 'desk';
+  const unitLabel = { day: 'dia', week: 'semana', month: 'mês', desk: 'mesa' }[group_by] || group_by;
+  const colLabel = isDesk ? 'Mesa' : 'Período';
+  const dtSuffix = isDesk ? '' : ` (data de ${(payload.date_type || date_type) === 'solved_in_time' ? 'fechamento/resolução' : 'criação'})`;
+
+  const filtersBlock = renderAppliedFilters(filterEntries, v);
+
+  if (buckets.length === 0) {
+    return renderEmptyGroupBy({ api, filters, filtersBlock, unitLabel, dtSuffix, filterByAssumed, v });
+  }
+
+  // Zero-fill temporal buckets quando start/end informados e ao menos 1 bucket.
+  // Vale nos 2 modos: bucket ausente e indistinguivel de "nao retornado" e o modelo
+  // pode narrar tendencia errada a partir do buraco.
+  const displayBuckets = zeroFillTemporalBuckets(buckets, start_datetime, end_datetime, group_by);
+
+  if (v === 'compact') {
+    const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
+    const line = displayBuckets.map(b => `${b.period}:${b.count}`).join(' · ');
+    return textResponse(`Contagem por ${unitLabel} (total ${agg}): ${line}${filtersLine}`);
+  }
+
+  let out = '';
+  if (filterByAssumed) {
+    out += `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n\n`;
+  }
+  out += `**📊 Tickets por ${unitLabel}**${dtSuffix} — total: ${agg}\n\n`;
+  if (filtersBlock) out += `${filtersBlock}\n`;
+  out += `| ${colLabel} | Quantidade |\n|---|---|\n`;
+  displayBuckets.forEach(b => { out += `| ${b.period} | ${b.count} |\n`; });
+  const footerStr = footer(v);
+  return textResponse(footerStr ? `${out}\n${footerStr}` : out);
+}
+
+async function execute(args, { api, verbosity, verbosityExplicit }) {
+  // Verbosidade base (sem compact automatico): group_by, lista vazia e erros.
+  // O compact automatico (F4) e decidido apos o fetch, pela quantidade de itens.
+  const v = listVerbosity({ verbosity, verbosityExplicit }).verbosity;
   const {
     desk_ids,
     desk_name,
@@ -698,57 +857,11 @@ async function execute(args, { api, verbosity }) {
 
     // Modo agregado: API retorna { group_by, date_type, total, buckets } em vez de lista.
     if (group_by) {
-      const payload = response.data || {};
-      const buckets = Array.isArray(payload.buckets) ? payload.buckets : [];
-      const agg = response.total ?? payload.total ?? buckets.reduce((s, b) => s + (b.count || 0), 0);
-      const isDesk = group_by === 'desk';
-      const unitLabel = { day: 'dia', week: 'semana', month: 'mês', desk: 'mesa' }[group_by] || group_by;
-      const colLabel = isDesk ? 'Mesa' : 'Período';
-      const dtSuffix = isDesk ? '' : ` (data de ${(payload.date_type || date_type) === 'solved_in_time' ? 'fechamento/resolução' : 'criação'})`;
-
-      const filtersBlock = renderAppliedFilters(filterEntries, v);
-
-      if (buckets.length === 0) {
-        // Sem tabela — exibe filtros + diagnostico para nao deixar o modelo inventar zeros
-        const diagFilters = { ...filters };
-        delete diagFilters.group_by;
-        const diagText = await diagnoseZero({ api, filters: diagFilters, verbosity: v });
-
-        let out = `**📊 Contagem por ${unitLabel}**${dtSuffix}\n\n`;
-        if (filtersBlock) out += `${filtersBlock}\n`;
-        if (filterByAssumed && v !== 'compact') {
-          out += `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`.\n\n`;
-        }
-        out += `Nenhum ticket no período/filtros informados.`;
-        if (diagText) out += `\n\n${diagText}`;
-        return textResponse(out);
-      }
-
-      if (v === 'compact') {
-        const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
-        const line = buckets.map(b => `${b.period}:${b.count}`).join(' · ');
-        return textResponse(`Contagem por ${unitLabel} (total ${agg}): ${line}${filtersLine}`);
-      }
-
-      // Zero-fill temporal buckets quando start/end informados e ao menos 1 bucket
-      const displayBuckets = zeroFillTemporalBuckets(buckets, start_datetime, end_datetime, group_by);
-
-      let out = '';
-      if (filterByAssumed) {
-        out += `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n\n`;
-      }
-      out += `**📊 Tickets por ${unitLabel}**${dtSuffix} — total: ${agg}\n\n`;
-      if (filtersBlock) out += `${filtersBlock}\n`;
-      out += `| ${colLabel} | Quantidade |\n|---|---|\n`;
-      displayBuckets.forEach(b => { out += `| ${b.period} | ${b.count} |\n`; });
-      const footerStr = footer(v);
-      return textResponse(footerStr ? `${out}\n${footerStr}` : out);
+      return await renderGroupByResponse({ api, response, filters, filterEntries, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v });
     }
 
     const tickets = response.data || [];
     const total = response.total;
-    const hasTotal = total !== undefined && total !== null && total !== tickets.length;
-    const countLabel = hasTotal ? `${tickets.length} de ${total}` : `${tickets.length}`;
 
     if (tickets.length === 0) {
       const filtersBlock = renderAppliedFilters(filterEntries, v);
@@ -769,103 +882,12 @@ async function execute(args, { api, verbosity }) {
     const currentOffset = filters.offset || 1;
     const currentLimit = filters.limit || 20;
 
-    // Helper para formatar o catalogo de servico de um ticket
-    function formatCatalog(servicesCatalog) {
-      if (!servicesCatalog) return '—';
-      const parts = [
-        servicesCatalog.catalog_name,
-        servicesCatalog.area_name,
-        servicesCatalog.item_name
-      ].filter(Boolean);
-      return parts.length > 0 ? parts.join(' › ') : '—';
-    }
-
-    let ticketsList;
-    if (v === 'compact') {
-      // compact: item ultra-terso — 1 linha por ticket
-      ticketsList = `Tickets (${countLabel}):\n`;
-      tickets.forEach(ticket => {
-        const n = ticket.ticket_number || 'N/A';
-        const title = ticket.title || '(sem título)';
-        const status = ticket.status?.name || 'N/A';
-        const stage = ticket.stage?.name || 'N/A';
-        const responsible = ticket.responsible?.name || 'N/A';
-        const priority = ticket.priority?.name || '—';
-        const catalog = formatCatalog(ticket.services_catalog);
-        ticketsList += `#${n} ${title} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog}\n`;
-      });
-      ticketsList += `(use get_ticket #N para detalhes)\n`;
-    } else {
-      // rich: saida com catalogo + prioridade
-      ticketsList = `**📋 Lista de Tickets** (${countLabel} encontrados)\n\n`;
-
-      tickets.forEach((ticket, index) => {
-        const ticketNumber = ticket.ticket_number || 'N/A';
-        const title = ticket.title || 'Sem título';
-        const clientName = ticket.client?.name || 'Cliente não informado';
-        const deskName = ticket.desk?.name || 'Mesa não informada';
-        const stageName = ticket.stage?.name || 'Estágio não informado';
-        const responsibleName = ticket.responsible?.name || 'Não atribuído';
-        const status = ticket.status?.name || 'Status não informado';
-        const priority = ticket.priority?.name || '—';
-        const catalog = formatCatalog(ticket.services_catalog);
-        const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : 'Data não informada';
-
-        // Resumo da descricao (primeiras 100 caracteres)
-        let descriptionSummary = '';
-        if (ticket.description) {
-          descriptionSummary = ticket.description.length > 100
-            ? ticket.description.substring(0, 100) + '...'
-            : ticket.description;
-          descriptionSummary = `\n   📄 ${descriptionSummary}`;
-        }
-
-        ticketsList += `**${index + 1}. Ticket #${ticketNumber}**\n` +
-                      `   📝 **Título:** ${title}\n` +
-                      `   👤 **Responsável:** ${responsibleName}\n` +
-                      `   🏢 **Cliente:** ${clientName}\n` +
-                      `   🗂️ **Mesa:** ${deskName}\n` +
-                      `   📊 **Estágio:** ${stageName}\n` +
-                      `   🚨 **Status:** ${status}\n` +
-                      `   🔴 **Prioridade:** ${priority}\n` +
-                      `   🗃️ **Catálogo:** ${catalog}\n` +
-                      `   📅 **Criado em:** ${createdAt}${descriptionSummary}\n\n`;
-      });
-    }
-
-    // Bloco de filtros para o caminho com resultados: 1 linha (rich) ou compacto
-    const filtersBlock = renderAppliedFilters(filterEntries, v);
-    const filtersSummary = filtersBlock ? `\n${filtersBlock}` : '';
-
-    // Anuncio de suposicao no caminho com resultados (rich apenas)
-    const assumptionBlock = (filterByAssumed && v !== 'compact')
-      ? `\n**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n`
-      : '';
-
-    // Propagar warning de expansao de catalogo na saida
-    const warningBlock =
-      (catalogWarning ? `\n**⚠️ Aviso de catálogo:** ${catalogWarning}\n` : '') +
-      (priorityWarning ? `\n**⚠️ Aviso de prioridade:** ${priorityWarning}\n` : '');
-    const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, total, unit: 'tickets' }, v);
-    const footerStr = footer(v);
-    const sep = footerStr ? '\n' : '';
-
-    // Guard de volume: quando o total real (X-Total-Items) supera o limiar e
-    // a listagem nao e agregada (sem group_by), emite instrucao dura para nao
-    // paginar em analises.
-    let volumeGuard = '';
-    if (!group_by && typeof total === 'number' && total > LIST_TOTAL_WARN_THRESHOLD) {
-      if (v === 'compact') {
-        volumeGuard = `\n⚠️ Volume alto: ${total} tickets no total — NAO pagine para analise. Use group_by ou ${COMPARISON_TOOL_NAME}, ou refine o recorte.`;
-      } else {
-        volumeGuard =
-          `\n**⚠️ Volume alto: ${total} tickets no total — NÃO pagine para análise.**` +
-          ` Para contar/comparar/tendência use \`group_by\` ou \`${COMPARISON_TOOL_NAME}\`, ou refine o recorte` +
-          ` (mesa, período, cliente). Só pagine se o usuário precisar dos itens individuais.`;
-      }
-    }
-
-    return textResponse(`${ticketsList}${assumptionBlock}${filtersSummary}${warningBlock}${paginationInfo}${sep}${footerStr}${volumeGuard}`);
+    // F4: sem verbosidade explicita e com > 50 tickets na pagina, sai em compact (com aviso).
+    const { verbosity: listV, notice: autoCompactNotice } = listVerbosity({ verbosity, verbosityExplicit }, tickets.length);
+    return renderTicketList({
+      tickets, total, currentOffset, currentLimit, filterEntries,
+      filterByAssumed, catalogWarning, priorityWarning, group_by, autoCompactNotice, v: listV
+    });
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar tickets**\n\n` +
@@ -873,6 +895,53 @@ async function execute(args, { api, verbosity }) {
       `*Verifique sua conexão e configurações da API.*`
     );
   }
+}
+
+// Caminho com resultados (fora do execute: complexidade cognitiva).
+function renderTicketList({ tickets, total, currentOffset, currentLimit, filterEntries, filterByAssumed, catalogWarning, priorityWarning, group_by, autoCompactNotice, v }) {
+  const { header, truncatedHeader, parts, compactHint } = ticketListParts(tickets, total, v);
+
+  // Bloco de filtros para o caminho com resultados: 1 linha (rich) ou compacto
+  const filtersBlock = renderAppliedFilters(filterEntries, v);
+  const filtersSummary = filtersBlock ? `\n${filtersBlock}` : '';
+
+  // Anuncio de suposicao no caminho com resultados (rich apenas)
+  const assumptionBlock = (filterByAssumed && v !== 'compact')
+    ? `\n**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n`
+    : '';
+
+  // Propagar warning de expansao de catalogo na saida
+  const warningBlock =
+    (catalogWarning ? `\n**⚠️ Aviso de catálogo:** ${catalogWarning}\n` : '') +
+    (priorityWarning ? `\n**⚠️ Aviso de prioridade:** ${priorityWarning}\n` : '');
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, total, unit: 'tickets' }, v);
+  const footerStr = footer(v);
+  const sep = footerStr ? '\n' : '';
+
+  // Guard de volume: quando o total real (X-Total-Items) supera o limiar e
+  // a listagem nao e agregada (sem group_by), emite instrucao dura para nao
+  // paginar em analises.
+  // Quando o teto corta (ou offset > 1, continuacao em curso), o aviso troca o
+  // "NAO pagine" por um texto coerente com a continuacao.
+  const { volumeGuard, volumeGuardTruncated } = volumeGuardTexts(group_by, total, v, currentOffset);
+
+  // Teto por item (F3): corta no limite de um ticket com instrucao de continuacao;
+  // quando corta, a linha de corte substitui o bloco de paginacao e o cabecalho
+  // passa a contar os tickets mostrados.
+  return textResponse(renderWithinBudget({
+    head: header,
+    truncatedHead: truncatedHeader,
+    parts,
+    middle: `${compactHint}${assumptionBlock}${filtersSummary}${warningBlock}`,
+    pagination: paginationInfo,
+    tail: `${sep}${footerStr}${volumeGuard}${autoCompactNotice}`,
+    truncatedTail: `${sep}${footerStr}${volumeGuardTruncated}${autoCompactNotice}`,
+    offset: currentOffset,
+    limit: currentLimit,
+    unit: 'tickets',
+    verbosity: v,
+    total
+  }));
 }
 
 module.exports = { name: schema.name, schema, execute };

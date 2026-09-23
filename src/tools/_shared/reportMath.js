@@ -31,7 +31,11 @@ function capIds(csv) {
 function calcDelta(current, previous) {
   const c = Number(current) || 0;
   const p = Number(previous) || 0;
-  const delta = c - p;
+  // Arredondar para 2 casas: subtracao de floats (ex: 5.0 - 4.85) produz erro de
+  // ponto flutuante (0.15000000000000036) que vazava pra producao sem
+  // arredondamento. Number(...) descarta zeros a direita (5.00 -> 5), entao
+  // deltas inteiros (contagens) continuam exibindo "+5", nao "+5.00".
+  const delta = Number((c - p).toFixed(2));
   let deltaPercent;
   if (p === 0 && c > 0) {
     deltaPercent = 'novo';

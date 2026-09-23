@@ -3,10 +3,25 @@
  *
  * Acionado exclusivamente quando a consulta principal retornou 0 resultados
  * (sucesso sem erro). Faz no maximo 2 requests extras para identificar qual
- * eixo (status ou periodo) esta zerando o resultado.
+ * eixo (status ou periodo) esta zerando o resultado — mais 1 request extra
+ * quando `offset > 1` (sonda de offset, ver abaixo).
+ *
+ * Sonda de offset (somente quando `filters.offset > 1`):
+ *   Mesmos filtros da consulta principal (inclusive filter_by/status), com
+ *   offset:1, limit:1. Descobre se ha QUALQUER registro para o recorte pedido
+ *   antes de culpar a pagina.
+ *   Se total > 0 → a pagina pedida (offset > 1) esta alem do total: diagnostico
+ *   conclusivo, nao precisa das sondas de eixo abaixo.
+ *   Se total == 0 (mesmo na pagina 1) → o zero NAO e so de paginacao; cai no
+ *   diagnostico normal por eixo (sondas 1 e 2 abaixo), porque a pagina 1
+ *   tambem estaria vazia.
+ *   Achado de producao (2026-09-22): a versao anterior desta sonda so olhava
+ *   `offset > 1` e diagnosticava "pagina alem do total" sem verificar se
+ *   havia de fato registros — se o total real fosse 0 por qualquer offset,
+ *   a mensagem enganava o usuario a tentar um offset menor a toa.
  *
  * Sonda 1 — eixo de status:
- *   Mesma consulta com filter_by='all', limit=1, sem group_by.
+ *   Mesma consulta com filter_by='all', limit=1, sem group_by, sem offset.
  *   Le response.total (X-Total-Items) — NAO data.length (com limit=1, data.length
  *   seria sempre 1 mesmo que haja milhares de registros).
  *   Se total > 0 → o recorte de status e o que zera.
@@ -29,6 +44,14 @@ async function diagnoseZero({ api, filters, verbosity }) {
   const v = verbosity || 'rich';
 
   try {
+    const currentOffset = Number.parseInt(filters && filters.offset, 10);
+    if (Number.isFinite(currentOffset) && currentOffset > 1) {
+      const offsetDiag = await _diagnoseOffset(api, filters, currentOffset, v);
+      // null = sonda inconclusiva/erro (propaga null); string = conclusivo;
+      // undefined = total 0 ja na pagina 1 → cai no diagnostico normal por eixo
+      if (offsetDiag !== undefined) return offsetDiag;
+    }
+
     // Sonda 1 — eixo de status: filter_by='all', limit=1, sem group_by
     const probe1 = { ...filters, filter_by: 'all', limit: 1 };
     delete probe1.group_by;
@@ -87,6 +110,34 @@ async function diagnoseZero({ api, filters, verbosity }) {
     // Falha de sonda nunca propaga — o slice principal retorna normalmente sem bloco de diagnostico
     return null;
   }
+}
+
+/**
+ * Sonda de offset: mesmos filtros da consulta principal, com offset:1, limit:1.
+ * Descobre se ha QUALQUER registro para o recorte pedido (sem mexer no eixo de
+ * status/periodo) antes de culpar a pagina.
+ *
+ * @returns {Promise<string|null|undefined>} string = diagnostico conclusivo
+ *   ("pagina alem do total"); null = sonda falhou/inconclusiva (propaga null);
+ *   undefined = total 0 mesmo na pagina 1 → chamador cai no diagnostico por eixo
+ */
+async function _diagnoseOffset(api, filters, currentOffset, v) {
+  const probeOffset = { ...filters, offset: 1, limit: 1 };
+  delete probeOffset.group_by;
+
+  const res = await api.listTickets(probeOffset);
+  if (!res || res.error || typeof res !== 'object') return null;
+
+  const total = typeof res.total === 'number' ? res.total : 0;
+  if (total === 0) return undefined;
+
+  return v === 'compact'
+    ? `[pág além do total — ${total} registro${total !== 1 ? 's' : ''}; use offset menor]`
+    : (
+      `**🔎 Diagnóstico automático**\n` +
+      `• A página solicitada (\`offset: ${currentOffset}\`) está além do total de registros (**${total} registro${total !== 1 ? 's' : ''}**).\n` +
+      `  → use um \`offset\` menor para ver os resultados existentes.`
+    );
 }
 
 function _conclusive(v) {

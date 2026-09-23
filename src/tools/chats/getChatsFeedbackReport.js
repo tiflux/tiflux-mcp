@@ -23,8 +23,9 @@
  * Chaves não-admin recebem 403 com error_code 40301.
  */
 
-const { runFeedbackReport } = require('../_shared/feedbackReport');
+const { runFeedbackReport, withTitle } = require('../_shared/feedbackReport');
 const { feedbackReportSchemaProperties } = require('../_shared/schemaProps');
+const { row, renderWithinBudget } = require('../_shared/format');
 
 const schema = {
   name: 'get_chats_feedback_report',
@@ -65,26 +66,56 @@ const METRICS = [
   { key: 'answers_percentage', label: 'Taxa de resposta (%)', isPercent: true }
 ];
 
-/** Render da tabela de chats avaliados (colunas/mapeamento específicos de chat). */
-function renderList(list, { effectiveLimit, effectiveOffset }) {
-  let s = `| ID | Cliente | Responsável | Nota | Data avaliação | Ticket |\n`;
-  s += `|----|---------|-------------|------|----------------|--------|\n`;
-  for (const chat of list) {
-    const ratingTime = chat.rating_time ? chat.rating_time.substring(0, 10) : '—';
-    const client = chat.client_name || '—';
-    const responsible = chat.responsible_name || '—';
-    const rating = chat.rating ?? '—';
-    const ticket = chat.ticket_number ? `#${chat.ticket_number}` : '—';
-    s += `| ${chat.id} | ${client} | ${responsible} | ${rating} | ${ratingTime} | ${ticket} |\n`;
-  }
-  s += `\n*Para detalhes completos de um chat: use \`get_chat\` com o id retornado.*\n`;
-  s += `*Para filtrar por nota: filtre a coluna "Nota" da lista acima client-side (não há filtro por nota na API).*\n`;
+function richRow(chat) {
+  const ratingTime = chat.rating_time ? chat.rating_time.substring(0, 10) : '—';
+  const client = chat.client_name || '—';
+  const responsible = chat.responsible_name || '—';
+  const rating = chat.rating ?? '—';
+  const ticket = chat.ticket_number ? `#${chat.ticket_number}` : '—';
+  return `| ${chat.id} | ${client} | ${responsible} | ${rating} | ${ratingTime} | ${ticket} |\n`;
+}
+
+/**
+ * Render da tabela de chats avaliados (colunas/mapeamento específicos de chat).
+ * Teto por item (F3): `maxChars` limita a tabela; quando corta, a linha de corte
+ * substitui o "Há mais itens — offset N+1" (que pularia os itens não mostrados).
+ */
+function renderList(list, { effectiveLimit, effectiveOffset, maxChars, title = '', truncatedTitle }) {
+  const tableHead = `| ID | Cliente | Responsável | Nota | Data avaliação | Ticket |\n` +
+    `|----|---------|-------------|------|----------------|--------|\n`;
+  const middle = `\n*Para detalhes completos de um chat: use \`get_chat\` com o id retornado.*\n` +
+    `*Para filtrar por nota: filtre a coluna "Nota" da lista acima client-side (não há filtro por nota na API).*\n`;
 
   // Paginação (sem header X-Total-Items neste endpoint)
-  if (list.length === effectiveLimit) {
-    s += `\n*Há mais itens — use \`offset: ${effectiveOffset + 1}\` para ver a próxima página. Total disponível: use \`chats_evaluated\` do summary acima.*\n`;
-  }
-  return s;
+  const more = list.length === effectiveLimit
+    ? `\n*Há mais itens — use \`offset: ${effectiveOffset + 1}\` para ver a próxima página. Total disponível: use \`chats_evaluated\` do summary acima.*\n`
+    : '';
+  return renderWithinBudget({
+    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
+    parts: list.map(richRow), middle, pagination: more,
+    maxChars, offset: effectiveOffset, limit: effectiveLimit, unit: 'chats', verbosity: 'rich'
+  });
+}
+
+function compactRow(chat) {
+  return `${row([
+    chat.id,
+    chat.client_name,
+    chat.responsible_name,
+    chat.rating,
+    chat.rating_time,
+    chat.ticket_number
+  ])}\n`;
+}
+
+function renderListCompact(list, { effectiveLimit, effectiveOffset, moreLine = '', maxChars, title = '', truncatedTitle } = {}) {
+  const tableHead = 'id|cliente|responsavel|nota|data|ticket\n';
+  return renderWithinBudget({
+    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
+    parts: list.map(compactRow),
+    pagination: moreLine,
+    maxChars, offset: effectiveOffset, limit: effectiveLimit, verbosity: 'compact'
+  });
 }
 
 async function execute(args, ctx) {
@@ -95,8 +126,10 @@ async function execute(args, ctx) {
     listParamKey: 'chats_list',
     listDataKey: 'chats_list',
     evaluatedKey: 'chats_evaluated',
+    finishedKey: 'chats_finished',
     metrics: METRICS,
-    renderList
+    renderList,
+    renderListCompact
   });
 }
 

@@ -8,9 +8,10 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, pagination, currencyBRL } = require('../_shared/format');
+const { footer, pagination, currencyBRL, renderWithinBudget, listVerbosity, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { ATTENDANCE_LABELS, ATTENDANCE_KIND_LABELS } = require('./appointmentFilters');
+const { compactValorizationLine } = require('./valorizationCompact');
 
 const schema = {
   name: 'list_appointments',
@@ -40,94 +41,110 @@ const schema = {
   }
 };
 
-function formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity) {
-  let text = `**📋 Apontamentos do Ticket #${ticket_number}** (${appointments.length} encontrados)\n\n`;
+// Bloco de valorização do apontamento (rich): atendimento, tipo, deslocamento, flags e valor.
+function formatValorizationBlock(val) {
+  const attendanceLabel = ATTENDANCE_LABELS[val.attendance] || val.attendance || 'N/A';
+  const isContract = val.attendance_kind === 'Contract';
+  // Sem default silencioso: tipo desconhecido mostra o valor cru da API, nunca "Avulso" indevido
+  const kindLabel = ATTENDANCE_KIND_LABELS[val.attendance_kind] || val.attendance_kind || 'N/A';
+  const kindName = isContract
+    ? (val.contract?.name || '')
+    : (val.loose_service?.name || '');
+  const kindDisplay = kindName ? `${kindLabel} — ${kindName}` : kindLabel;
 
-  appointments.forEach((appt, index) => {
-    const apptId = appt.id || 'N/A';
-    const apptDate = appt.date || 'Data não informada';
-    const initTime = appt.init_time || '??:??';
-    const endTime = appt.end_time || '??:??';
-    const userName = appt.user?.name || 'Atendente não informado';
-    const clientName = appt.client?.name || null;
+  let text = `   💰 **Valorização:**\n`;
+  text += `      • Atendimento: ${attendanceLabel}\n`;
+  text += `      • Tipo: ${kindDisplay}\n`;
 
-    let desc = appt.description || 'Sem descrição';
-    if (desc.length > 150) {
-      desc = desc.substring(0, 150) + '...';
-    }
+  if (val.shift) {
+    text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${currencyBRL(val.shift.value)})\n`;
+  }
+  if (val.shift_owner_ticket) {
+    const sot = val.shift_owner_ticket;
+    text += `      • 🚗 Deslocamento de: #${sot.ticket_number || 'N/A'} — ${sot.title || 'N/A'}\n`;
+  }
+  if (val.guarantee === true) {
+    text += `      • 🛡️ Garantia\n`;
+  }
+  if (val.manual_value === true) {
+    text += `      • ✋ Valor manual\n`;
+  }
+  text += `      • 💵 Valor: ${currencyBRL(val.value)}\n`;
+  return text;
+}
 
-    text += `**${index + 1}. Apontamento #${apptId}**\n` +
-            `   📅 **Data:** ${apptDate}\n` +
-            `   ⏰ **Horário:** ${initTime} - ${endTime}\n` +
-            `   👤 **Atendente:** ${userName}\n`;
+function formatAppointmentItem(appt, index, verbosity) {
+  const apptId = appt.id || 'N/A';
+  const apptDate = appt.date || 'Data não informada';
+  const initTime = appt.init_time || '??:??';
+  const endTime = appt.end_time || '??:??';
+  const userName = appt.user?.name || 'Atendente não informado';
+  const clientName = appt.client?.name || null;
 
-    if (clientName) {
-      text += `   🏢 **Cliente:** ${clientName}\n`;
-    }
+  let desc = appt.description || 'Sem descrição';
+  if (desc.length > 150) {
+    desc = desc.substring(0, 150) + '...';
+  }
 
-    text += `   💬 **Descrição:** ${desc}\n`;
+  let text = `**${index + 1}. Apontamento #${apptId}**\n` +
+    `   📅 **Data:** ${apptDate}\n` +
+    `   ⏰ **Horário:** ${initTime} - ${endTime}\n` +
+    `   👤 **Atendente:** ${userName}\n`;
 
-    // external_user_name — campo raiz do apontamento, fora do bloco de valorização
-    if (appt.external_user_name) {
-      text += `   👷 **Executor externo:** ${appt.external_user_name}\n`;
-    }
+  if (clientName) {
+    text += `   🏢 **Cliente:** ${clientName}\n`;
+  }
 
-    // Bloco de valorização — só renderiza quando valorization é objeto não-nulo e verbosidade rich
-    const val = appt.valorization;
-    if (val !== null && val !== undefined && typeof val === 'object' && (verbosity || 'rich') !== 'compact') {
-      const attendanceLabel = ATTENDANCE_LABELS[val.attendance] || val.attendance || 'N/A';
-      const isContract = val.attendance_kind === 'Contract';
-      // Sem default silencioso: tipo desconhecido mostra o valor cru da API, nunca "Avulso" indevido
-      const kindLabel = ATTENDANCE_KIND_LABELS[val.attendance_kind] || val.attendance_kind || 'N/A';
-      const kindName = isContract
-        ? (val.contract?.name || '')
-        : (val.loose_service?.name || '');
-      const kindDisplay = kindName ? `${kindLabel} — ${kindName}` : kindLabel;
+  text += `   💬 **Descrição:** ${desc}\n`;
 
-      text += `   💰 **Valorização:**\n`;
-      text += `      • Atendimento: ${attendanceLabel}\n`;
-      text += `      • Tipo: ${kindDisplay}\n`;
+  // external_user_name — campo raiz do apontamento, fora do bloco de valorização
+  if (appt.external_user_name) {
+    text += `   👷 **Executor externo:** ${appt.external_user_name}\n`;
+  }
 
-      if (val.shift) {
-        text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${currencyBRL(val.shift.value)})\n`;
-      }
-      if (val.shift_owner_ticket) {
-        const sot = val.shift_owner_ticket;
-        text += `      • 🚗 Deslocamento de: #${sot.ticket_number || 'N/A'} — ${sot.title || 'N/A'}\n`;
-      }
-      if (val.guarantee === true) {
-        text += `      • 🛡️ Garantia\n`;
-      }
-      if (val.manual_value === true) {
-        text += `      • ✋ Valor manual\n`;
-      }
-      text += `      • 💵 Valor: ${currencyBRL(val.value)}\n`;
-    }
+  // Valorização — só quando valorization é objeto não-nulo. `compact` remove formatação,
+  // nunca dado: sai em 1 linha (mesmas células do list_appointments_global).
+  const val = appt.valorization;
+  if (val !== null && val !== undefined && typeof val === 'object') {
+    text += verbosity === 'compact' ? compactValorizationLine(val) : formatValorizationBlock(val);
+  }
 
-    // Localizações — uma linha por entrada, só se array não-vazio
-    const locations = appt.locations;
-    if (Array.isArray(locations) && locations.length > 0) {
-      locations.forEach(loc => {
-        const lat = loc.latitude ?? 'N/A';
-        const lon = loc.longitude ?? 'N/A';
-        text += `   📍 **Localização:** ${lat}, ${lon}\n`;
-      });
-    }
+  // Localizações — uma linha por entrada, só se array não-vazio
+  const locations = appt.locations;
+  if (Array.isArray(locations) && locations.length > 0) {
+    locations.forEach(loc => {
+      const lat = loc.latitude ?? 'N/A';
+      const lon = loc.longitude ?? 'N/A';
+      text += `   📍 **Localização:** ${lat}, ${lon}\n`;
+    });
+  }
 
-    // compact: omitir bloco de valorização (ja incluido acima com guard `v !== 'compact'`)
-    text += '\n';
-  });
+  return text + '\n';
+}
 
+function formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity, autoCompactNotice = '') {
+  const head = `**📋 Apontamentos do Ticket #${ticket_number}** (${appointments.length} encontrados)\n\n`;
+  const truncatedHead = (shown) => `**📋 Apontamentos do Ticket #${ticket_number}** (${cutCountLabel(shown, null, appointments.length, 'encontrados')})\n\n`;
   const currentOffset = parseInt(offset) || 1;
   const currentLimit = parseInt(limit) || 20;
   const v = verbosity || 'rich';
   const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: appointments.length, unit: 'apontamentos' }, v);
   const footerStr = footer(v);
   const sep = footerStr ? '\n' : '';
-  return `${text}${paginationInfo}${sep}${footerStr}`;
+  return renderWithinBudget({
+    head,
+    truncatedHead,
+    parts: appointments.map((appt, index) => formatAppointmentItem(appt, index, verbosity)),
+    pagination: paginationInfo,
+    tail: `${sep}${footerStr}${autoCompactNotice}`,
+    offset: currentOffset,
+    limit: currentLimit,
+    unit: 'apontamentos',
+    verbosity: v
+  });
 }
 
-async function execute(args, { api, verbosity }) {
+async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }) {
   const { ticket_number, user_id, start_date, end_date, offset = 1, limit = 20 } = args;
 
   requireField(args, 'ticket_number');
@@ -162,7 +179,9 @@ async function execute(args, { api, verbosity }) {
       );
     }
 
-    return textResponse(formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity));
+    // F4: sem verbosidade explicita e com > 50 itens na pagina, sai em compact (com aviso).
+    const { verbosity, notice: autoCompactNotice } = listVerbosity({ verbosity: ctxVerbosity, verbosityExplicit }, appointments.length);
+    return textResponse(formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity, autoCompactNotice));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao listar apontamentos**\n\n` +

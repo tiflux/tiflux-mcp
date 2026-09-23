@@ -15,7 +15,9 @@
 
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
-const { renderList, currencyBRL } = require('../_shared/format');
+const { renderList, renderWithinBudget, currencyBRL, row, pagination, truncate, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
+const { durationMinutes } = require('./appointmentMath');
+const { compactValorizationCells } = require('./valorizationCompact');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const {
@@ -83,7 +85,67 @@ function renderAppointmentItem(appt) {
   return text;
 }
 
+const COMPACT_COLUMNS = ['id', 'data', 'ini', 'fim', 'min', 'tecnico', 'cliente', 'contrato', 'mesa', 'ticket', 'atend', 'valor', 'flags', 'desc'];
+
+function compactAppointmentCells(appt) {
+  const { attendance, value, flags } = compactValorizationCells(appt.valorization);
+  if (appt.external_user_name) flags.push(`executor:${appt.external_user_name}`);
+
+  // Política única de truncamento no compact (F2): 200 caracteres, via helper
+  // compartilhado — antes truncava em 80 aqui, sem paridade com o resto do produto.
+  const desc = truncate(appt.description, 200);
+
+  return [
+    appt.id,
+    appt.date,
+    appt.init_time,
+    appt.end_time,
+    durationMinutes(appt.init_time, appt.end_time),
+    appt.user?.name,
+    appt.client?.name,
+    appt.contract?.name || 'sem contrato',
+    appt.desk?.name,
+    appt.ticket?.number,
+    attendance,
+    value,
+    flags.length ? flags.join(';') : '—',
+    desc
+  ];
+}
+
+function formatAppointmentsGlobalListCompact(appointments, opts = {}) {
+  if (!appointments || appointments.length === 0) {
+    return 'Nenhum apontamento encontrado para o período e filtros informados.';
+  }
+
+  const hasTotal = opts.total !== undefined && opts.total !== null && opts.total !== appointments.length;
+  const countLabel = hasTotal ? `${appointments.length} de ${opts.total}` : `${appointments.length}`;
+
+  const columns = `${COMPACT_COLUMNS.join('|')}\n`;
+
+  return renderWithinBudget({
+    head: `Apontamentos (${countLabel}) · min · BRL\n${columns}`,
+    truncatedHead: (shown) => `Apontamentos (${cutCountLabel(shown, opts.total, appointments.length)}) · min · BRL\n${columns}`,
+    parts: appointments.map(appt => `${row(compactAppointmentCells(appt))}\n`),
+    pagination: pagination({
+      offset: opts.offset,
+      limit: opts.limit,
+      count: appointments.length,
+      total: opts.total,
+      unit: 'apontamentos'
+    }, 'compact'),
+    maxChars: opts.maxChars,
+    offset: opts.offset,
+    limit: opts.limit,
+    unit: 'apontamentos',
+    verbosity: 'compact',
+    total: opts.total
+  });
+}
+
 function formatAppointmentsGlobalList(appointments, opts = {}) {
+  if (opts.verbosity === 'compact') return formatAppointmentsGlobalListCompact(appointments, opts);
+
   return renderList({
     items: appointments,
     title: 'Apontamentos',
@@ -93,11 +155,53 @@ function formatAppointmentsGlobalList(appointments, opts = {}) {
     offset: opts.offset,
     limit: opts.limit,
     unit: 'apontamentos',
-    verbosity: opts.verbosity
+    verbosity: opts.verbosity,
+    maxChars: opts.maxChars
   });
 }
 
-async function execute(args, { api, verbosity }) {
+/**
+ * Monta as notas/avisos de rodapé anexadas após a lista (nota de permissão de
+ * user_names + aviso de contract_ids). Extraído do `execute()` para reduzir a
+ * complexidade cognitiva (Sonar: `execute` estava em 18, acima do limite de 15).
+ *
+ * @param {string} verbosity - 'rich' | 'compact'
+ * @param {object} opts
+ * @param {boolean} opts.userNamesRequested - user_ids/user_names foi informado
+ * @param {number} opts.appointmentsLength - itens retornados (a nota de permissão só faz sentido com >0)
+ * @param {string|null} opts.finalContractIds - contract_ids resolvido (null = filtro inativo)
+ * @returns {string} texto a concatenar ao resultado (pode ser vazio)
+ */
+function buildNotices(verbosity, { userNamesRequested, appointmentsLength, finalContractIds }) {
+  const isCompact = verbosity === 'compact';
+  let notices = '';
+
+  // Nota informativa: user_ids pode ter sido silenciado pela API se sem view_users_manage
+  if (userNamesRequested && appointmentsLength > 0) {
+    notices += isCompact
+      ? '\n[aviso: sem permissão "Visualizar relatórios dos técnicos" o filtro por técnico pode ter sido ignorado pela API]'
+      : '\n\n> ⚠️ **Nota:** se este usuário não tem a permissão "Visualizar relatórios dos técnicos", o filtro por técnico pode ter sido ignorado pela API — os resultados podem incluir apontamentos de outros técnicos.';
+  }
+
+  // Rodape quando contract_ids ativo: avisa sobre A2 (sem contrato some) e A1 (Shared expande id)
+  if (finalContractIds) {
+    const contractFooter = renderAppliedFilters([
+      { label: 'contract_ids', value: finalContractIds, origin: 'informado' }
+    ], verbosity);
+
+    if (isCompact) {
+      if (contractFooter) notices += `\n${contractFooter}`;
+      notices += '\n[aviso: contract_ids ativo — apontamentos sem contrato excluídos; em contratos Shared, contract.id retornado pode diferir do filtrado (grupo→membro) — NÃO refiltrar por contract.id]';
+    } else {
+      if (contractFooter) notices += `\n\n${contractFooter}`;
+      notices += `\n\n${CONTRACT_FILTER_NOTICE}`;
+    }
+  }
+
+  return notices;
+}
+
+async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }) {
   const {
     start_date,
     end_date,
@@ -144,33 +248,25 @@ async function execute(args, { api, verbosity }) {
 
     const appointments = response.data || [];
     const total = response.total;
+    // F4: sem verbosidade explicita e com > 50 itens na pagina, sai em compact (com aviso).
+    const { verbosity, notice: autoCompactNotice } = listVerbosity({ verbosity: ctxVerbosity, verbosityExplicit }, appointments.length);
 
-    let result = formatAppointmentsGlobalList(appointments, {
+    const notices = buildNotices(verbosity, {
+      userNamesRequested,
+      appointmentsLength: appointments.length,
+      finalContractIds
+    }) + autoCompactNotice;
+
+    // Teto por item (F3): a lista desconta o tamanho dos avisos anexados depois dela.
+    const result = formatAppointmentsGlobalList(appointments, {
       total,
       offset: effectiveOffset,
       limit: effectiveLimit,
-      verbosity
+      verbosity,
+      maxChars: RESPONSE_ITEM_BUDGET - notices.length
     });
 
-    // Nota informativa: user_ids pode ter sido silenciado pela API se sem view_users_manage
-    if (userNamesRequested && appointments.length > 0) {
-      result += '\n\n> ⚠️ **Nota:** se este usuário não tem a permissão "Visualizar relatórios dos técnicos", o filtro por técnico pode ter sido ignorado pela API — os resultados podem incluir apontamentos de outros técnicos.';
-    }
-
-    // Rodape quando contract_ids ativo: avisa sobre A2 (sem contrato some) e A1 (Shared expande id)
-    if (finalContractIds) {
-      const footer = renderAppliedFilters([
-        {
-          label: 'contract_ids',
-          value: finalContractIds,
-          origin: 'informado'
-        }
-      ], verbosity);
-      if (footer) result += `\n\n${footer}`;
-      result += `\n\n${CONTRACT_FILTER_NOTICE}`;
-    }
-
-    return textResponse(result);
+    return textResponse(result + notices);
   } catch (error) {
     return internalErrorResponse('**❌ Erro interno ao listar apontamentos**', error);
   }

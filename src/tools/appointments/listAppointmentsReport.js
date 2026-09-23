@@ -16,7 +16,8 @@
 
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
-const { currencyBRL } = require('../_shared/format');
+const { currencyBRL, footer, money, row } = require('../_shared/format');
+const { durationMinutes, formatMinutes } = require('./appointmentMath');
 const {
   CONTRACT_FILTER_NOTICE,
   appointmentFilterSchemaProperties,
@@ -40,37 +41,6 @@ const schema = {
     required: ['start_date', 'end_date']
   }
 };
-
-// "HH:MM" (sem flag /g — exec() não guarda lastIndex entre chamadas)
-const HHMM_PATTERN = /^(\d+):(\d{2})$/;
-
-/**
- * Calcula a duração entre init_time e end_time em minutos.
- * Retorna 0 se qualquer tempo for inválido ou se end <= init.
- * @param {string} initTime - "HH:MM"
- * @param {string} endTime - "HH:MM"
- * @returns {number} duração em minutos (>= 0)
- */
-function durationMinutes(initTime, endTime) {
-  // Valida ambos antes de calcular — tempo inválido em qualquer extremo → 0
-  const initMatch = typeof initTime === 'string' ? HHMM_PATTERN.exec(initTime) : null;
-  const endMatch = typeof endTime === 'string' ? HHMM_PATTERN.exec(endTime) : null;
-  if (!initMatch || !endMatch) return 0;
-  const initMin = Number.parseInt(initMatch[1], 10) * 60 + Number.parseInt(initMatch[2], 10);
-  const endMin = Number.parseInt(endMatch[1], 10) * 60 + Number.parseInt(endMatch[2], 10);
-  return Math.max(0, endMin - initMin);
-}
-
-/**
- * Formata minutos totais como "HH:MM" (ex: 90 → "1:30").
- * @param {number} totalMinutes
- * @returns {string}
- */
-function formatMinutes(totalMinutes) {
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return `${h}:${String(m).padStart(2, '0')}`;
-}
 
 /**
  * Agrega lista de apontamentos por usuário e, opcionalmente, por mesa.
@@ -156,8 +126,59 @@ function renderUserSection(entry, { includeValorization, showDeskBreakdown }) {
   return text + '\n';
 }
 
+function compactReportHead({ start_date, end_date, includeValorization, totalCount, totalMinutes, totalValue, totalManualValue }) {
+  let head = `Apontamentos por técnico ${start_date}..${end_date} · ${totalCount} apt · ${totalMinutes} min`;
+  if (includeValorization) {
+    head += ` · BRL ${money(totalValue, 'compact')}`;
+    if (totalManualValue > 0) head += ` (manual ${money(totalManualValue, 'compact')})`;
+  }
+  return head;
+}
+
+// Quebra por mesa no compact: 1 linha por (tecnico, mesa), mesas ordenadas por contagem desc.
+function compactDeskRows(sorted, includeValorization) {
+  const deskCols = includeValorization
+    ? ['tecnico', 'mesa', 'apt', 'min', 'valor']
+    : ['tecnico', 'mesa', 'apt', 'min'];
+  let text = `${deskCols.join('|')}\n`;
+  for (const [, entry] of sorted) {
+    const sortedDesks = [...entry.desks.entries()].sort((a, b) => b[1].count - a[1].count);
+    for (const [, deskEntry] of sortedDesks) {
+      const cells = [entry.userName, deskEntry.deskName, deskEntry.count, deskEntry.minutes];
+      if (includeValorization) cells.push(money(deskEntry.value, 'compact'));
+      text += `${row(cells)}\n`;
+    }
+  }
+  return text;
+}
+
+function formatReportCompact(userMap, opts = {}) {
+  const { includeValorization, showDeskBreakdown } = opts;
+  const head = compactReportHead(opts);
+
+  if (userMap.size === 0) {
+    return `${head}\nNenhum apontamento para os filtros informados.\n`;
+  }
+
+  const sorted = [...userMap.entries()].sort((a, b) => b[1].count - a[1].count);
+  const userCols = includeValorization ? ['tecnico', 'apt', 'min', 'valor'] : ['tecnico', 'apt', 'min'];
+
+  let text = `${head}\n${userCols.join('|')}\n`;
+  for (const [, entry] of sorted) {
+    const cells = [entry.userName, entry.count, entry.minutes];
+    if (includeValorization) cells.push(money(entry.value, 'compact'));
+    text += `${row(cells)}\n`;
+  }
+
+  if (showDeskBreakdown) text += compactDeskRows(sorted, includeValorization);
+
+  return text;
+}
+
 function formatReport(userMap, opts = {}) {
-  const { start_date, end_date, includeValorization, showDeskBreakdown, totalCount, totalMinutes, totalValue, totalManualValue } = opts;
+  const { start_date, end_date, includeValorization, showDeskBreakdown, totalCount, totalMinutes, totalValue, totalManualValue, verbosity } = opts;
+
+  if (verbosity === 'compact') return formatReportCompact(userMap, opts);
 
   let text = `## Relatório de Apontamentos por Técnico\n\n`;
   text += `**Período:** ${start_date} a ${end_date}\n`;
@@ -233,7 +254,8 @@ function sumTotals(userMap) {
   return totals;
 }
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
+  const v = verbosity || 'rich';
   const {
     start_date,
     end_date,
@@ -278,9 +300,22 @@ async function execute(args, { api }) {
     // A2/A1: com contract_ids ativo a API exclui apontamentos sem contrato — em
     // auditoria de faturamento essa omissao nao pode ser silenciosa (paridade
     // com o rodape de list_appointments_global).
-    const contractNotice = finalContractIds ? `${CONTRACT_FILTER_NOTICE}\n\n` : '';
+    let contractNotice = '';
+    if (finalContractIds) {
+      contractNotice = v === 'compact'
+        ? '[aviso: contract_ids ativo — apontamentos sem contrato excluídos]\n'
+        : `${CONTRACT_FILTER_NOTICE}\n\n`;
+    }
 
     if (allAppointments.length === 0) {
+      if (v === 'compact') {
+        const footerStr = footer(v);
+        return textResponse(
+          `Apontamentos por técnico ${start_date}..${end_date}: 0 apontamentos para os filtros informados.\n` +
+          contractNotice +
+          (footerStr ? `\n${footerStr}` : '')
+        );
+      }
       return textResponse(
         `## Relatório de Apontamentos por Técnico\n\n` +
         `**Período:** ${start_date} a ${end_date}\n\n` +
@@ -301,10 +336,12 @@ async function execute(args, { api }) {
       totalCount,
       totalMinutes,
       totalValue,
-      totalManualValue
+      totalManualValue,
+      verbosity: v
     });
 
-    return textResponse(reportText + contractNotice + '\n*✅ Dados obtidos da API TiFlux em tempo real*');
+    const footerStr = footer(v);
+    return textResponse(reportText + contractNotice + (footerStr ? `\n${footerStr}` : ''));
   } catch (error) {
     return internalErrorResponse('**❌ Erro interno ao gerar relatório de apontamentos**', error);
   }

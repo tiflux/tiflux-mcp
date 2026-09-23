@@ -21,13 +21,14 @@ class RequestorTools {
     this.api = new TiFluxAPI();
     this.logger = console;
     this.verbosity = 'rich';
+    this.verbosityExplicit = false;
   }
 }
 
 slices.forEach(slice => {
   const methodName = `_exec_${slice.name}`;
   RequestorTools.prototype[methodName] = function (args) {
-    return slice.execute(args, { api: this.api, logger: this.logger, verbosity: this.verbosity });
+    return slice.execute(args, { api: this.api, logger: this.logger, verbosity: this.verbosity, verbosityExplicit: this.verbosityExplicit });
   };
 });
 

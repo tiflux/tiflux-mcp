@@ -67,7 +67,7 @@ function paginationSchemaProperties() {
     },
     limit: {
       type: 'number',
-      description: 'Numero de resultados por pagina (padrao: 20, maximo: 200)'
+      description: 'Numero de resultados por pagina (padrao: 20, maximo: 200). Nas listagens pesadas, respostas acima de ~40k caracteres sao cortadas no limite de um item, com a instrucao de continuacao (offset e limit exatos para seguir sem pular nem repetir itens); em qualquer tool, acima de ~60k a resposta e cortada com aviso para reduzir o limit'
     }
   };
 }

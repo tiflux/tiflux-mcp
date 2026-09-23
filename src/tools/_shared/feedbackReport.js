@@ -17,9 +17,123 @@
 
 const { textResponse } = require('./response');
 const { errorResponse } = require('./errors');
-const { footer } = require('./format');
+const { footer, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('./format');
 const { previousPeriod, validatePeriod } = require('./periodMath');
 const { capIds, calcDelta, formatDeltaStr } = require('./reportMath');
+
+// Paginacao efetiva da lista (mesmo clamp enviado a API: offset >= 1, limit 1..200).
+function effectivePage(offset, limit) {
+  return {
+    effectiveLimit: Math.min(Math.max(1, Number.parseInt(limit, 10) || 20), 200),
+    effectiveOffset: Math.max(1, Number.parseInt(offset, 10) || 1)
+  };
+}
+
+/**
+ * Lista de itens no modo compact. include_list e pedido explicito do usuario: o
+ * payload ja foi cobrado na API (listParamKey vai na request), entao suprimi-lo
+ * era perda de dado. Teto por item (F3): a lista desconta o texto que a precede.
+ */
+function compactListLines(report, cfg, prefixLength) {
+  const { args: { offset, limit }, mainData, evaluated } = report;
+  const list = mainData[cfg.listDataKey] || [];
+  const { effectiveLimit, effectiveOffset } = effectivePage(offset, limit);
+
+  if (list.length === 0) {
+    return [`Avaliados (0/${evaluated}): nenhum item no período com os filtros aplicados.`];
+  }
+  if (typeof cfg.renderListCompact !== 'function') {
+    // Caller nao forneceu renderListCompact — degrada para o render rich
+    // (cfg.renderList) em vez de lancar TypeError. Achado de revisao do #90.
+    const title = `Avaliados (${list.length}/${evaluated}) — formato completo (sem renderer compact):`;
+    const maxChars = RESPONSE_ITEM_BUDGET - prefixLength - title.length - 1;
+    return [title, cfg.renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal: evaluated, maxChars }).trimEnd()];
+  }
+  // O titulo (com a contagem) vai no cabecalho do render: quando o teto corta,
+  // passa a contar os itens mostrados (`truncatedTitle`).
+  const title = `Avaliados (${list.length}/${evaluated})\n`;
+  const truncatedTitle = (shown) => `Avaliados (${cutCountLabel(shown, evaluated, list.length)})\n`;
+  const moreLine = list.length === effectiveLimit ? `→ offset: ${effectiveOffset + 1} p/ mais` : '';
+  const maxChars = RESPONSE_ITEM_BUDGET - prefixLength;
+  return [cfg.renderListCompact(list, { effectiveLimit, effectiveOffset, moreLine, maxChars, title, truncatedTitle }).trimEnd()];
+}
+
+function renderCompactReport(report, cfg) {
+  const { args: { start_date, end_date, include_list }, compareStart, compareEnd, mainSummary, evaluated, prevEvaluated } = report;
+  const { delta, deltaPercent } = calcDelta(evaluated, prevEvaluated);
+  const ratingAvg = mainSummary.rating_average ?? '—';
+  const deltaStr = formatDeltaStr(delta, deltaPercent);
+
+  let metricsLine = `Comparação: ${compareStart} a ${compareEnd} | respondidos ${mainSummary.answers_percentage ?? '—'}%`;
+  if (cfg.finishedKey && mainSummary[cfg.finishedKey] != null) {
+    metricsLine += ` | finalizados ${mainSummary[cfg.finishedKey]}`;
+  }
+  if (mainSummary.clients_evaluated != null) {
+    metricsLine += ` | clientes ${mainSummary.clients_evaluated}`;
+  }
+
+  const lines = [
+    `Avaliações de ${cfg.entityLabel.toLowerCase()} (${start_date} a ${end_date}): média ${ratingAvg} | avaliados ${evaluated} vs ${prevEvaluated} → Δ ${deltaStr}`,
+    metricsLine
+  ];
+
+  if (include_list) {
+    const prefixLength = lines.join('\n').length + 1 + report.autoCompactNotice.length;
+    lines.push(...compactListLines(report, cfg, prefixLength));
+  }
+
+  return lines.join('\n') + report.autoCompactNotice;
+}
+
+function renderRichReport(report, cfg) {
+  const { args: { start_date, end_date, include_list, offset, limit }, compareStart, compareEnd, mainData, mainSummary, compareSummary, evaluated } = report;
+  const label = cfg.entityLabel;
+
+  let out = `**📊 Relatório de avaliações de atendimento — ${label}**\n\n`;
+  out += `**Período principal:** ${start_date} a ${end_date}\n`;
+  out += `**Período de comparação:** ${compareStart} a ${compareEnd}\n\n`;
+
+  out += `| Métrica | Período atual | Período anterior | Δ |\n`;
+  out += `|---------|--------------|-----------------|---|\n`;
+
+  for (const metric of cfg.metrics) {
+    out += metricRow(metric, mainSummary[metric.key], compareSummary[metric.key]);
+  }
+
+  const footerStr = footer('rich');
+
+  // Lista de itens (se solicitada)
+  if (include_list) {
+    const list = mainData[cfg.listDataKey] || [];
+    const listTitle = (count) => `\n**📋 ${label} avaliados no período (${count}):**\n\n`;
+    const title = listTitle(`${list.length} itens`);
+
+    if (list.length === 0) {
+      out += `${title}*Nenhum ${cfg.entitySingular} avaliado encontrado no período com os filtros aplicados.*\n`;
+    } else {
+      const { effectiveLimit, effectiveOffset } = effectivePage(offset, limit);
+      // Teto por item (F3): a lista desconta o texto que a precede e o rodape.
+      // O titulo vai no cabecalho do render: quando o teto corta, conta os itens mostrados.
+      const maxChars = RESPONSE_ITEM_BUDGET - out.length - footerStr.length - 1;
+      const truncatedTitle = (shown) => listTitle(cutCountLabel(shown, evaluated, list.length, 'itens'));
+      out += cfg.renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal: evaluated, maxChars, title, truncatedTitle });
+    }
+  }
+
+  return footerStr ? `${out}\n${footerStr}` : out;
+}
+
+function metricRow(metric, curr, prev) {
+  const currDisplay = curr ?? '—';
+  const prevDisplay = prev ?? '—';
+
+  if (curr != null && prev != null) {
+    const { delta, deltaPercent } = calcDelta(curr, prev);
+    const deltaStr = formatDeltaStr(delta, deltaPercent);
+    return `| ${metric.label} | **${currDisplay}** | ${prevDisplay} | ${deltaStr} |\n`;
+  }
+  return `| ${metric.label} | ${currDisplay} | ${prevDisplay} | — |\n`;
+}
 
 /**
  * Executa um relatório de avaliação com comparação de período.
@@ -33,16 +147,21 @@ const { capIds, calcDelta, formatDeltaStr } = require('./reportMath');
  *   @param {string} cfg.listParamKey - flag de lista enviada à API ('chats_list' | 'tickets_list')
  *   @param {string} cfg.listDataKey - chave da lista no payload ('chats_list' | 'tickets_list')
  *   @param {string} cfg.evaluatedKey - métrica de avaliados ('chats_evaluated' | 'tickets_evaluated')
- *   @param {Array<{key:string,label:string}>} cfg.metrics - métricas do summary para a tabela
- *   @param {(list:Array, o:{effectiveLimit:number,effectiveOffset:number,evaluatedTotal:number})=>string} cfg.renderList - render da tabela de itens
+ *   @param {string} [cfg.finishedKey] - métrica de "finalizados" do summary (ex: 'chats_finished' | 'tickets_finished'),
+ *     exibida na 2ª linha do modo `compact` quando presente. Opcional — sem ela, a linha de métricas
+ *     do `compact` simplesmente omite o dado de finalizados.
+ *   @param {Array<{key:string,label:string}>} cfg.metrics - métricas do summary para a tabela (modo `rich`)
+ *   @param {(list:Array, o:{effectiveLimit:number,effectiveOffset:number,evaluatedTotal:number,maxChars:number,title?:string,truncatedTitle?:function})=>string} cfg.renderList - render da tabela de itens (modo `rich`).
+ *     `title` (com a contagem) abre o cabecalho do render; `truncatedTitle(shown)` o substitui quando o teto corta (ver `withTitle`).
+ *   @param {(list:Array, o:object)=>string} [cfg.renderListCompact] - render da lista em 1 linha por item (modo `compact`; mesmo contrato de `title`/`truncatedTitle`).
+ *     Opcional: se `include_list` for pedido em `compact` e o caller não fornecer esta função, a lista
+ *     degrada para o render `rich` (`cfg.renderList`) em vez de lançar `TypeError` — ver bloco abaixo.
  * @returns {object} resposta MCP (textResponse | errorResponse)
  */
 async function runFeedbackReport(args, ctx, cfg) {
-  const { api, verbosity, logger } = ctx || {};
-  const v = verbosity || 'rich';
+  const { api, verbosity, verbosityExplicit, logger } = ctx || {};
   const label = cfg.entityLabel;
   const labelLower = label.toLowerCase();
-  const singular = cfg.entitySingular;
 
   try {
     const {
@@ -117,8 +236,8 @@ async function runFeedbackReport(args, ctx, cfg) {
       end_date,
       ...(include_list ? {
         [cfg.listParamKey]: true,
-        offset: Math.max(1, parseInt(offset) || 1),
-        limit: Math.min(Math.max(1, parseInt(limit) || 20), 200)
+        offset: Math.max(1, Number.parseInt(offset, 10) || 1),
+        limit: Math.min(Math.max(1, Number.parseInt(limit, 10) || 20), 200)
       } : {})
     };
 
@@ -163,57 +282,15 @@ async function runFeedbackReport(args, ctx, cfg) {
     const evaluated = mainSummary[cfg.evaluatedKey] ?? 0;
     const prevEvaluated = compareSummary[cfg.evaluatedKey] ?? 0;
 
-    if (v === 'compact') {
-      const { delta, deltaPercent } = calcDelta(evaluated, prevEvaluated);
-      const ratingAvg = mainSummary.rating_average ?? '—';
-      const deltaStr = formatDeltaStr(delta, deltaPercent);
-      const lines = [
-        `Avaliações de ${labelLower} (${start_date} a ${end_date}): média ${ratingAvg} | avaliados ${evaluated} vs ${prevEvaluated} → Δ ${deltaStr}`,
-        `Comparação: ${compareStart} a ${compareEnd} | respondidos ${mainSummary.answers_percentage ?? '—'}%`
-      ];
-      return textResponse(lines.join('\n'));
-    }
+    // F4: sem verbosidade explicita, a lista (include_list) com > 50 itens sai em compact (com aviso).
+    const listLength = include_list ? (mainData[cfg.listDataKey] || []).length : undefined;
+    const { verbosity: v, notice: autoCompactNotice } = listVerbosity({ verbosity, verbosityExplicit }, listLength);
 
-    // Rich
-    let out = `**📊 Relatório de avaliações de atendimento — ${label}**\n\n`;
-    out += `**Período principal:** ${start_date} a ${end_date}\n`;
-    out += `**Período de comparação:** ${compareStart} a ${compareEnd}\n\n`;
-
-    out += `| Métrica | Período atual | Período anterior | Δ |\n`;
-    out += `|---------|--------------|-----------------|---|\n`;
-
-    for (const metric of cfg.metrics) {
-      const curr = mainSummary[metric.key];
-      const prev = compareSummary[metric.key];
-
-      const currDisplay = curr ?? '—';
-      const prevDisplay = prev ?? '—';
-
-      if (curr != null && prev != null) {
-        const { delta, deltaPercent } = calcDelta(curr, prev);
-        const deltaStr = formatDeltaStr(delta, deltaPercent);
-        out += `| ${metric.label} | **${currDisplay}** | ${prevDisplay} | ${deltaStr} |\n`;
-      } else {
-        out += `| ${metric.label} | ${currDisplay} | ${prevDisplay} | — |\n`;
-      }
-    }
-
-    // Lista de itens (se solicitada)
-    if (include_list) {
-      const list = mainData[cfg.listDataKey] || [];
-      out += `\n**📋 ${label} avaliados no período (${list.length} itens):**\n\n`;
-
-      if (list.length === 0) {
-        out += `*Nenhum ${singular} avaliado encontrado no período com os filtros aplicados.*\n`;
-      } else {
-        const effectiveLimit = Math.min(Math.max(1, parseInt(limit) || 20), 200);
-        const effectiveOffset = Math.max(1, parseInt(offset) || 1);
-        out += cfg.renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal: evaluated });
-      }
-    }
-
-    const footerStr = footer(v);
-    return textResponse(footerStr ? `${out}\n${footerStr}` : out);
+    const report = {
+      args: { start_date, end_date, include_list, offset, limit },
+      compareStart, compareEnd, mainData, mainSummary, compareSummary, evaluated, prevEvaluated, autoCompactNotice
+    };
+    return textResponse(v === 'compact' ? renderCompactReport(report, cfg) : renderRichReport(report, cfg));
 
   } catch (err) {
     if (logger && typeof logger.error === 'function') {
@@ -227,4 +304,13 @@ async function runFeedbackReport(args, ctx, cfg) {
   }
 }
 
-module.exports = { runFeedbackReport };
+/**
+ * `truncatedHead` dos renders de lista dos feedback reports: titulo de corte
+ * (`truncatedTitle(shown)`) + cabecalho da tabela. Sem `truncatedTitle`, nao ha
+ * cabecalho de corte (o render usa o `head` normal).
+ */
+function withTitle(truncatedTitle, tableHead) {
+  return typeof truncatedTitle === 'function' ? (shown) => truncatedTitle(shown) + tableHead : undefined;
+}
+
+module.exports = { runFeedbackReport, withTitle };

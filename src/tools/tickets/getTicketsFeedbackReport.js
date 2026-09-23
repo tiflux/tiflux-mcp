@@ -28,8 +28,9 @@
  * Chaves não-admin recebem 403 com error_code 40301.
  */
 
-const { runFeedbackReport } = require('../_shared/feedbackReport');
+const { runFeedbackReport, withTitle } = require('../_shared/feedbackReport');
 const { feedbackReportSchemaProperties } = require('../_shared/schemaProps');
+const { row, truncate, renderWithinBudget } = require('../_shared/format');
 
 const schema = {
   name: 'get_tickets_feedback_report',
@@ -72,29 +73,62 @@ const METRICS = [
   { key: 'answers_percentage', label: 'Taxa de resposta (%)', isPercent: true }
 ];
 
-/** Render da tabela de tickets avaliados (colunas/mapeamento específicos de ticket). */
-function renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal }) {
-  let s = `| # | Cliente | Responsável | Mesa | Nota | Data avaliação | Comentário |\n`;
-  s += `|---|---------|-------------|------|------|----------------|------------|\n`;
-  for (const ticket of list) {
-    const revisedTime = ticket.revised_in_time ? ticket.revised_in_time.substring(0, 10) : '—';
-    const client = ticket.client_name || '—';
-    const responsible = ticket.responsible_name || '—';
-    const desk = ticket.desk_name || '—';
-    const rating = ticket.rating ?? '—';
-    // comments é plural e pode ser string vazia "" — contrato real verificado
-    const comments = ticket.comments && ticket.comments.trim() ? ticket.comments.trim().substring(0, 80) : '—';
-    const ticketNum = ticket.id ? `#${ticket.id}` : '—';
-    s += `| ${ticketNum} | ${client} | ${responsible} | ${desk} | ${rating} | ${revisedTime} | ${comments} |\n`;
-  }
-  s += `\n*Para detalhes completos: use \`get_ticket\` com o número do ticket ou \`list_ticket_answers\` para ver as respostas.*\n`;
-  s += `*Para filtrar por nota: filtre a coluna "Nota" da lista acima client-side (não há filtro por nota na API).*\n`;
+function richRow(ticket) {
+  const revisedTime = ticket.revised_in_time ? ticket.revised_in_time.substring(0, 10) : '—';
+  const client = ticket.client_name || '—';
+  const responsible = ticket.responsible_name || '—';
+  const desk = ticket.desk_name || '—';
+  const rating = ticket.rating ?? '—';
+  // comments é plural e pode ser string vazia "" — contrato real verificado
+  const comments = ticket.comments?.trim() ? ticket.comments.trim().substring(0, 80) : '—';
+  const ticketNum = ticket.id ? `#${ticket.id}` : '—';
+  return `| ${ticketNum} | ${client} | ${responsible} | ${desk} | ${rating} | ${revisedTime} | ${comments} |\n`;
+}
+
+/**
+ * Render da tabela de tickets avaliados (colunas/mapeamento específicos de ticket).
+ * Teto por item (F3): `maxChars` limita a tabela; quando corta, a linha de corte
+ * substitui o "Há mais itens — offset N+1" (que pularia os itens não mostrados).
+ */
+function renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal, maxChars, title = '', truncatedTitle }) {
+  const tableHead = `| # | Cliente | Responsável | Mesa | Nota | Data avaliação | Comentário |\n` +
+    `|---|---------|-------------|------|------|----------------|------------|\n`;
+  const middle = `\n*Para detalhes completos: use \`get_ticket\` com o número do ticket ou \`list_ticket_answers\` para ver as respostas.*\n` +
+    `*Para filtrar por nota: filtre a coluna "Nota" da lista acima client-side (não há filtro por nota na API).*\n`;
 
   // Paginação (sem header X-Total-Items neste endpoint — usar tickets_evaluated do summary)
-  if (list.length === effectiveLimit) {
-    s += `\n*Há mais itens — use \`offset: ${effectiveOffset + 1}\` para ver a próxima página. Total avaliados: ${evaluatedTotal} (do summary acima).*\n`;
-  }
-  return s;
+  const more = list.length === effectiveLimit
+    ? `\n*Há mais itens — use \`offset: ${effectiveOffset + 1}\` para ver a próxima página. Total avaliados: ${evaluatedTotal} (do summary acima).*\n`
+    : '';
+  return renderWithinBudget({
+    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
+    parts: list.map(richRow), middle, pagination: more,
+    maxChars, offset: effectiveOffset, limit: effectiveLimit, unit: 'tickets', verbosity: 'rich'
+  });
+}
+
+function compactRow(ticket) {
+  return `${row([
+    ticket.id,
+    ticket.client_name,
+    ticket.responsible_name,
+    ticket.desk_name,
+    ticket.rating,
+    ticket.revised_in_time,
+    // Política única de truncamento no compact (F2): 200 caracteres — antes
+    // os comentários de feedback não eram cortados (achado da revisão do #90).
+    ticket.comments?.trim() ? truncate(ticket.comments.trim(), 200) : null
+  ])}\n`;
+}
+
+function renderListCompact(list, { effectiveLimit, effectiveOffset, moreLine = '', maxChars, title = '', truncatedTitle } = {}) {
+  const tableHead = 'id|cliente|responsavel|mesa|nota|data|comentario\n';
+  return renderWithinBudget({
+    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
+    parts: list.map(compactRow),
+    pagination: moreLine,
+    maxChars, offset: effectiveOffset, limit: effectiveLimit, verbosity: 'compact'
+  });
 }
 
 async function execute(args, ctx) {
@@ -105,8 +139,10 @@ async function execute(args, ctx) {
     listParamKey: 'tickets_list',
     listDataKey: 'tickets_list',
     evaluatedKey: 'tickets_evaluated',
+    finishedKey: 'tickets_finished',
     metrics: METRICS,
-    renderList
+    renderList,
+    renderListCompact
   });
 }
 

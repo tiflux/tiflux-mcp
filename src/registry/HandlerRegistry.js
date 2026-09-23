@@ -5,7 +5,12 @@
  * O registry agrega os schemas para `ListTools` e roteia `CallTool` para
  * `instance[method](args)`. Substitui switch statements, handlerMaps manuais
  * e listas inline de tools nos bootstraps (server-sdk, ServerFactory).
+ *
+ * `execute` e o unico ponto por onde passam os 2 modos (SDK e Server), entao
+ * e aqui que mora a rede global de tamanho de resposta (RESPONSE_HARD_CAP).
  */
+
+const { capResponseText, RESPONSE_HARD_CAP } = require('../tools/_shared/format');
 
 class HandlerRegistry {
   constructor() {
@@ -17,16 +22,22 @@ class HandlerRegistry {
    * Define o nivel de verbosidade para todas as instancias de handlers.
    * Espelha o padrao de setApiKey: loop dedupe sobre instancias unicas.
    * Valores aceitos: 'rich' (default, comportamento atual) | 'compact'.
-   * Ausencia de setVerbosity = 'rich' (retrocompatibilidade).
+   * Ausencia de setVerbosity = 'rich' nao explicito (retrocompatibilidade +
+   * compact automatico nas listagens com mais de 50 itens na pagina).
    */
   setVerbosity(v) {
     const verbosity = (v === 'compact') ? 'compact' : 'rich';
+    // Explicita = header x-tiflux-verbosity ou env TIFLUX_MCP_VERBOSITY com valor
+    // valido. Valor desconhecido cai em 'rich' e NAO conta como explicito — o
+    // compact automatico por volume (itens > AUTO_COMPACT_LIMIT) continua valendo.
+    const explicit = v === 'rich' || v === 'compact';
     const seen = new Set();
     for (const { instance } of Object.values(this.handlers)) {
       if (seen.has(instance)) continue;
       seen.add(instance);
       if (instance && 'verbosity' in instance) {
         instance.verbosity = verbosity;
+        instance.verbosityExplicit = explicit;
       }
     }
   }
@@ -85,12 +96,30 @@ class HandlerRegistry {
     if (!entry) {
       throw new Error(`Tool desconhecida: ${toolName}`);
     }
-    return await entry.instance[entry.method](args);
+    const result = await entry.instance[entry.method](args);
+    return capResult(result);
   }
 
   listOperations() {
     return Object.keys(this.handlers);
   }
+}
+
+/**
+ * Rede global (F4 da spec 2026-09-22-response-budget-listagens): todo item de
+ * texto de `content` acima de RESPONSE_HARD_CAP e cortado no ultimo paragrafo
+ * que cabe, com aviso. Itens dentro do teto, itens nao-texto e `isError` seguem
+ * intactos. (Hoje toda tool devolve um unico `content[0].text`; cobrir os
+ * demais itens e defensivo — achado B3 da revisao do PR #93.)
+ */
+function capResult(result) {
+  const content = result && Array.isArray(result.content) ? result.content : null;
+  const oversized = item => item && typeof item.text === 'string' && item.text.length > RESPONSE_HARD_CAP;
+  if (!content || !content.some(oversized)) return result;
+  return {
+    ...result,
+    content: content.map(item => (oversized(item) ? { ...item, text: capResponseText(item.text) } : item))
+  };
 }
 
 module.exports = HandlerRegistry;

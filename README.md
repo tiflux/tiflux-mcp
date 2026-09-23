@@ -172,7 +172,37 @@ O servidor suporta dois modos de verbosidade para controlar o consumo de tokens:
 | Modo | Descrição |
 |------|-----------|
 | `rich` | Saída completa em Markdown com emojis, rodapés e blocos de paginação detalhados (padrão) |
-| `compact` | Saída enxuta — sem rodapé decorativo, resumo de paginação em uma linha; `get_ticket` omite SLA sub-fields, equipment, feedback, resolution time, and low-value flags — hierarchy shows as `Pai: #N \| Filhos: #A, #B` (numbers only), requestor as `Solicitante: <name> <email>`, checklists only when blocking; trunca descrições longas; `list_tickets` usa linhas ultracompactas por ticket |
+| `compact` | Saída enxuta, pensada para consumo por modelo: sem rodapé decorativo, sem emoji, sem negrito nem separadores de tabela; paginação em uma linha. Nas ferramentas de análise, os itens saem como linhas delimitadas por `\|` precedidas de uma linha-cabeçalho com os nomes das colunas. `get_ticket` omite SLA sub-fields, equipamento, feedback, tempo de resolução e flags de baixo valor — hierarquia vira `Pai: #N \| Filhos: #A, #B` (só números), solicitante vira `Solicitante: <nome> <email>`, checklists apenas quando bloqueiam; descrições longas são truncadas |
+
+> **`compact` remove formatação, nunca dado.** Itens pedidos explicitamente por parâmetro
+> (`include_list`, `include_valorization`) são sempre renderizados, nos dois modos.
+
+#### Formato dos valores em `compact`
+
+Nas ferramentas de análise, os valores saem em forma canônica — o objetivo é que o modelo leia e
+agregue sem precisar converter string antes de calcular:
+
+| Tipo | `rich` | `compact` |
+|------|--------|-----------|
+| Data/hora | `16/04/2026, 10:00:00` (horário de Brasília) | `2026-04-16T13:00Z` (ISO em UTC, sufixo `Z`, precisão de minuto — o mesmo instante em qualquer fuso) |
+| Duração | `2:15` | `135` (minutos inteiros; a unidade é declarada no cabeçalho) |
+| Valor monetário | `R$ 28.963,20` | `28963.20` (decimal, sem símbolo nem separador de milhar) |
+| Booleano | `✅ Sim` / `❌ Não` | `true` / `false` |
+| Campo ausente | `N/A` | `—` |
+
+Ferramentas com saída tabular dedicada em `compact`: `get_ticket`, `list_tickets` (lista e
+`group_by`), `get_tickets_comparison`, `get_ticket_stages_slas`, `list_appointments_global`,
+`list_appointments_report`, `get_billings_history`, `get_tickets_feedback_report` e
+`get_chats_feedback_report`.
+
+Em `list_tickets`, a linha `compact` de cada ticket traz cliente, mesa, status, estágio,
+responsável, prioridade, catálogo e o dia de criação (`criado YYYY-MM-DD`, dia em horário
+de Brasília); a descrição fica fora (use `get_ticket`).
+
+Em `compact`, a paginação é uma linha só: `[Pág N · K <unidade>/pág · X nesta pág · total: T · → offset: N+1 p/ mais]`
+(ex.: `[Pág 1 · 200 tickets/pág · 200 nesta pág · total: 1305 · → offset: 2 p/ mais]`). `total` aparece
+quando a API informa o total do filtro e `→ offset` só quando há próxima página. O formato anterior era
+`K/<unidade>`; agora é `K <unidade>/pág` (tamanho da página, não itens por unidade).
 
 **SDK (stdio) — variável de ambiente:**
 
@@ -186,15 +216,35 @@ TIFLUX_MCP_VERBOSITY=compact npx @tiflux/mcp@latest
 x-tiflux-verbosity: compact
 ```
 
-> O padrão é `rich` nos dois modos. Integrações existentes não são afetadas a menos que a variável de ambiente ou o header seja definido.
+> O padrão é `rich` nos dois modos. Integrações existentes não são afetadas a menos que a variável de ambiente ou o header seja definido — com uma exceção: o `compact` automático nas listagens grandes, descrito abaixo.
+
+#### Orçamento de resposta: `compact` automático, teto de ~40k e rede de ~60k
+
+Clientes MCP (Claude Code, claude.ai) recusam resultados de ferramenta acima de ~25k tokens. Para a resposta nunca chegar lá, o servidor aplica três limites, iguais no SDK e no Server:
+
+| Limite | Quando vale | O que acontece |
+|--------|-------------|----------------|
+| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`), `list_appointments`, `list_appointments_global`, `get_billings_history` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
+| **Teto de ~40k caracteres** | As mesmas listagens, em qualquer modo | A lista é cortada no fim de um item e a linha de corte substitui o bloco de paginação, com o `offset`/`limit` exatos para continuar (ver [Dicas](#dicas-para-reduzir-consumo-de-tokens)). |
+| **Rede global de ~60k caracteres** | Qualquer ferramenta | O texto é cortado no último parágrafo que cabe, com o aviso `…resposta cortada em ~60k caracteres — reduza limit ou refine o recorte.` (`isError` não muda). |
+
+- **O header ou a env forçam o modo.** `rich` explícito sai `rich` (cortado pelo teto se preciso); `compact` explícito sai `compact`, sem a linha de aviso. Um valor desconhecido (ex.: `verbose`) conta como padrão: sai `rich` e o `compact` automático continua valendo.
+- **O `compact` automático só muda a formatação**, nunca a chamada à API: os mesmos filtros, `offset` e `limit` chegam ao endpoint.
 
 ### Dicas para reduzir consumo de tokens
 
 Ao construir aplicações que chamam este servidor MCP programaticamente, o custo de tokens importa. Siga estas orientações:
 
 - **Passe IDs quando já os tiver.** Toda ferramenta que aceita um parâmetro `_name` para auto-resolução (ex.: `desk_name`, `stage_name`, `entity_field_name`) fará uma ou mais chamadas extras à API para resolver o nome. Se você guardou o ID de uma chamada anterior, passe-o diretamente (ex.: `desk_id`, `stage_id`, `entity_field_id`) — é sempre mais rápido e barato.
-- **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). O modo compact corta a saída de `get_ticket` e `list_tickets` em ~50%.
+- **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). A redução varia por família de ferramenta: ~65% em `list_tickets`, e de 20% a 62% nas ferramentas de análise. Para perguntas analíticas o ganho não é só de tamanho: com datas em ISO, durações em minutos e valores decimais, o modelo agrega direto em vez de converter texto antes de calcular.
 - **Pagine deliberadamente.** `list_tickets` com um intervalo de datas amplo em uma mesa movimentada pode retornar centenas de itens. Passe `limit` e `offset` intencionalmente — quando uma página cheia retorna, o modo compact acrescenta uma dica de próxima página (`→ offset: N`) para o modelo saber que pode haver mais a buscar.
+- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `get_ticket_histories` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
+  - `rich`: `✂️ Mostrando 98 dos 200 tickets desta página (total 1305) — resposta limitada a ~40k caracteres. Para continuar: offset 2, limit 98`
+  - `compact`: `[cortado: 98/200 nesta pág (total 1305) — offset 2 limit 98]`
+
+  Os dois números são da página pedida (98 mostrados dos 200 que a API devolveu); `(total N)` é o total geral do filtro e só aparece quando a API informa. Quando a página é cortada, o cabeçalho de toda listagem com contagem passa a contar os itens mostrados: `K de <total>, página cortada` (sem total informado pela API, `K de <tamanho da página>`) — ex.: `Tickets (98 de 1305, página cortada):` e `Apontamentos (154 de 3251, página cortada) · min · BRL` no `compact`, `**📋 Lista de Tickets** (98 de 1305 encontrados, página cortada)` no `rich`. No `list_tickets`, o aviso de volume alto deixa de dizer "NÃO pagine" e passa a apontar a linha de corte para quem precisa dos itens individuais. O mesmo vale a partir da página 2 (`offset` > 1): quem chegou lá está seguindo uma continuação, então o aviso diz para seguir a paginação.
+
+  Chame a mesma ferramenta com esse `offset` e esse `limit` para receber exatamente o item seguinte, sem pular nem repetir (a API pagina por número de página: com `limit: 98`, a página 2 começa no item 99). Se a página cortada não era a primeira e a conta não fecha, a linha pede para refinar o recorte (mesa, período) ou refazer desde `offset 1` com o `limit` sugerido. Para análise, prefira `group_by` ou `get_tickets_comparison` a paginar.
 - **Para análise comparativa, use `get_tickets_comparison`.** Em vez de chamar `list_tickets` paginada duas vezes para dois períodos (o que pode ultrapassar 100k tokens e o teto de 6 iterações do orquestrador), use `get_tickets_comparison`: uma chamada MCP, 2 requests à API, resposta de centenas de tokens com totais, Δ e buckets pareados prontos para gráfico.
 
 ## Available Tools
@@ -241,7 +291,7 @@ Create a new ticket in Tiflux.
 - `title` (string, required): Ticket title
 - `description` (string, required): Ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
 - `client_id` (number, optional): Client (company) ID
-- `client_name` (string, optional): Client (company) name for automatic search (alternative to client_id). Use only when the user says "client" or "company" explicitly.
+- `client_name` (string, optional): Client (company) name for automatic search (alternative to client_id). Use only when the user says "client" or "company" explicitly; for a person, use `requestor_name`.
 - `desk_id` (number, optional): Desk ID
 - `desk_name` (string, optional): Desk/team name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
 - `priority_id` (number, optional): Priority ID
@@ -271,7 +321,7 @@ Update an existing ticket in Tiflux. Supports transferring a ticket to another d
 - `ticket_number` (string, required): Number of the ticket to update (e.g. "123", "456")
 - `title` (string, optional): New ticket title
 - `description` (string, optional): New ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
-- `client_id` (number, optional): New client ID
+- `client_id` (number, optional): New client ID. Use only when the user says "client" or "company" explicitly.
 - `desk_id` (number, optional): New desk ID. Transfers the ticket to the specified desk. Stages and priorities are scoped per desk — if no stage is provided, the MCP auto-resolves the first stage of the destination desk.
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
 - `stage_id` (number, optional): Stage/phase ID. Always takes precedence over auto-resolution.
@@ -421,10 +471,14 @@ List tickets with filtering options. Catalog and priority are automatically show
 |---|---|
 | "closed per month in desk X" | `desk_name` + `date_type="solved_in_time"` + `filter_by="closed"` + `group_by="month"` |
 | "opened today in desk X" | `desk_name` + `date_type="created_at"` + `filter_by="all"` + period |
-| "cancelled in the period" | `filter_by="canceled"` + `date_type="solved_in_time"` |
+| "cancelled in the period" | `filter_by="canceled"` + `date_type="solved_in_time"` + `desk_name` — the period alone would be accepted, but for cancelled tickets ask for the desk if the user did not give one |
+| "João's tickets" (person who opened them) | `requestor_email` or `requestor_ids` |
+| "tickets assigned to João" | `responsible_name="João"` |
 | "this semester vs last" | `get_tickets_comparison` |
 
 **Zero-result diagnostics:** When the response is empty (no tickets), the MCP automatically runs up to 2 sonda API calls to tell the AI *why* — whether it's the status filter, the date range, or a genuine zero for this scope.
+
+**Compact line (`compact`, explicit or automatic):** one line per ticket — `#N title | client | desk | status | stage | responsible | priority | catalog | criado YYYY-MM-DD`, e.g. `#10000 Impressora não imprime em rede (0) | Cliente 00 | Suporte N2 | Aberto | Em atendimento | Técnico 00 | Alta | Infraestrutura › Impressoras › Manutenção | criado 2026-09-01`. The creation date is the day in Brasília time (`America/Sao_Paulo`), not the UTC day — a ticket created at 22:00 in Brasília stays on that day. Missing fields show `—`. The description is not included; use `get_ticket #N` for it.
 
 **Volume guard:** When the total (`X-Total-Items`) exceeds 500 tickets in a regular listing (without `group_by`), the response appends an instruction not to paginate for analysis — use `group_by` or `get_tickets_comparison` instead. This threshold is set at 500 in `LIST_TOTAL_WARN_THRESHOLD`.
 
@@ -1797,6 +1851,8 @@ Each appointment card shows date, time range, attendant, client (when available)
 
 When `valorization` is `null` (desks configured without valorization), none of the above fields are shown.
 
+In `compact` (explicit or automatic) the valorization is kept as one line: `valorizacao: atend=<attendance> · tipo=<kind>[:<name>] · valor=<decimal>[ · desloc=<name> <decimal>][ · flags=garantia;manual;deslocamento#N]`.
+
 Geolocation lines (`📍 Localização: lat, lon`) are rendered when the API returns `locations` for the appointment.
 
 **Example:**
@@ -1823,7 +1879,7 @@ List all appointments across all tickets for a date range with optional filters 
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (alternative to `desk_ids`).
 - `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. **Note (A2):** when this filter is active, appointments without a contract are excluded from results. **Note (A1 — Shared contracts):** in Shared contract mode, the `contract.id` returned may differ from the id you filtered on — the API expands the group to its member, which is expected behavior; do NOT filter client-side by `contract.id` equality.
 - `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated, same rule as `client_ids`). `client_ids` takes precedence when both are provided.
-- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error.
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error; do NOT re-filter results client-side by `contract.id`.
 - `include_valorization` (boolean, optional): Include valorization data (attendance type, value). Default: `false`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Results per page (default: 20, max: 200)
@@ -3238,13 +3294,13 @@ When a user references a name without explicitly qualifying the entity type, the
 
 | User input | Filter to use | Reason |
 |---|---|---|
-| "tickets do tuitui" (unqualified name) | `desk_name="tuitui"` | Unqualified term = desk/team in most cases |
+| "tickets do tuitui" / "do Suporte" (name that matches a desk) | `desk_name="tuitui"` | Desk/team name = desk |
 | "tickets da mesa X" / "equipe Y" | `desk_name` | "mesa" / "equipe" = desk |
 | "tickets do cliente Z" / "empresa ACME" | `client_name` | "cliente" / "empresa" = company |
-| "tickets do João" (person name) | `requestor_email` or `requestor_ids` | Person = requestor |
-| "tickets atribuídos ao João" | `responsible_name="João"` (or `responsible_ids` if you have the ID) | "atribuído a" = responsible — `responsible_name` resolves automatically for both admin and non-admin |
+| "tickets do João" / "abertos pelo João" (person name) | `requestor_email` or `requestor_ids` | Person = requestor |
+| "tickets atribuídos ao João" / "com o João" | `responsible_name="João"` (or `responsible_ids` if you have the ID) | "atribuído a" = responsible — `responsible_name` resolves automatically for both admin and non-admin |
 | "tickets aberto por joao@empresa.com" | `requestor_email` | Email = requestor |
-| Ambiguous / uncertain | Ask the user | Visible failure > filtering by wrong entity |
+| Ambiguous / uncertain (desk or person?) | Ask the user | Visible failure > filtering by wrong entity |
 | (create_ticket) "solicitante Fulano" | `requestor_name="Fulano"` — MCP auto-resolves to `requestor_id` | Avoids ghost requestor duplicate |
 
 This heuristic is embedded in the `description` fields of `list_tickets`, `create_ticket`, and `update_ticket` schemas. The LLM reads these on every tool call decision.
@@ -3285,7 +3341,7 @@ Both apply the same 0/1/N behavior: 0 matches → error; 1 match → resolved; N
 ---
 
 ### get_billings_history
-Returns the organization's billing history. Filters are all optional: billing period (`billing_start_date` + `billing_end_date`, mandatory in pair), due date period (`due_start_date` + `due_end_date`, mandatory in pair), client by ID (`client_id`) or name with fuzzy resolver (`client_name`), NFe number (`nfe_number`), ticket number (`ticket_number`), and billing status (`type`). The response is a 7-column table plus a page sum.
+Returns the organization's billing history. Filters are all optional: billing period (`billing_start_date` + `billing_end_date`, mandatory in pair), due date period (`due_start_date` + `due_end_date`, mandatory in pair), client by ID (`client_id`) or name with fuzzy resolver (`client_name`), NFe number (`nfe_number`), ticket number (`ticket_number`), and billing status (`type`). The response has 7 fields per billing (ID, Client, Billing date, Due date, NFe, Status and Value) — a markdown table in `rich`, `|`-delimited rows (with a header line) in `compact` — plus the sum of `real_value` on the page EXCLUDING reversals (`reversal: true`), with a note of what was excluded. The endpoint returns only the record count (`X-Total-Items`), never a value total for the filter. If the page exceeds ~40k characters it is cut at a row boundary with the exact `offset`/`limit` to continue, and the page sum then covers only the rows shown (so continuation sums add up without double counting).
 
 **Permissions:** Requires "Faturar serviços avulsos e contratos" + Tickets license. Returns **403** for users without billing permission.
 

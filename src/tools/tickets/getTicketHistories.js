@@ -9,7 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, pagination } = require('../_shared/format');
+const { footer, pagination, renderWithinBudget, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -52,40 +52,41 @@ function formatDiffValue(value) {
   return str.length > DIFF_VALUE_MAX ? str.substring(0, DIFF_VALUE_MAX) + '...' : str;
 }
 
+function formatHistoryEvent(event, index) {
+  const eventId = event.id || 'N/A';
+  const action = event.action || 'ação não informada';
+  const userName = event.user?.name || 'Usuário não informado';
+  const createdAt = event._created_at
+    ? new Date(event._created_at).toLocaleString('pt-BR')
+    : 'Data não informada';
+  const eventType = event._type || '';
+  const eventOp = event._operation || '';
+
+  let typeInfo = '';
+  if (eventType || eventOp) {
+    const opSuffix = eventOp ? `, op: ${eventOp}` : '';
+    typeInfo = ` (tipo: ${eventType}${opSuffix})`;
+  }
+
+  let diffSection = '';
+  if (event.changes && Array.isArray(event.changes.fields) && event.changes.fields.length > 0) {
+    diffSection = '\n   📝 **Alterações:**\n';
+    event.changes.fields.forEach(field => {
+      const oldVal = formatDiffValue(event.changes.old_values?.[field]);
+      const newVal = formatDiffValue(event.changes.new_values?.[field]);
+      diffSection += `      • **${field}:** \`${oldVal}\` → \`${newVal}\`\n`;
+    });
+  }
+
+  return `**${index + 1}. Evento #${eventId}**${typeInfo}\n` +
+    `   👤 **Usuário:** ${userName}\n` +
+    `   📅 **Data:** ${createdAt}\n` +
+    `   🔔 **Ação:** ${action}${diffSection}\n`;
+}
+
 function formatHistoriesList(ticketNumber, events, offset, limit, verbosity) {
-  let text = `**📋 Histórico do Ticket #${ticketNumber}** (${events.length} eventos)\n\n`;
-
-  events.forEach((event, index) => {
-    const eventId = event.id || 'N/A';
-    const action = event.action || 'ação não informada';
-    const userName = event.user?.name || 'Usuário não informado';
-    const createdAt = event._created_at
-      ? new Date(event._created_at).toLocaleString('pt-BR')
-      : 'Data não informada';
-    const eventType = event._type || '';
-    const eventOp = event._operation || '';
-
-    let typeInfo = '';
-    if (eventType || eventOp) {
-      const opSuffix = eventOp ? `, op: ${eventOp}` : '';
-      typeInfo = ` (tipo: ${eventType}${opSuffix})`;
-    }
-
-    let diffSection = '';
-    if (event.changes && Array.isArray(event.changes.fields) && event.changes.fields.length > 0) {
-      diffSection = '\n   📝 **Alterações:**\n';
-      event.changes.fields.forEach(field => {
-        const oldVal = formatDiffValue(event.changes.old_values?.[field]);
-        const newVal = formatDiffValue(event.changes.new_values?.[field]);
-        diffSection += `      • **${field}:** \`${oldVal}\` → \`${newVal}\`\n`;
-      });
-    }
-
-    text += `**${index + 1}. Evento #${eventId}**${typeInfo}\n` +
-            `   👤 **Usuário:** ${userName}\n` +
-            `   📅 **Data:** ${createdAt}\n` +
-            `   🔔 **Ação:** ${action}${diffSection}\n`;
-  });
+  const head = `**📋 Histórico do Ticket #${ticketNumber}** (${events.length} eventos)\n\n`;
+  const truncatedHead = (shown) => `**📋 Histórico do Ticket #${ticketNumber}** (${cutCountLabel(shown, null, events.length, 'eventos')})\n\n`;
 
   // Espelha o clamp da camada de API (offset >= 1, limit 1..200): a heuristica
   // de "tem proxima pagina" so funciona comparando contra o limit efetivamente enviado.
@@ -97,10 +98,24 @@ function formatHistoriesList(ticketNumber, events, offset, limit, verbosity) {
   const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: events.length, unit: 'eventos' }, v);
   const footerStr = footer(v);
   const sep = footerStr ? '\n' : '';
-  return `${text}${paginationInfo}${sep}${footerStr}`;
+  // Teto por item (F3): corta entre eventos, com offset/limit exatos para continuar.
+  return renderWithinBudget({
+    head,
+    truncatedHead,
+    parts: events.map((event, index) => formatHistoryEvent(event, index)),
+    pagination: paginationInfo,
+    tail: `${sep}${footerStr}`,
+    offset: currentOffset,
+    limit: currentLimit,
+    unit: 'eventos',
+    verbosity: v
+  });
 }
 
 async function execute(args, { api, verbosity }) {
+  // Sem compact automatico aqui: o bloco de cada evento nao varia com a verbosidade
+  // (so rodape e paginacao), entao o aviso "formato compacto aplicado" seria falso.
+  // O teto de ~40k (renderWithinBudget) continua valendo.
   const { ticket_number, offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
 
   requireField(args, 'ticket_number');

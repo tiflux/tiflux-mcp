@@ -30,29 +30,27 @@ const MAX_FILES = 10;
 
 const schema = {
   name: 'create_ticket',
-  description: `Criar um novo ticket no TiFlux.
+  description: `Criar um novo ticket no TiFlux. Mesa primeiro: nome sem qualificar = desk_name; client_name so se o usuario disser "cliente"/"empresa"; pessoa que abre o ticket = requestor_name/requestor_email.
 
-**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_name se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa que vai abrir o ticket, use requestor_name ou requestor_email.
+**Solicitante:** o vinculo canonico e o requestor_id. O MCP resolve requestor_email e requestor_name para requestor_id quando o cadastro existe — prioridade: requestor_id > requestor_email > requestor_name; mais de um match → lista para desambiguacao.
 
-**Solicitante (requestor):** o vinculo canonico e o requestor_id (solicitante cadastrado no cliente). O MCP resolve automaticamente requestor_email e requestor_name para requestor_id quando o cadastro existe — prioridade: requestor_id > requestor_email > requestor_name. Se encontrar mais de um match, retorna lista para desambiguacao. Se nao encontrar, usa o email/nome cru (a API resolve/cria). Prefira fornecer requestor_id quando ja o tiver.
-
-**Obrigatoriedade de dados do solicitante:** a obrigatoriedade de campos adicionais do solicitante (ex: telephone) na abertura de ticket nao vem do cadastro de solicitante — vem de required_fields da mesa (GET /desks/{id}). Consulte a mesa antes de exigir campos nao declarados aqui como obrigatorios.`,
+**Campos obrigatorios do solicitante** (ex: telephone) vem de required_fields da mesa (GET /desks/{id}), nao do cadastro de solicitante. Consulte a mesa antes de exigir campos nao declarados aqui.`,
   inputSchema: {
     type: 'object',
     properties: {
       title: { type: 'string', description: 'Título do ticket' },
       description: { type: 'string', description: 'Descrição do ticket. Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
       client_id: { type: 'number', description: 'ID do cliente/empresa (opcional - usa TIFLUX_DEFAULT_CLIENT_ID se não informado)' },
-      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_id). Use **apenas** quando o usuario disser explicitamente "cliente" ou "empresa". Para pessoa fisica, use requestor_name.' },
+      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_id). Use apenas quando o usuário disser "cliente"/"empresa"; para pessoa, requestor_name.' },
       desk_id: { type: 'number', description: 'ID da mesa (opcional - usa TIFLUX_DEFAULT_DESK_ID se não informado)' },
-      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
       priority_id: { type: 'number', description: 'ID da prioridade (opcional - usa TIFLUX_DEFAULT_PRIORITY_ID se não informado)' },
       services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo (opcional - usa TIFLUX_DEFAULT_CATALOG_ITEM_ID se não informado)' },
       catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)' },
       status_id: { type: 'number', description: 'ID do status (opcional)' },
-      requestor_id: { type: 'number', description: 'ID do solicitante (pessoa fisica que abre o ticket). Vinculo CANONICO — prefira este campo quando ja tiver o ID. O solicitante deve pertencer ao cliente selecionado. Tem prioridade maxima: se informado, e usado direto sem resolucao.' },
-      requestor_name: { type: 'string', description: 'Nome do solicitante (pessoa fisica). O MCP tenta resolver automaticamente para requestor_id se o solicitante ja existir no cliente (evita criar solicitante fantasma). So e usado quando requestor_id e requestor_email nao foram informados.' },
-      requestor_email: { type: 'string', description: 'Email do solicitante. O MCP tenta resolver automaticamente para requestor_id buscando o email entre os solicitantes do cliente (vinculo canonico). Se 1 cadastro for encontrado, usa o requestor_id; se nenhum, mantem o email cru como fallback; se varios, pede desambiguacao. Tem prioridade sobre requestor_name.' },
+      requestor_id: { type: 'number', description: 'ID do solicitante (pessoa fisica que abre o ticket); deve pertencer ao cliente selecionado. Prefira quando ja tiver o ID: e usado direto, sem resolucao.' },
+      requestor_name: { type: 'string', description: 'Nome do solicitante (pessoa fisica). Resolvido para requestor_id se ja existir no cliente (evita solicitante fantasma); se nao encontrar, vai o nome cru (a API resolve/cria).' },
+      requestor_email: { type: 'string', description: 'Email do solicitante. 1 cadastro no cliente → usa o requestor_id; nenhum → mantem o email cru; varios → pede desambiguacao.' },
       requestor_telephone: { type: 'string', description: 'Telefone do solicitante (opcional)' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },

@@ -31,14 +31,14 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
-const { footer, pagination, currencyBRL } = require('../_shared/format');
+const { footer, pagination, currencyBRL, money, row, appendWithinBudget, cutCountLabel, listVerbosity, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { escapeCell } = require('../_shared/markdown');
 
 const schema = {
   name: 'get_billings_history',
-  description: 'Retorna o historico de faturamentos da organizacao. Filtros opcionais: periodo de emissao (billing_start_date + billing_end_date — par obrigatorio em conjunto), periodo de vencimento (due_start_date + due_end_date — par obrigatorio), cliente (client_id ou client_name com resolver fuzzy), NFe (nfe_number), ticket (ticket_number) e situacao (type: billed, reversed ou paid). Exige permissao "Faturar servicos avulsos e contratos" e licenca Tickets. Retorna tabela com 7 colunas: ID, Cliente, Data faturamento, Vencimento, NFe, Situacao e Valor, alem de rodape com a soma dos real_value da pagina EXCLUINDO estornos (reversal: true), com nota do que foi excluido quando houver. O filtro de situacao (type): billed = nao estornados; reversed = so estornados; paid = confirmados pela integracao financeira (Asaas/ContaAzul), podendo incluir estornados — NAO significa "quitado" (pagamento manual/PIX/boleto fora do sistema retorna paid: false). Para uma soma sem estornos use type: "billed". O endpoint nao devolve total de valor do filtro, apenas a contagem de registros (header X-Total-Items).',
+  description: 'Retorna o historico de faturamentos da organizacao. Filtros opcionais: periodo de emissao (billing_start_date + billing_end_date — par obrigatorio em conjunto), periodo de vencimento (due_start_date + due_end_date — par obrigatorio), cliente (client_id ou client_name com resolver fuzzy), NFe (nfe_number), ticket (ticket_number) e situacao (type: billed, reversed ou paid). Exige permissao "Faturar servicos avulsos e contratos" e licenca Tickets. Retorna 7 campos por faturamento (ID, Cliente, Data faturamento, Vencimento, NFe, Situacao e Valor) — tabela markdown no modo rich, linhas delimitadas por | no modo compact — alem da soma dos real_value da pagina EXCLUINDO estornos (reversal: true), com nota do que foi excluido quando houver (se a resposta passar de ~40k caracteres, e cortada no limite de uma linha com offset/limit para continuar, e a soma cobre so as linhas mostradas). O filtro de situacao (type): billed = nao estornados; reversed = so estornados; paid = confirmados pela integracao financeira (Asaas/ContaAzul), podendo incluir estornados — NAO significa "quitado" (pagamento manual/PIX/boleto fora do sistema retorna paid: false). Para uma soma sem estornos use type: "billed". O endpoint nao devolve total de valor do filtro, apenas a contagem de registros (header X-Total-Items).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -121,47 +121,97 @@ function sumPageValues(billings) {
   }, { total: 0, reversedCount: 0, reversedValue: 0 });
 }
 
-function formatBillingsHistory(billings, offset, limit, verbosity, total) {
+// Folga reservada no orcamento para a soma/cabecalho, recalculados sobre os itens
+// mostrados depois do corte (o numero pode mudar alguns digitos de tamanho).
+const SUM_BLOCK_SLACK = 40;
+
+function compactHead(billings) {
+  const { total: pageSum, reversedCount, reversedValue } = sumPageValues(billings);
+  let head = `Faturamentos (${billings.length}) · BRL · soma pág sem estornos ${money(pageSum.toFixed(2), 'compact')}`;
+  if (reversedCount > 0) {
+    head += ` · ${reversedCount} estorno(s) fora (${money(reversedValue.toFixed(2), 'compact')})`;
+  }
+  return `${head}\n`;
+}
+
+function compactRow(b) {
+  return `${row([
+    b.billing_id,
+    b.client_name,
+    b.billing_date,
+    b.due_date,
+    b.nfe_number,
+    deriveSituacao(b),
+    money(b.real_value, 'compact')
+  ])}\n`;
+}
+
+function richRow(b) {
+  const id = b.billing_id != null ? escapeCell(b.billing_id) : '—';
+  const clientName = b.client_name ? escapeCell(b.client_name) : '—';
+  const billingDate = b.billing_date ? escapeCell(b.billing_date) : '—';
+  const dueDate = b.due_date ? escapeCell(b.due_date) : '—';
+  const nfe = b.nfe_number != null ? escapeCell(b.nfe_number) : '—';
+  const situacao = deriveSituacao(b);
+  const valor = escapeCell(currencyBRL(b.real_value));
+  return `| ${id} | ${clientName} | ${billingDate} | ${dueDate} | ${nfe} | ${situacao} | ${valor} |\n`;
+}
+
+// Soma da pagina EXCLUINDO estornos (rotulada explicitamente — nao e total do filtro)
+function richSumBlock(billings) {
+  const { total: pageSum, reversedCount, reversedValue } = sumPageValues(billings);
+  let text = `\n**Soma desta página (sem estornos):** ${currencyBRL(pageSum.toFixed(2))}\n`;
+  if (reversedCount > 0) {
+    text += `_${reversedCount} estorno(s) excluído(s) da soma (${currencyBRL(reversedValue.toFixed(2))})_\n`;
+  }
+  return text;
+}
+
+/**
+ * Formata a pagina de faturamentos com teto de ~40k caracteres (F3). Quando a
+ * pagina e cortada, a soma e a contagem passam a cobrir so as linhas mostradas —
+ * assim as somas de chamadas de continuacao (offset/limit sugeridos) se somam sem
+ * contar nenhum faturamento duas vezes.
+ */
+function formatBillingsHistory(billings, offset, limit, verbosity, total, autoCompactNotice = '') {
   const v = verbosity || 'rich';
 
   if (!billings || billings.length === 0) {
+    if (v === 'compact') {
+      return 'Faturamentos: 0 registros (verifique os filtros e suas permissões de faturamento).';
+    }
     return 'Nenhum faturamento encontrado.\n\n*Verifique os filtros aplicados e suas permissoes de faturamento.*';
-  }
-
-  let text = `**Faturamentos (${billings.length})**\n\n`;
-  text += '| ID | Cliente | Data faturamento | Vencimento | NFe | Situação | Valor |\n';
-  text += '|---|---|---|---|---|---|---|\n';
-
-  billings.forEach(b => {
-    const id = b.billing_id != null ? escapeCell(b.billing_id) : '—';
-    const clientName = b.client_name ? escapeCell(b.client_name) : '—';
-    const billingDate = b.billing_date ? escapeCell(b.billing_date) : '—';
-    const dueDate = b.due_date ? escapeCell(b.due_date) : '—';
-    const nfe = b.nfe_number != null ? escapeCell(b.nfe_number) : '—';
-    const situacao = deriveSituacao(b);
-    const valor = escapeCell(currencyBRL(b.real_value));
-    text += `| ${id} | ${clientName} | ${billingDate} | ${dueDate} | ${nfe} | ${situacao} | ${valor} |\n`;
-  });
-
-  // Soma da pagina EXCLUINDO estornos (rotulada explicitamente — nao e total do filtro)
-  const { total: pageSum, reversedCount, reversedValue } = sumPageValues(billings);
-  const pageSumStr = currencyBRL(pageSum.toFixed(2));
-  text += `\n**Soma desta página (sem estornos):** ${pageSumStr}\n`;
-  if (reversedCount > 0) {
-    const reversedStr = currencyBRL(reversedValue.toFixed(2));
-    text += `_${reversedCount} estorno(s) excluído(s) da soma (${reversedStr})_\n`;
   }
 
   const paginationInfo = pagination(
     { offset, limit, count: billings.length, total, unit: 'faturamentos' },
     v
   );
+  const budgetOpts = { offset, limit, unit: 'faturamentos', verbosity: v, total };
+
+  if (v === 'compact') {
+    const colHeader = 'id|cliente|emissao|venc|nfe|sit|valor\n';
+    const fixed = compactHead(billings).length + colHeader.length + paginationInfo.length + autoCompactNotice.length + SUM_BLOCK_SLACK;
+    const fit = appendWithinBudget(billings.map(compactRow), { ...budgetOpts, maxChars: RESPONSE_ITEM_BUDGET - fixed });
+    const shown = billings.slice(0, fit.shown);
+    return `${compactHead(shown)}${colHeader}${fit.text}${fit.truncated ? '' : paginationInfo}${autoCompactNotice}`;
+  }
+
+  const richColHeader = '| ID | Cliente | Data faturamento | Vencimento | NFe | Situação | Valor |\n' +
+    '|---|---|---|---|---|---|---|\n';
+  // Quando o teto corta, a contagem do cabecalho cobre so as linhas mostradas (como no compact)
+  const tableHead = (count) => `**Faturamentos (${count})**\n\n${richColHeader}`;
   const footerStr = footer(v);
-  const sep = footerStr ? '\n' : '';
-  return `${text}\n${paginationInfo}${sep}${footerStr}`;
+  const tail = `${footerStr ? '\n' : ''}${footerStr}`;
+  const headLen = Math.max(tableHead(billings.length).length, tableHead(cutCountLabel(billings.length, total, billings.length)).length);
+  const fixed = headLen + richSumBlock(billings).length + 1 + paginationInfo.length + tail.length + SUM_BLOCK_SLACK;
+  const fit = appendWithinBudget(billings.map(richRow), { ...budgetOpts, maxChars: RESPONSE_ITEM_BUDGET - fixed });
+  const shown = billings.slice(0, fit.shown);
+  const head = fit.truncated ? tableHead(cutCountLabel(fit.shown, total, billings.length)) : tableHead(billings.length);
+  return `${head}${fit.text}${richSumBlock(shown)}\n${fit.truncated ? '' : paginationInfo}${tail}`;
 }
 
-async function execute(args, { api, verbosity }) {
+async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }) {
   const {
     billing_start_date, billing_end_date,
     due_start_date, due_end_date,
@@ -261,12 +311,14 @@ async function execute(args, { api, verbosity }) {
     }
 
     const billings = response.data || [];
+    // F4: sem verbosidade explicita e com > 50 itens na pagina, sai em compact (com aviso).
+    const { verbosity, notice: autoCompactNotice } = listVerbosity({ verbosity: ctxVerbosity, verbosityExplicit }, billings.length);
     // Clamp identico ao aplicado em api.getBillingsHistory, senao o formatter recebe
     // limit/offset crus e a deteccao de "proxima pagina" quebra acima de 200 (BL-008)
     const effectiveLimit = Math.min(200, Math.max(1, parseInt(limit) || 20));
     const effectiveOffset = Math.max(1, parseInt(offset) || 1);
 
-    return textResponse(formatBillingsHistory(billings, effectiveOffset, effectiveLimit, verbosity, response.total));
+    return textResponse(formatBillingsHistory(billings, effectiveOffset, effectiveLimit, verbosity, response.total, autoCompactNotice));
   } catch (error) {
     return errorResponse(
       `**Erro interno ao buscar histórico de faturamentos**\n\n` +

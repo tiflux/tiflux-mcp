@@ -39,26 +39,13 @@ const BUCKET_LIMIT = 200;
 
 const schema = {
   name: 'get_tickets_comparison',
-  description: `Compara a CONTAGEM de tickets entre dois períodos em uma única chamada. Use quando o usuário pedir "compare X vs Y", "evolução", "tendência comparativa" ou qualquer análise que envolva dois intervalos de tempo — sem paginar, sem listar itens individuais.
+  description: `Compara a CONTAGEM de tickets entre dois períodos numa única chamada (2 requests à API, sem paginar nem listar itens). Use para "compare X vs Y", "evolução", "tendência comparativa". Para VER itens, use list_tickets sem group_by.
 
-**Quando usar vs list_tickets:**
-- **Para CONTAR/COMPARAR/TENDÊNCIA** → use get_tickets_comparison (ou list_tickets com group_by). Resposta de centenas de tokens, 2 requests à API, cabe em 1 iteração.
-- **Para VER itens individualmente** → use list_tickets sem group_by.
+- Sem compare_start_datetime/compare_end_datetime → período imediatamente anterior de mesma duração (compare_end = start_datetime − 1s).
+- filter_by padrão: "all" com created_at; "closed" com solved_in_time — mesmo número que list_tickets para a mesma pergunta.
+- group_by="desk" alinha por nome de mesa ("qual mesa cresceu").
 
-**Período de comparação padrão:** se compare_start/compare_end não forem informados, o período de comparação é o imediatamente anterior de mesma duração (compare_end = start_datetime − 1s; duração idêntica). Informe apenas start_datetime e end_datetime e o período de comparação é calculado automaticamente.
-
-**filter_by padrão por date_type:**
-- \`created_at\` (padrão): \`filter_by="all"\` — comparações de períodos passados contam tudo (abertos, fechados e cancelados).
-- \`solved_in_time\`: \`filter_by="closed"\` — necessário porque solved_in_time filtra pela data de fechamento e requer status encerrado. Usar "all" com created_at e "closed" com solved_in_time garante que list_tickets e get_tickets_comparison retornem o mesmo número para a mesma pergunta.
-
-**date_type="solved_in_time":** filtra pela data de fechamento/resolução. filter_by="closed" retorna apenas resolvidos; filter_by="all" retorna fechados + cancelados (ex: 358 + 31 = 389). Aceita offsets de fuso além de Z (ex: \`-03:00\`).
-
-**group_by "desk":** útil para "qual mesa cresceu" — alinha por nome de mesa, não por ordem.
-
-Exemplos de uso:
-- "Compare os últimos 6 meses com os 6 anteriores" → start/end dos últimos 6 meses, compare automático
-- "Como evoluiu por mês a mesa X no 1o semestre vs 2o semestre?" → group_by=month + desk_name
-- "Qual mesa teve mais crescimento de tickets fechados este trimestre vs trimestre passado?" → group_by=desk + date_type=solved_in_time`,
+Exemplos: "últimos 6 meses vs os 6 anteriores" → só start/end; "mesa X por mês, 1º vs 2º semestre" → group_by="month" + desk_name; "qual mesa mais cresceu em fechados, trimestre vs anterior" → group_by="desk" + date_type="solved_in_time".`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -72,21 +59,21 @@ Exemplos de uso:
       },
       compare_start_datetime: {
         type: 'string',
-        description: 'Início do período de comparação (ISO 8601). Opcional — se omitido, calculado automaticamente como o período imediatamente anterior de mesma duração. Informe junto com compare_end_datetime (par completo).'
+        description: 'Início do período de comparação (ISO 8601). Opcional (padrão na descrição da tool). Informe junto com compare_end_datetime (par completo).'
       },
       compare_end_datetime: {
         type: 'string',
-        description: 'Fim do período de comparação (ISO 8601). Opcional — par com compare_start_datetime. Se omitido, calculado automaticamente.'
+        description: 'Fim do período de comparação (ISO 8601). Opcional — par com compare_start_datetime.'
       },
       group_by: {
         type: 'string',
         enum: ['day', 'week', 'month', 'desk'],
-        description: 'Granularidade do agrupamento. "day"/"week"/"month" agrupam por período temporal. "desk" agrupa por mesa (útil para "qual mesa cresceu"). Padrão: "month".'
+        description: 'Granularidade do agrupamento. "day"/"week"/"month" agrupam por período temporal; "desk" agrupa por mesa. Padrão: "month".'
       },
       date_type: {
         type: 'string',
         enum: ['created_at', 'solved_in_time'],
-        description: 'Eixo temporal usado nos dois períodos. "created_at" (padrão) = data de criação. "solved_in_time" = data de fechamento/resolução — requer status encerrado; o MCP aplica filter_by="closed" por padrão. Deve ser o mesmo nos dois períodos — essa tool garante consistência automaticamente. Aceita offsets de fuso além de Z (ex: -03:00).'
+        description: 'Eixo temporal, aplicado igual nos dois períodos. "created_at" (padrão) = data de criação; "solved_in_time" = data de fechamento/resolução (requer status encerrado). Aceita offsets de fuso além de Z (ex: -03:00).'
       },
       filter_by: {
         type: 'string',

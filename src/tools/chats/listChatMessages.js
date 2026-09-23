@@ -10,7 +10,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, pagination } = require('../_shared/format');
+const { footer, pagination, renderWithinBudget, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const AUTHOR_ROLE = {
@@ -146,20 +146,32 @@ function formatTranscript(messages, offset, limit, chatId, verbosity) {
   const v = verbosity || 'rich';
 
   const plural = messages.length === 1 ? 'mensagem' : 'mensagens';
-  let text = `**Mensagens do Chat #${chatId}** (${messages.length} ${plural})\n\n`;
-
-  messages.forEach((msg, idx) => {
-    if (idx > 0) text += '\n---\n\n';
-    text += formatMessage(msg);
-  });
+  const head = `**Mensagens do Chat #${chatId}** (${messages.length} ${plural})\n\n`;
+  const truncatedHead = (shown) => `**Mensagens do Chat #${chatId}** (${cutCountLabel(shown, null, messages.length, 'mensagens')})\n\n`;
+  const parts = messages.map((msg, idx) => (idx > 0 ? '\n---\n\n' : '') + formatMessage(msg));
 
   const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: messages.length, unit: 'mensagens' }, v);
   const footerStr = footer(v);
   const sep = footerStr ? '\n' : '';
-  return text + '\n' + paginationInfo + sep + footerStr;
+  // Teto por item (F3): corta entre mensagens, com offset/limit exatos para continuar.
+  return renderWithinBudget({
+    head,
+    truncatedHead,
+    parts,
+    middle: '\n',
+    pagination: paginationInfo,
+    tail: sep + footerStr,
+    offset: currentOffset,
+    limit: currentLimit,
+    unit: 'mensagens',
+    verbosity: v
+  });
 }
 
 async function execute(args, { api, verbosity }) {
+  // Sem compact automatico aqui: a transcricao nao varia com a verbosidade (so
+  // rodape e paginacao), entao o aviso "formato compacto aplicado" seria falso.
+  // O teto de ~40k (renderWithinBudget) continua valendo.
   requireField(args, 'id');
 
   const id = parseInt(args.id);

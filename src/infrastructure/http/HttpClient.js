@@ -316,14 +316,16 @@ class HttpClient {
    */
   _collectResponseData(response) {
     return new Promise((resolve, reject) => {
-      let data = '';
+      // Acumula os Buffers e decodifica uma vez no fim: `data += chunk` decodificava
+      // cada chunk isolado e partia caracteres UTF-8 multibyte na fronteira ("d��vida").
+      const chunks = [];
 
       response.on('data', (chunk) => {
-        data += chunk;
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
       });
 
       response.on('end', () => {
-        resolve(data);
+        resolve(Buffer.concat(chunks).toString('utf8'));
       });
 
       response.on('error', (error) => {

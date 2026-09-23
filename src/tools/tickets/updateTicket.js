@@ -22,29 +22,25 @@ const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 
 const schema = {
   name: 'update_ticket',
-  description: `Atualizar um ticket existente no TiFlux.
+  description: `Atualiza um ticket existente (ticket_number + ao menos 1 campo). Mesa primeiro: nome sem qualificar = desk_name; client_id só se o usuário disser "cliente"/"empresa"; atendente atribuído = responsible_name/responsible_id.
 
-**Heuristica mesa-first:** Quando o usuario referencia um nome sem qualificar a entidade, use desk_name. So use client_id se o usuario disser explicitamente "cliente" ou "empresa". Para pessoa, use responsible_name/responsible_id para atendente atribuido.
-
-**Transferencia de mesa:** Ao mover o ticket para outra mesa, inclua priority_name ou priority_id para preservar a prioridade (prioridades sao escopadas por mesa e se perdem na transferencia). Se a mesa-destino exigir prioridade, a transferencia falha sem esse campo. NAO envie priority_change_reason em transferencia (a API rejeita; e ignorado automaticamente).
-
-**Mudar prioridade sem transferir:** Use priority_id diretamente (sem desk) — priority_change_reason e OBRIGATORIO nesse caso. priority_name NAO serve para a mesa atual (exige informar mesa, que a API trata como transferencia).
-
-**Solicitante (requestor):** Use requestor_id para trocar o solicitante do ticket (o solicitante deve pertencer ao mesmo cliente do ticket). Alternativamente use requestor_name para busca por nome — o MCP tenta GET /requestors e, em caso de 403, faz fallback para GET /clients/{id}/requestors. Conflito requestor_id + requestor_name: requestor_id tem prioridade. Tambem nao existe status_name — use status_id diretamente (nao ha endpoint de listagem de status por mesa na API v2).`,
+**Prioridade:**
+- Transferindo de mesa: inclua priority_id ou priority_name (prioridade é escopada por mesa e se perde na transferência; se a mesa-destino exigir prioridade, a transferência falha sem ela). NÃO envie priority_change_reason.
+- Na mesa atual: priority_id + priority_change_reason (OBRIGATÓRIO). priority_name não serve aqui (exige mesa, que a API trata como transferência).`,
   inputSchema: {
     type: 'object',
     properties: {
       ticket_number: { type: 'string', description: 'Número do ticket a ser atualizado (ex: "123", "456")' },
       title: { type: 'string', description: 'Novo título do ticket (opcional)' },
       description: { type: 'string', description: 'Nova descrição do ticket (opcional). Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
-      client_id: { type: 'number', description: 'Novo ID do cliente/empresa (opcional). Use quando o usuario disser explicitamente "cliente" ou "empresa".' },
+      client_id: { type: 'number', description: 'Novo ID do cliente/empresa (opcional). Use apenas quando o usuário disser "cliente"/"empresa".' },
       desk_id: { type: 'number', description: 'Novo ID da mesa (opcional). Transfere o ticket para outra mesa. Como estágios e prioridades são escopados por mesa, ao transferir sem informar stage_id/stage_name o MCP resolve automaticamente o 1º estágio da mesa-destino.' },
-      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). **Prefira este campo quando o usuario der um nome sem qualificar a entidade.**' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
       stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
       stage_name: { type: 'string', description: 'Nome do estágio para busca automática (alternativa ao stage_id, requer desk_id ou desk_name)' },
-      priority_id: { type: 'number', description: 'ID da prioridade do ticket (opcional). Prioridades são escopadas por mesa — use list_desk_priorities para descobrir IDs válidos na mesa-destino. Ao transferir de mesa, informe este campo (ou priority_name) para preservar a prioridade.' },
-      priority_name: { type: 'string', description: 'Nome da prioridade para busca automática (requer desk_id ou desk_name para resolver). IMPORTANTE: como exige informar a mesa, a API interpreta como transferência — só funciona ao transferir para outra mesa. Para mudar a prioridade na mesa ATUAL do ticket, use priority_id diretamente (sem desk).' },
-      priority_change_reason: { type: 'string', description: 'Motivo da mudança de prioridade (texto livre). OBRIGATÓRIO ao mudar a prioridade (priority_id) FORA de uma transferência de mesa — a API rejeita priority_id sem ele. NÃO deve ser usado durante transferência de mesa (a API rejeita); nesse caso é ignorado automaticamente.' },
+      priority_id: { type: 'number', description: 'ID da prioridade do ticket (opcional). Prioridades são escopadas por mesa — use list_desk_priorities para descobrir IDs válidos na mesa-destino.' },
+      priority_name: { type: 'string', description: 'Nome da prioridade para busca automática (requer desk_id ou desk_name). Só funciona ao transferir de mesa (ver regras de prioridade na descrição da tool).' },
+      priority_change_reason: { type: 'string', description: 'Motivo da mudança de prioridade (texto livre). OBRIGATÓRIO com priority_id fora de transferência de mesa (a API rejeita sem ele); em transferência é ignorado automaticamente (a API rejeita).' },
       status_id: { type: 'number', description: 'ID do status do ticket (opcional). Não há endpoint de listagem de status por mesa na API v2 — informe o ID diretamente (sem status_name).' },
       responsible_id: { type: 'number', description: 'ID do responsável (opcional - use null ou omita para remover responsável)' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
