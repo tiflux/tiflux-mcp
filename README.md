@@ -269,8 +269,8 @@ Comprehensive ticket information including:
 - Service Catalog (item ID, item name, area, catalog)
 - Responsible (ID, name, email, type, technical group)
 - Client (ID, name, social reason, CPF/CNPJ `social_revenue` when set, active status)
-- Audit (created by ID, origin, created/updated dates)
-- SLA (status, expirations, deadlines, `attend_sla_solution`, `desactivate_sla_reason` when set)
+- Audit (created by ID, origin, created/updated dates — shown in Brasília time in `rich`)
+- SLA (status, expirations — shown in Brasília time in `rich` —, **closing date/time** (`Fechado em`, from `sla_info.solved_in_time`, only when the ticket is closed or canceled — cleared again on reopen), **resolved-in-time flag** (`Resolvido no prazo: Sim/Não`, from `sla_info.attend_sla_solution`, only on closed tickets). On open tickets the API computes `attend_sla` / `attend_sla_solution` live (`now < expiration`: `true` while within the deadline, flips to `false` once it breaches, even without any ticket activity), so they are shown as the current SLA state: `SLA de atendimento` / `SLA de resolução: no prazo | estourado`. `desactivate_sla_reason` when set)
 - Equipment linked to the ticket (when `equipment.id` is not null)
 - Feedback/rating (when available) — rating and comment from the client's evaluation
 - Additional info: followers, worked hours, total resolution time (`closed_ticket_total_spent_solving`), last answer type, reopens, URLs
@@ -280,7 +280,11 @@ Comprehensive ticket information including:
 - Hierarchy: single line `Pai: #N | Filhos: #A, #B` (numbers only, no titles)
 - Requestor: `Solicitante: <name> <email>`
 - Checklists: shown only when `blocks_close` or `required_pending > 0`
+- `Criado:` (created date/time) in UTC with `Z` suffix
+- When the ticket is closed/canceled, an extra line `Fechado: <UTC 'Z'> · no prazo: sim|não · resolução: <closed_ticket_total_spent_solving>` — a missing sub-field (e.g. no `attend_sla_solution`) is simply omitted, never breaks the line
 - Equipment, feedback, resolution time, SLA sub-fields, and low-value flags are omitted in compact
+
+**New in v2.48.1:** `get_ticket` now correctly surfaces the ticket's **closing date/time** (`sla_info.solved_in_time`, previously misread as a boolean) as `Fechado em` (rich) / `Fechado:` (compact), and the real "resolved in time" boolean (`sla_info.attend_sla_solution`) as `Resolvido no prazo: Sim/Não`. `Criado em`/`Atualizado em` and SLA expirations now render with date **and** time in Brasília time in `rich` (previously ISO/raw).
 
 **New in v2.43.0:** Hierarchy (parent/child tickets), requestor, checklists summary, equipment, SLA sub-fields, priority/desk/client sub-fields, and cleanup of phantom fields (tags, closed_at).
 
@@ -431,7 +435,7 @@ Cancel a specific ticket in Tiflux.
 ```
 
 ### list_tickets
-List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response).
+List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response). The listing already includes both the **opening** date/time (`Criado em`, with time in `rich`) and, when the ticket is closed or cancelled, the **closing** date/time (`Fechado em` in `rich`; `| fechado ...` suffix in `compact`) — there's no need to call `get_ticket` per ticket just to get these dates.
 
 **Parameters:**
 - `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3")
@@ -452,7 +456,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `limit` (number, optional): Items per page (default: 20, max: 200)
 - `is_closed` (boolean, optional): Legacy status flag. Prefer `filter_by` for more granular control. `is_closed: true` = only closed; `is_closed: false` = only open.
 - `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Under `date_type="solved_in_time"`, "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
-- `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (closing/resolution date). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
+- `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (**closing date** — also recorded on cancellation; cleared again on reopen). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
 - `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).**
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
@@ -479,6 +483,8 @@ List tickets with filtering options. Catalog and priority are automatically show
 **Zero-result diagnostics:** When the response is empty (no tickets), the MCP automatically runs up to 2 sonda API calls to tell the AI *why* — whether it's the status filter, the date range, or a genuine zero for this scope.
 
 **Compact line (`compact`, explicit or automatic):** one line per ticket — `#N title | client | desk | status | stage | responsible | priority | catalog | criado YYYY-MM-DD`, e.g. `#10000 Impressora não imprime em rede (0) | Cliente 00 | Suporte N2 | Aberto | Em atendimento | Técnico 00 | Alta | Infraestrutura › Impressoras › Manutenção | criado 2026-09-01`. The creation date is the day in Brasília time (`America/Sao_Paulo`), not the UTC day — a ticket created at 22:00 in Brasília stays on that day. Missing fields show `—`. The description is not included; use `get_ticket #N` for it.
+
+When the ticket is closed or cancelled (`sla_info.solved_in_time` present), the compact line gets a `| fechado <UTC 'Z'>` suffix (e.g. `| fechado 2026-09-22T21:45Z`) and the `rich` card gets an extra `✅ **Fechado em:** <date, time — Brasília>` line right after `📅 **Criado em:**` (which now also shows the time, not just the date, in Brasília time).
 
 **Volume guard:** When the total (`X-Total-Items`) exceeds 500 tickets in a regular listing (without `group_by`), the response appends an instruction not to paginate for analysis — use `group_by` or `get_tickets_comparison` instead. This threshold is set at 500 in `LIST_TOTAL_WARN_THRESHOLD`.
 

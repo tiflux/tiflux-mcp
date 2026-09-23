@@ -33,7 +33,7 @@ const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
-const { footer, pagination, renderWithinBudget, listVerbosity, dateOnly, cutCountLabel } = require('../_shared/format');
+const { footer, pagination, renderWithinBudget, listVerbosity, dateOnly, dateTime, cutCountLabel } = require('../_shared/format');
 const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -78,7 +78,11 @@ function ticketCompactLine(ticket) {
   const client = ticket.client?.name || '—';
   const desk = ticket.desk?.name || '—';
   const created = dateOnly(ticket.created_at);
-  return `#${n} ${title} | ${client} | ${desk} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog} | criado ${created}\n`;
+  const solvedInTime = ticket.sla_info?.solved_in_time;
+  const closedSuffix = (solvedInTime !== null && solvedInTime !== undefined)
+    ? ` | fechado ${dateTime(solvedInTime, 'compact')}`
+    : '';
+  return `#${n} ${title} | ${client} | ${desk} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog} | criado ${created}${closedSuffix}\n`;
 }
 
 // Guard de volume: quando o total real (X-Total-Items) supera o limiar e a listagem
@@ -143,7 +147,14 @@ function ticketRichBlock(ticket, index) {
   const status = ticket.status?.name || 'Status não informado';
   const priority = ticket.priority?.name || '—';
   const catalog = formatCatalog(ticket.services_catalog);
-  const createdAt = ticket.created_at ? new Date(ticket.created_at).toLocaleDateString('pt-BR') : 'Data não informada';
+  // dateTime(v,'rich') mostra data E hora em horario de Brasilia (achado de producao
+  // 2026-09-22: toLocaleDateString sem timeZone usava o fuso do processo — Lambda em
+  // UTC — e mostrava a data errada quando a hora local caia no dia anterior/seguinte).
+  const createdAt = dateTime(ticket.created_at, 'rich');
+  const solvedInTime = ticket.sla_info?.solved_in_time;
+  const closedLine = (solvedInTime !== null && solvedInTime !== undefined)
+    ? `\n   ✅ **Fechado em:** ${dateTime(solvedInTime, 'rich')}`
+    : '';
 
   // Resumo da descricao (primeiras 100 caracteres)
   let descriptionSummary = '';
@@ -163,7 +174,7 @@ function ticketRichBlock(ticket, index) {
     `   🚨 **Status:** ${status}\n` +
     `   🔴 **Prioridade:** ${priority}\n` +
     `   🗃️ **Catálogo:** ${catalog}\n` +
-    `   📅 **Criado em:** ${createdAt}${descriptionSummary}\n\n`;
+    `   📅 **Criado em:** ${createdAt}${closedLine}${descriptionSummary}\n\n`;
 }
 
 // Dedup + cap 15 num CSV de IDs. Retorna { ids: string, capped: boolean, total: number }.
@@ -367,7 +378,7 @@ function buildFilterEntries(opts) {
 
 const schema = {
   name: 'list_tickets',
-  description: `Lista tickets. Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` ou \`get_tickets_comparison\` (dois períodos), sem paginar.
+  description: `Lista tickets. Já traz data/hora de ABERTURA (rich: "Criado em", com hora em horário de Brasília) e, quando fechado, de FECHAMENTO ("Fechado em" no rich; sufixo "| fechado ..." no compact) — não é preciso chamar get_ticket por ticket só para essas datas. Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` ou \`get_tickets_comparison\` (dois períodos), sem paginar.
 
 **Regras:**
 - Status sozinho (filter_by/is_closed) NÃO basta: exige MESA ou outro recorte forte (cliente, solicitante, responsável, estágio, período, sla_expiring_before, catálogo, prioridade, group_by). Busca ampla sem recorte → PERGUNTE a mesa antes de chamar.
@@ -409,7 +420,7 @@ const schema = {
       date_type: {
         type: 'string',
         enum: ['created_at', 'solved_in_time'],
-        description: 'Eixo da data: "created_at" (padrão) = CRIAÇÃO; "solved_in_time" = FECHAMENTO/CANCELAMENTO (regras de status em filter_by). Aceita offsets de fuso além de Z (ex: "2026-01-01T00:00:00-03:00").'
+        description: 'Eixo da data: "created_at" (padrão) = CRIAÇÃO; "solved_in_time" = data de FECHAMENTO (gravada também ao cancelar; some ao reabrir — regras de status em filter_by). Aceita offsets de fuso além de Z (ex: "2026-01-01T00:00:00-03:00").'
       },
       group_by: {
         type: 'string',

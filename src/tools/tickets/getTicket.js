@@ -11,12 +11,12 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, truncate } = require('../_shared/format');
+const { footer, truncate, dateTime } = require('../_shared/format');
 const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
   name: 'get_ticket',
-  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) e campos personalizados opcionais.',
+  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado, incluindo "Fechado em" com data/hora de fechamento em horário de Brasília e "Resolvido no prazo" quando o ticket está fechado; em ticket aberto, "SLA de atendimento"/"SLA de resolução" mostram o estado atual — no prazo ou estourado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) e campos personalizados opcionais. Datas e horas (criação, atualização, expirações de SLA e fechamento) em horário de Brasília no modo rich.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -27,6 +27,50 @@ const schema = {
     required: ['ticket_number']
   }
 };
+
+// Fechado (compact): só aparece quando o ticket tem data de fechamento (solved_in_time,
+// gravada tambem ao cancelar; some ao reabrir). Sub-campo ausente (no prazo /
+// resolução) e simplesmente omitido — nao quebra a linha. Extraido de formatTicket
+// para nao inflar a complexidade cognitiva da funcao (Sonar S3776, PR #96).
+function closedCompactLine(ticket) {
+  const solvedInTime = ticket.sla_info?.solved_in_time;
+  if (solvedInTime === null || solvedInTime === undefined) return '';
+  let line = `Fechado: ${dateTime(solvedInTime, 'compact')}`;
+  const attendSlaSolution = ticket.sla_info?.attend_sla_solution;
+  if (attendSlaSolution !== null && attendSlaSolution !== undefined) {
+    line += ` · no prazo: ${attendSlaSolution ? 'sim' : 'não'}`;
+  }
+  if (ticket.closed_ticket_total_spent_solving) {
+    line += ` · resolução: ${ticket.closed_ticket_total_spent_solving}`;
+  }
+  return `\n${line}`;
+}
+
+const isSet = (v) => v !== null && v !== undefined;
+const slaVerdict = (ok) => (ok ? 'no prazo' : 'estourado');
+
+// attend_sla e attend_sla_solution sao "vivos" na API: sem primeiro atendimento /
+// sem fechamento, comparam NOW() com a expiracao — true = ainda no prazo, vira false
+// quando estoura, mesmo sem movimento no ticket. So viram resultado final depois do
+// evento. Por isso o rotulo "Resolvido no prazo" so vale com solved_in_time; em aberto
+// o valor e o estado atual do SLA. null (mesa sem SLA ou cancelado) = linha omitida.
+function attendSlaLine(sla) {
+  return isSet(sla.attend_sla) ? `  • SLA de atendimento: ${slaVerdict(sla.attend_sla)}\n` : '';
+}
+
+// solved_in_time e a data/hora de FECHAMENTO (gravada tambem ao cancelar; some ao
+// reabrir) — nao um booleano. Bug anterior: a string ISO (sempre truthy) era lida
+// como o booleano de SLA.
+function solutionSlaLines(sla) {
+  if (isSet(sla.solved_in_time)) {
+    let out = `  • Fechado em: ${dateTime(sla.solved_in_time, 'rich')}\n`;
+    if (isSet(sla.attend_sla_solution)) {
+      out += `  • Resolvido no prazo: ${sla.attend_sla_solution ? 'Sim' : 'Não'}\n`;
+    }
+    return out;
+  }
+  return isSet(sla.attend_sla_solution) ? `  • SLA de resolução: ${slaVerdict(sla.attend_sla_solution)}\n` : '';
+}
 
 function formatTicket(ticketNumber, ticket, v) {
   const verbosity = v || 'rich';
@@ -43,22 +87,23 @@ function formatTicket(ticketNumber, ticket, v) {
 
     // Hierarquia (compact: linha única com números, sem títulos)
     let hierarchyCompact = '';
-    const hasParent = ticket.ticket_reference && ticket.ticket_reference.ticket_number;
-    const children = (ticket.ticket_children || []).filter(c => c && c.ticket_number);
+    const hasParent = ticket.ticket_reference?.ticket_number;
+    const children = (ticket.ticket_children || []).filter(c => c?.ticket_number);
     if (hasParent || children.length > 0) {
       const parts = [];
       if (hasParent) {
         parts.push(`Pai: #${ticket.ticket_reference.ticket_number}`);
       }
       if (children.length > 0) {
-        parts.push(`Filhos: ${children.map(c => `#${c.ticket_number}`).join(', ')}`);
+        const childNumbers = children.map(c => '#' + c.ticket_number).join(', ');
+        parts.push(`Filhos: ${childNumbers}`);
       }
       hierarchyCompact = `\n${parts.join(' | ')}`;
     }
 
     // Solicitante (compact: nome e email)
     let requestorCompact = '';
-    if (ticket.requestor && ticket.requestor.name) {
+    if (ticket.requestor?.name) {
       const reqParts = [ticket.requestor.name];
       if (ticket.requestor.email) reqParts.push(ticket.requestor.email);
       requestorCompact = `\nSolicitante: ${reqParts.join(' ')}`;
@@ -96,10 +141,13 @@ function formatTicket(ticketNumber, ticket, v) {
       slaCompact = `\nSLA expira: ${ticket.sla_info.stage_expiration}`;
     }
 
+    const closedCompact = closedCompactLine(ticket);
+
     return `Ticket #${ticketNumber}: ${ticket.title || 'N/A'}\n` +
            `Status: ${status} | Prioridade: ${priority} | Mesa: ${desk} (id:${ticket.desk?.id || 'N/A'})\n` +
            `Estagio: ${stage} (id:${ticket.stage?.id || 'N/A'}) | Responsavel: ${responsible}\n` +
-           `Cliente: ${client} | Criado: ${ticket.created_at || 'N/A'}` +
+           `Cliente: ${client} | Criado: ${dateTime(ticket.created_at, 'compact')}` +
+           `${closedCompact}` +
            `${hierarchyCompact}` +
            `${requestorCompact}` +
            `${checklistCompact}` +
@@ -151,8 +199,8 @@ function formatTicket(ticketNumber, ticket, v) {
 
   // --- Bloco A: Hierarquia (pai/filho) ---
   let hierarchyInfo = '';
-  const hasParent = ticket.ticket_reference && ticket.ticket_reference.ticket_number;
-  const children = (ticket.ticket_children || []).filter(c => c && c.ticket_number);
+  const hasParent = ticket.ticket_reference?.ticket_number;
+  const children = (ticket.ticket_children || []).filter(c => c?.ticket_number);
   if (hasParent || children.length > 0) {
     hierarchyInfo = `\n**Hierarquia:**\n`;
     if (hasParent) {
@@ -252,7 +300,7 @@ function formatTicket(ticketNumber, ticket, v) {
 
   // --- Bloco B: Solicitante ---
   let requestorInfo = '';
-  if (ticket.requestor && ticket.requestor.name) {
+  if (ticket.requestor?.name) {
     requestorInfo = `**Solicitante:** ${ticket.requestor.name}\n`;
     if (ticket.requestor.email) {
       requestorInfo += `  • Email: ${ticket.requestor.email}\n`;
@@ -312,23 +360,16 @@ function formatTicket(ticketNumber, ticket, v) {
     slaInfo = `\n**SLA:**\n`;
     slaInfo += `  • Parado: ${ticket.sla_info.stopped ? 'Sim' : 'Não'}\n`;
     if (ticket.sla_info.stage_expiration) {
-      slaInfo += `  • Expiração do estágio: ${ticket.sla_info.stage_expiration}\n`;
+      slaInfo += `  • Expiração do estágio: ${dateTime(ticket.sla_info.stage_expiration, 'rich')}\n`;
     }
-    if (ticket.sla_info.attend_sla) {
-      slaInfo += `  • SLA de atendimento: ${ticket.sla_info.attend_sla}\n`;
-    }
+    slaInfo += attendSlaLine(ticket.sla_info);
     if (ticket.sla_info.attend_expiration) {
-      slaInfo += `  • Expiração atendimento: ${ticket.sla_info.attend_expiration}\n`;
+      slaInfo += `  • Expiração atendimento: ${dateTime(ticket.sla_info.attend_expiration, 'rich')}\n`;
     }
     if (ticket.sla_info.solve_expiration) {
-      slaInfo += `  • Expiração resolução: ${ticket.sla_info.solve_expiration}\n`;
+      slaInfo += `  • Expiração resolução: ${dateTime(ticket.sla_info.solve_expiration, 'rich')}\n`;
     }
-    if (ticket.sla_info.solved_in_time !== null && ticket.sla_info.solved_in_time !== undefined) {
-      slaInfo += `  • Resolvido no prazo: ${ticket.sla_info.solved_in_time ? 'Sim' : 'Não'}\n`;
-    }
-    if (ticket.sla_info.attend_sla_solution !== null && ticket.sla_info.attend_sla_solution !== undefined) {
-      slaInfo += `  • SLA atendimento/solução: ${ticket.sla_info.attend_sla_solution ? 'Sim' : 'Não'}\n`;
-    }
+    slaInfo += solutionSlaLines(ticket.sla_info);
     if (ticket.sla_info.desactivate_sla_reason) {
       slaInfo += `  • Motivo desativação SLA: ${ticket.sla_info.desactivate_sla_reason}\n`;
     }
@@ -353,7 +394,7 @@ function formatTicket(ticketNumber, ticket, v) {
 
   // --- Bloco B: Equipamento ---
   let equipmentInfo = '';
-  if (ticket.equipment && ticket.equipment.id !== null && ticket.equipment.id !== undefined) {
+  if (ticket.equipment?.id !== null && ticket.equipment?.id !== undefined) {
     equipmentInfo = `\n**Equipamento:** ${ticket.equipment.name || 'N/A'} (ID: ${ticket.equipment.id})\n`;
     if (ticket.equipment.group_id) {
       equipmentInfo += `  • Grupo ID: ${ticket.equipment.group_id}\n`;
@@ -444,9 +485,9 @@ function formatTicket(ticketNumber, ticket, v) {
          `${requestorInfo ? requestorInfo + '\n' : ''}` +
          `${clientInfo}\n` +
          `${createdByInfo}` +
-         `**Criado em:** ${ticket.created_at || 'N/A'}\n` +
+         `**Criado em:** ${dateTime(ticket.created_at, 'rich')}\n` +
          `${updatedByInfo}` +
-         `**Atualizado em:** ${ticket.updated_at || 'N/A'}\n` +
+         `**Atualizado em:** ${dateTime(ticket.updated_at, 'rich')}\n` +
          `${additionalInfo}` +
          `${hierarchyInfo}` +
          `${checklistInfo}` +
