@@ -110,4 +110,4 @@ async function execute(args, { api }) {
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute, REFERENCE_LABELS };

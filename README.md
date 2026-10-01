@@ -1792,9 +1792,9 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 - `external_user_name` (string, optional): Name of the executor in an external tool (max 255 chars, no `<` or `>`). Valid on any desk type.
 
 **Name resolution parameters (Smart Name Resolution):**
-- `shift_name` (string, optional): Partial shift/displacement name — resolves to `shift_id`. Preference: `shift_id` wins if both given.
-- `loose_service_name` (string, optional): Partial loose service name — resolves to `loose_service_id`. Preference: `loose_service_id` wins if both given.
-- `contract_name` (string, optional): Partial contract name — resolves to `contract_rider_id`. Preference: `contract_rider_id` wins if both given.
+- `shift_name` (string, optional): Partial shift/displacement name — resolves to `shift_id`. Preference: `shift_id` wins if both given. The term must match the start of a word in the name (a loose substring in the middle no longer resolves); a tie between candidates only resolves when exactly one is an exact name match, otherwise it's an ambiguity error. Candidates are filtered by the rider's contract (`contract_rider_id`/`contract_name`) when known — shifts from other contracts are discarded, mirroring the API's own validation. This matters because the same client can have multiple contract renewals sharing the exact same shift name (e.g. three "Joinville" shifts under three different contract IDs) — only the contract filter disambiguates them.
+- `loose_service_name` (string, optional): Partial loose service name — resolves to `loose_service_id`. Preference: `loose_service_id` wins if both given. Same matching rule as `shift_name` (start-of-word match, exact-name tiebreak).
+- `contract_name` (string, optional): Partial contract name — resolves to `contract_rider_id`. Preference: `contract_rider_id` wins if both given. Same matching rule as `shift_name` (start-of-word match, exact-name tiebreak) — commonly ambiguous when a client has renewed the same contract (identical name, different `contract.id`); use `contract_rider_id` directly in that case.
 
 **Cross-field rules (validated locally before API call):**
 - `attendance_kind=1` (Loose) requires `loose_service_id`; rejects `contract_rider_id`
@@ -1820,6 +1820,8 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 > ```
 >
 > Note: `attendance` and `attendance_kind` remain optional in the schema because desks _without_ valorization reject them at the API level — the tool cannot know the desk's configuration before the API call.
+
+**Returns:** Confirmation of the created appointment (ID, date, time range, description, attendant). When resolved by ID or by name, the confirmation also echoes back the contract/loose service/shift that was actually used — e.g. `**Contrato:** Contrato de Licença de Uso (#88558, aditivo 266123)` when resolved by name, or `**Contrato:** aditivo 266123` when passed directly by ID. A field that wasn't used for the appointment shows no line at all.
 
 **Example (valued appointment — loose service):**
 ```json
@@ -3378,11 +3380,15 @@ The fallback returns only the **highest-scoring group** of matches — so single
 This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage`, `search_catalog_item`, `get_desk`, `list_desk_priorities`, and `list_desk_services_catalogs`.
 
 **Appointment valorization resolution** (`create_appointment`): three additional name parameters resolve valorization IDs scoped to the ticket itself — no cross-organization ambiguity:
-- `shift_name` → resolves to `shift_id` (fuzzy match over available travel shifts for the ticket)
-- `loose_service_name` → resolves to `loose_service_id` (fuzzy match over available loose services)
 - `contract_name` → resolves to `contract_rider_id` (fuzzy match over `contract_riders[].contract.name` — returns the **rider ID**, not the contract ID)
+- `loose_service_name` → resolves to `loose_service_id` (fuzzy match over available loose services)
+- `shift_name` → resolves to `shift_id` (fuzzy match over available travel shifts for the ticket)
 
-All three apply the same 0/1/N behavior: 0 matches → error with suggestion to use the corresponding `get_ticket_*` tool; 1 match → resolved; N matches → disambiguation list with IDs. When both the ID field and the name field are given, the ID takes precedence.
+Resolution order is **contract → loose service → shift**: the contract is resolved first (when given by name or ID) so that its `contract.id` can filter shift candidates before the shift's own fuzzy match — this matters because the same client can have several contract renewals sharing the exact same shift name (e.g. three "Joinville" shifts under three different contracts), and only the contract filter tells them apart. When `attendance_kind=2` and the contract is known, only shifts of that same contract (or contract-less/generic ones) are considered; when `attendance_kind=1`, only contract-less shifts are considered — mirroring what the API itself accepts.
+
+All three apply a stricter-than-generic-fuzzy resolution: a candidate only counts with a match score of 70+ (the term must match the start of a word in the name — a loose substring in the middle no longer resolves, closing a silent-wrong-match risk). 0 qualifying candidates → error (with up to 5 close-but-below-threshold suggestions, if any) and a pointer to the corresponding `get_ticket_*` tool; 1 candidate → resolved; 2+ candidates → resolved **only** when exactly one is an exact name match (score 100), otherwise a disambiguation list with IDs (shift ambiguity lines include the shift's scope and contract; contract ambiguity lines include the contract ID and its validity period). When both the ID field and the name field are given, the ID takes precedence and no extra API call is made.
+
+The confirmation of a successfully created appointment (`201`) echoes back whichever contract/loose service/shift were actually used — the resolved name and ID when resolved by name, just the ID when passed directly by ID, and nothing when that field wasn't used. No extra API call is made for this — it only reflects what was already resolved in-memory before the write.
 
 **Services catalog resolution** (all `*_services_catalog*` and `*_services_catalog_item*` tools): two additional name parameters resolve catalog and area IDs server-side using the API's built-in `ilike` filter (no client-side fuzzy):
 - `services_catalog_name` → resolves to `services_catalog_id` via `GET /services-catalogs?name={value}&limit=50`

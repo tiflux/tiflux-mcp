@@ -16,7 +16,13 @@
  *   - external_user_name → max 255 chars, sem < nem >
  *
  * Resolucao por nome (conveniencia): shift_name, loose_service_name, contract_name.
- * Precedencia: *_id vence *_name quando ambos forem passados.
+ * Precedencia: *_id vence *_name quando ambos forem passados. Ordem de resolucao:
+ * contrato -> servico avulso -> deslocamento (spec 2026-09-24, D1) — o deslocamento
+ * e resolvido por ultimo porque seus candidatos sao filtrados pelo contrato ja
+ * resolvido (`riderContractId`), evitando a ambiguidade de nomes de deslocamento
+ * repetidos entre contratos (BL-026). Resolucao por nome exige score minimo e
+ * desempate so por nome exato (D2, `MIN_VALORIZATION_SCORE` em valorizationResolver.js),
+ * e o item efetivamente usado e ecoado na confirmacao do 201 (D3).
  */
 
 const { textResponse } = require('../_shared/response');
@@ -94,15 +100,15 @@ const schema = {
       },
       shift_name: {
         type: 'string',
-        description: 'Nome (ou parte do nome) do deslocamento para resolução automática. Alternativa a shift_id. Quando shift_id também for informado, shift_id tem precedência.'
+        description: 'Nome (ou parte do nome) do deslocamento para resolução automática. Alternativa a shift_id. Quando shift_id também for informado, shift_id tem precedência. O termo precisa casar pelo começo de uma palavra do nome (substring solta no meio não resolve); empate só se resolve com nome exato, senão erro de ambiguidade. Candidatos são filtrados pelo contrato do aditivo (contract_rider_id/contract_name) quando conhecido — deslocamentos de outro contrato são descartados, espelhando a validação da API.'
       },
       loose_service_name: {
         type: 'string',
-        description: 'Nome (ou parte do nome) do serviço avulso para resolução automática. Alternativa a loose_service_id. Quando loose_service_id também for informado, loose_service_id tem precedência.'
+        description: 'Nome (ou parte do nome) do serviço avulso para resolução automática. Alternativa a loose_service_id. Quando loose_service_id também for informado, loose_service_id tem precedência. O termo precisa casar pelo começo de uma palavra do nome (substring solta no meio não resolve); empate só se resolve com nome exato, senão erro de ambiguidade.'
       },
       contract_name: {
         type: 'string',
-        description: 'Nome (ou parte do nome) do contrato para resolução automática. Retorna o contract_rider_id correspondente. Alternativa a contract_rider_id. Quando contract_rider_id também for informado, contract_rider_id tem precedência.'
+        description: 'Nome (ou parte do nome) do contrato para resolução automática. Retorna o contract_rider_id correspondente. Alternativa a contract_rider_id. Quando contract_rider_id também for informado, contract_rider_id tem precedência. O termo precisa casar pelo começo de uma palavra do nome (substring solta no meio não resolve); empate só se resolve com nome exato, senão erro de ambiguidade (comum quando o mesmo cliente tem contratos renovados com nome idêntico — só o contract.id diferencia).'
       }
     },
     required: ['ticket_number', 'date', 'init_time', 'end_time', 'description']
@@ -177,15 +183,54 @@ function validateCrossField(p) {
 }
 
 /**
+ * Linha de eco do contrato resolvido (D3 da spec 2026-09-24). Sem chamada extra —
+ * usa so o que ja foi resolvido em memoria durante execute().
+ *
+ * @param {{source: 'name'|'id', id: number, contractRider?: object}} [contract]
+ * @returns {string}
+ */
+function contractResolvedLine(contract) {
+  if (!contract) return '';
+  if (contract.source === 'name' && contract.contractRider) {
+    const cr = contract.contractRider;
+    const name = (cr.contract && cr.contract.name) || '—';
+    const contractId = cr.contract ? cr.contract.id : '—';
+    return `**Contrato:** ${name} (#${contractId}, aditivo ${cr.id})\n`;
+  }
+  return `**Contrato:** aditivo ${contract.id}\n`;
+}
+
+/** Linha de eco do servico avulso resolvido (D3). Mesma logica de contractResolvedLine. */
+function looseServiceResolvedLine(looseService) {
+  if (!looseService) return '';
+  if (looseService.source === 'name' && looseService.looseService) {
+    return `**Serviço avulso:** ${looseService.looseService.name} (ID ${looseService.looseService.id})\n`;
+  }
+  return `**Serviço avulso:** ID ${looseService.id}\n`;
+}
+
+/** Linha de eco do deslocamento resolvido (D3). Mesma logica de contractResolvedLine. */
+function shiftResolvedLine(shift) {
+  if (!shift) return '';
+  if (shift.source === 'name' && shift.shift) {
+    return `**Deslocamento:** ${shift.shift.name} (ID ${shift.shift.id})\n`;
+  }
+  return `**Deslocamento:** ID ${shift.id}\n`;
+}
+
+/**
  * Formata a resposta 201 de criacao de apontamento.
  * Exportado para poder ser testado isolado.
  *
  * @param {object} appointment - dados do apontamento retornado pela API
  * @param {string} ticketNumber - numero do ticket (para mensagem)
  * @param {boolean} hadLooseService - se o request tinha loose_service_id (exibe value so nesse caso)
+ * @param {{contract?: object, looseService?: object, shift?: object}} [resolved] - itens de
+ *   valorizacao resolvidos por execute() (D3): eco do que foi efetivamente usado, sem chamada
+ *   extra depois do POST. Campo ausente = nada informado = nenhuma linha impressa.
  * @returns {string}
  */
-function formatCreatedAppointment(appointment, ticketNumber, hadLooseService) {
+function formatCreatedAppointment(appointment, ticketNumber, hadLooseService, resolved = {}) {
   const id = appointment.id || 'N/A';
   const date = appointment.date || 'N/A';
   const initTime = appointment.init_time || '?';
@@ -211,6 +256,11 @@ function formatCreatedAppointment(appointment, ticketNumber, hadLooseService) {
   if (hadLooseService && appointment.value !== undefined && appointment.value !== null) {
     text += `**Valor:** ${currencyBRL(Number.parseFloat(appointment.value))}\n`;
   }
+
+  // Eco do que foi resolvido (D3) — so imprime o que foi de fato informado/resolvido.
+  text += contractResolvedLine(resolved.contract);
+  text += looseServiceResolvedLine(resolved.looseService);
+  text += shiftResolvedLine(resolved.shift);
 
   text += `\n*✅ Apontamento registrado via API TiFlux*`;
   return text;
@@ -378,22 +428,55 @@ async function execute(args, { api }) {
   }
 
   // --- Resolucao por nome (precedencia: *_id vence *_name) ---
-  if (!shift_id && shift_name) {
-    const r = await resolveShiftName(api, ticket_number, shift_name);
+  // Ordem: contrato -> servico avulso -> deslocamento (D1 da spec 2026-09-24). O
+  // deslocamento e resolvido por ultimo porque seu filtro de candidatos (abaixo)
+  // depende do contrato ja estar resolvido.
+  // `resolved` acumula o item efetivamente usado (por nome) ou so o id (por id
+  // direto) para o eco na confirmacao do 201 (D3) — nunca chamada extra depois do POST.
+  const resolved = {};
+
+  if (!contract_rider_id && contract_name) {
+    const r = await resolveContractName(api, ticket_number, date, contract_name);
     if (r.error) return r.response;
-    shift_id = r.shiftId;
+    contract_rider_id = r.contractRiderId;
+    resolved.contract = { source: 'name', id: contract_rider_id, contractRider: r.contractRider };
+  } else if (contract_rider_id) {
+    resolved.contract = { source: 'id', id: contract_rider_id };
   }
 
   if (!loose_service_id && loose_service_name) {
     const r = await resolveLooseServiceName(api, ticket_number, date, loose_service_name);
     if (r.error) return r.response;
     loose_service_id = r.looseServiceId;
+    resolved.looseService = { source: 'name', id: loose_service_id, looseService: r.looseService };
+  } else if (loose_service_id) {
+    resolved.looseService = { source: 'id', id: loose_service_id };
   }
 
-  if (!contract_rider_id && contract_name) {
-    const r = await resolveContractName(api, ticket_number, date, contract_name);
+  // riderContractId para o filtro de deslocamento (D1): resolvido por contract_name
+  // usa o contract.id do proprio item, sem chamada extra. contract_rider_id passado
+  // direto exige 1 chamada a fetchTicketServiceTypes so quando shift_name tambem foi
+  // informado (senao o resultado nunca seria usado) — rider ausente na lista ou
+  // chamada com erro: segue sem filtro, nunca gera erro novo (principio de seguranca).
+  let riderContractId;
+  if (resolved.contract && resolved.contract.source === 'name') {
+    riderContractId = resolved.contract.contractRider.contract && resolved.contract.contractRider.contract.id;
+  } else if (!shift_id && shift_name && contract_rider_id) {
+    const stResponse = await api.fetchTicketServiceTypes(ticket_number, date ? { date } : {});
+    if (!stResponse.error) {
+      const riders = (stResponse.data && stResponse.data.contract_riders) || [];
+      const rider = riders.find(r => r.id === contract_rider_id);
+      if (rider?.contract) riderContractId = rider.contract.id;
+    }
+  }
+
+  if (!shift_id && shift_name) {
+    const r = await resolveShiftName(api, ticket_number, shift_name, { attendanceKind: attendance_kind, riderContractId });
     if (r.error) return r.response;
-    contract_rider_id = r.contractRiderId;
+    shift_id = r.shiftId;
+    resolved.shift = { source: 'name', id: shift_id, shift: r.shift };
+  } else if (shift_id) {
+    resolved.shift = { source: 'id', id: shift_id };
   }
 
   // --- Validacao cross-field POS-resolucao (autoritativa, sobre os IDs finais) ---
@@ -431,7 +514,7 @@ async function execute(args, { api }) {
 
     const appointment = response.data;
     const hadLooseService = !!loose_service_id;
-    return textResponse(formatCreatedAppointment(appointment, ticket_number, hadLooseService));
+    return textResponse(formatCreatedAppointment(appointment, ticket_number, hadLooseService, resolved));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao criar apontamento**\n\n` +
