@@ -154,7 +154,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat
 - **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente; criar e editar a estrutura (grupos, subcampos e opções) diretamente via IA — sem exclusão na API v2, correções via `update_*` ou pelo portal
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
-- **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status
+- **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status, distinguindo contratos de grupos de contrato (modalidade Compartilhado, linhas "· grupo"); detalhe de um grupo de contrato com seus contratos-membro via `get_contract_group`
 - **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; exibir detalhes completos de hardware e inventário de um recurso individual (processador, memória, discos, rede, SO, fabricante, campos personalizados) via `get_equipment`; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
@@ -1887,7 +1887,7 @@ List all appointments across all tickets for a date range with optional filters 
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (alternative to `desk_ids`).
 - `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. **Note (A2):** when this filter is active, appointments without a contract are excluded from results. **Note (A1 — Shared contracts):** in Shared contract mode, the `contract.id` returned may differ from the id you filtered on — the API expands the group to its member, which is expected behavior; do NOT filter client-side by `contract.id` equality.
 - `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated, same rule as `client_ids`). `client_ids` takes precedence when both are provided.
-- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error; do NOT re-filter results client-side by `contract.id`.
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Also accepts a contract **group** ID (see `get_contract_group`) — the API only treats the ID as a group when **no contract** shares that same number; on collision, the API filters by the contract, so use the group's **member contract IDs** (from `get_contract_group`) instead of the group ID itself. **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error; do NOT re-filter results client-side by `contract.id`.
 - `include_valorization` (boolean, optional): Include valorization data (attendance type, value). Default: `false`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Results per page (default: 20, max: 200)
@@ -1920,7 +1920,7 @@ Generate an aggregated N2 support report: count and total hours per technician f
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (enables desk sub-breakdown).
 - `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. See caveats A1/A2 in `list_appointments_global`.
 - `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated).
-- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Appointments without a contract are excluded when active. See caveat A1 in `list_appointments_global`.
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Also accepts a contract group ID — see the note in `list_appointments_global` about the ID collision caveat (group vs. contract) and `get_contract_group`. Appointments without a contract are excluded when active. See caveat A1 in `list_appointments_global`.
 - `include_valorization` (boolean, optional): Include total value per technician (and per desk when breakdown enabled). Default: `false`.
 
 **Returns:**
@@ -2743,7 +2743,9 @@ Conhecimento #4 atualizado com sucesso!
 ### list_contracts
 List the organization's contracts (read-only). Returns a Markdown table with 9 columns: ID, name, client, contract type, modality, status (with `(cancelado)` suffix when applicable), expiration date, readjustment date, and total value.
 
-**Note:** Only `GET /contracts` exists in the API v2 — there is no `GET /contracts/{id}` and no endpoint to list contract types. This means `contract_type_ids` filter IDs can only be discovered via `include_details: true`, which surfaces `contract_type.id` for each contract.
+**Contract groups (Shared modality):** a row with `kind: "contract_group"` is a **contract group**, not an individual contract — its ID column renders as `<id> · grupo` (e.g. `5 · grupo`). Contracts and contract groups come from **separate tables with independent IDs**: the same number can appear twice in the listing, once as a plain contract and once as a group. When the current page has at least one group, a footer explains this and points to `get_contract_group` for the group's detail and member contracts. A missing `kind` field (older API/mock) is treated as a plain `"contract"`.
+
+**Note:** Inactive records (`active: false`) **never** appear in this listing, regardless of the `status` filter. Member contracts of a Shared contract group **never** appear as their own row either — only the group row shows up; use `get_contract_group` to see its members. Only `GET /contracts` exists in the API v2 for listing — there is no `GET /contracts/{id}` and no endpoint to list contract types (contract group detail is covered by `get_contract_group`). This means `contract_type_ids` filter IDs can only be discovered via `include_details: true`, which surfaces `contract_type.id` for each contract.
 
 **Permissions:** The monetary fields (`rider_tax`, `rider_value`) are only available in the details block when using `include_details: true`, and only for users with the "Visualizar valores dos tickets" permission. Without it, the API returns `"--"` for those fields (rendered as-is). `total_value` is shown in the default table column.
 
@@ -2755,7 +2757,7 @@ List the organization's contracts (read-only). Returns a Markdown table with 9 c
 - `limit` (number, optional): Results per page (default: 20, max: 200).
 - `offset` (number, optional): Page number (default: 1).
 
-**Returns:** Markdown table with columns `ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Reajuste | Valor total`. Modality and status are translated to PT-BR (unknown enum values fall back to the raw API value). Dates are rendered as ISO `YYYY-MM-DD`. Monetary values are formatted as `R$ 1.234,56` (with thousand separator). Status `expired` + `cancelled: true` renders as `Inativo (cancelado)`. Total contract count from `X-Total-Items` header is shown in the pagination footer when available. With `include_details: true`, a `**Detalhes**` section follows the table.
+**Returns:** Markdown table with columns `ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Reajuste | Valor total`. Modality and status are translated to PT-BR (unknown enum values fall back to the raw API value). Dates are rendered as ISO `YYYY-MM-DD`. Monetary values are formatted as `R$ 1.234,56` (with thousand separator). Status `expired` + `cancelled: true` renders as `Inativo (cancelado)`. Total contract count from `X-Total-Items` header is shown in the pagination footer when available. With `include_details: true`, a `**Detalhes**` section follows the table; when the combined table + details output would exceed the response budget (e.g. `limit: 200` with `include_details: true`), both sections are cut at the same contract, with a continuation line showing the exact `offset`/`limit` to resume.
 
 **Example:**
 ```json
@@ -2772,10 +2774,34 @@ List the organization's contracts (read-only). Returns a Markdown table with 9 c
 | ID | Nome | Cliente | Tipo | Modalidade | Situação | Expiração | Reajuste | Valor total |
 |---|---|---|---|---|---|---|---|---|
 | 87508 | Contrato de licença de uso | 2V Sistemas | Contrato Tiflux | SaaS/Produto | Ativo | — | 2027-05-25 | R$ 974,30 |
+| 5 · grupo | Contrato compartilhado XPTO | Acme Corp | Contrato compartilhado | Compartilhado | Ativo | — | — | R$ 5.000,00 |
 | 103 | Contrato Expirado | Initech | Suporte | Horas | Inativo (cancelado) | 2024-12-31 | 2024-01-01 | R$ 28.963,20 |
+
+> ℹ️ Esta página contém grupo(s) de contrato (linhas "· grupo"). IDs de grupo e de contrato são independentes — o mesmo número pode aparecer duas vezes na lista. Veja o detalhe e os membros de um grupo com `get_contract_group`.
 
 **Detalhes**
 - **#87508** · cliente ID 2274047 · tipo ID 178 · duracao: — · reajuste a cada 12 meses · adicional: R$ 974,30 (taxa R$ 0,00)
+```
+
+### get_contract_group
+Get the detail of a contract group (Shared modality) by ID: name, client, contract type, status (Ativo/Inativo — this endpoint returns `200` even for an inactive group, which `list_contracts` hides), expiration, duration, automatic renewal, billing configuration (automatic with N days before due date, or batch), consumption reminder (percent + e-mails), last rider (number, release/version, due day, monthly value, tax, discount, description), and the group's member contracts.
+
+**Note:** the `contract_group_id` must come from a `· grupo` row of `list_contracts` — contracts and contract groups have **independent IDs**, the same number can exist in both, and a plain contract ID does not work here (404). The last rider shown **can be a cancelled one** (the API takes the highest rider/release regardless of cancellation, and this view doesn't expose a cancellation flag) — the label is always "Último aditivo" ("last rider"), never "current/active rider".
+
+**Permissions/divergence:** requires "Visualizar contratos" + Tickets License. Unlike `list_contracts`, this endpoint does **not** mask monetary values for users without the "Visualizar valores dos tickets" permission — the MCP renders what the API returns as-is (known API divergence, already reported to the API team).
+
+**Parameters:**
+- `contract_group_id` (number, required): ID of the contract group (obtained from a `· grupo` row in `list_contracts`). Must be a positive integer.
+
+**Returns (rich):** header with name and `#id`; client (name + id); contract type (name + id); status; expiration; duration; automatic renewal; billing; consumption reminder; last rider section (number, release, due day, monthly value, tax, discount — in `R$` when `discount_type: "currency"`, in `%` when `"percent"`, raw otherwise — and description); `**Contratos do grupo (N)**` list with `#id name` per member (cut with a "+N membros não exibidos" notice if the group has too many members); technical observations (truncated at 800 chars).
+
+**Returns (compact):** header, client, status, monthly value, and members on a single line (`#1 nome; #2 nome; ...`). Consumption reminder and technical observations are omitted in compact mode.
+
+**Errors:** `404` (`error_code 40401`) includes a hint that the ID must come from a `· grupo` row of `list_contracts`. `403` (`40301`/`40304`) includes a hint about the "Visualizar contratos" permission and the Tickets License.
+
+**Example:**
+```json
+{ "contract_group_id": 5 }
 ```
 
 ### list_equipments
@@ -3803,7 +3829,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /knowledge-folders/{id}` - Fetch full detail of a knowledge folder by ID (`get_knowledge_folder`). Returns title, description, icon, tags, total article count, and list of visible articles
 - `PUT /knowledge-folders/{id}` - Partially update an existing knowledge folder: title, description, icon, tags (`update_knowledge_folder`). Only fields provided are sent. `icon: null` explicitly clears the folder's icon (distinct from omitting the field, which preserves it). Does not alter the folder's articles. Requires "Gerenciar conhecimento" permission
 - `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
-- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract; secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`).
+- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract plus `kind` (`"contract"` | `"contract_group"`); secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`). Inactive records never appear, regardless of `status`.
+- `GET /contract-groups/{id}` - Get the detail of a contract group (modality Shared), including its member contracts (`get_contract_group`). Unlike `list_contracts`, monetary values are **not** masked without the "Visualizar valores dos tickets" permission. Requires "Visualizar contratos" permission + Tickets License.
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/billings/history` - Billing history report (`get_billings_history`). Returns paginated array of billing records with `billing_id`, `billing_date`, `client_id`, `client_name`, `due_date`, `nfe_number`, `paid`, `real_value`, `reversal`. Filters: `billing_start_date`/`billing_end_date` (pair), `due_start_date`/`due_end_date` (pair), `client_id`, `nfe_number`, `ticket_number`, `_type` (billed|reversed|paid). Header `X-Total-Items` for total count. Requires "Faturar serviços avulsos e contratos" permission + Tickets license (403 code `40301` without permission, `40304` without license).

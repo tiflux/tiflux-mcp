@@ -5,7 +5,8 @@
 const TiFluxAPI = require('../../api/tiflux-api');
 
 const slices = [
-  require('./listContracts')
+  require('./listContracts'),
+  require('./getContractGroup')
 ];
 
 class ContractTools {

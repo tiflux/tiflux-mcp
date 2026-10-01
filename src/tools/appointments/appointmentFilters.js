@@ -101,7 +101,7 @@ function appointmentFilterSchemaProperties(descriptions = {}) {
     },
     contract_ids: {
       type: 'string',
-      description: desc('contract_ids', 'IDs dos contratos separados por vírgula (máximo 15). Atenção (A2): apontamentos sem contrato somem do resultado quando este filtro está ativo. Atenção (A1): em contratos Shared, o contract.id retornado pode ser diferente do id filtrado — isso é comportamento da API (expande grupo → membro) e NÃO indica erro nem filtragem incorreta.')
+      description: desc('contract_ids', 'IDs dos contratos separados por vírgula (máximo 15). Aceita também ID de grupo de contrato (ver get_contract_group) — a API só trata o ID como grupo quando NÃO existe contrato com o mesmo número; na colisão, a API filtra pelo contrato, então use os IDs dos contratos-membro do grupo (obtidos via get_contract_group) em vez do ID do grupo. Atenção (A2): apontamentos sem contrato somem do resultado quando este filtro está ativo. Atenção (A1): em contratos Shared, o contract.id retornado pode ser diferente do id filtrado — isso é comportamento da API (expande grupo → membro) e NÃO indica erro nem filtragem incorreta.')
     }
   };
 }

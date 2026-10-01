@@ -577,6 +577,19 @@ class TiFluxAPI {
   }
 
   /**
+   * Retorna o detalhe de um grupo de contrato (modalidade Compartilhado).
+   * GET /contract-groups/{id}
+   *
+   * So transporte (BE-003): validacao do id e formatacao ficam no slice
+   * `get_contract_group`.
+   *
+   * @param {number|string} id - ID do grupo de contrato
+   */
+  async getContractGroup(id) {
+    return await this.makeRequest(`/contract-groups/${id}`);
+  }
+
+  /**
    * Retorna historico de faturamentos (GET /reports/billings/history).
    *
    * Filtros opcionais (passados via URLSearchParams):
