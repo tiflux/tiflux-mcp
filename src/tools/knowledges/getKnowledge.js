@@ -16,6 +16,7 @@ const { textResponse } = require('../_shared/response');
 const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
 const { requireIntField } = require('../_shared/validators');
 const { htmlToMarkdown } = require('../_shared/htmlToMarkdown');
+const { dateOnly } = require('../_shared/format');
 
 const schema = {
   name: 'get_knowledge',
@@ -37,12 +38,8 @@ function formatKnowledge(knowledge) {
   const tags = Array.isArray(knowledge.tags) && knowledge.tags.length > 0
     ? knowledge.tags.join(', ')
     : '—';
-  const criado = knowledge.created_at
-    ? new Date(knowledge.created_at).toLocaleDateString('pt-BR')
-    : '—';
-  const atualizado = knowledge.updated_at
-    ? new Date(knowledge.updated_at).toLocaleDateString('pt-BR')
-    : '—';
+  const criado = dateOnly(knowledge.created_at);
+  const atualizado = dateOnly(knowledge.updated_at);
 
   let text = `**Conhecimento: ${knowledge.title || 'N/A'}**\n\n`;
   text += `**ID:** ${knowledge.id}\n`;

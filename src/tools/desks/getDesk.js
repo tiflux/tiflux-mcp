@@ -36,6 +36,36 @@ function val(v) {
   return v;
 }
 
+// required_fields da API v2: objeto plano de booleanos (true = obrigatorio na
+// abertura e no fechamento do ticket). Chave fora deste mapa (ex.: legada
+// services_catalog_id) aparece com o nome cru.
+const REQUIRED_FIELD_LABELS = {
+  requestor_name: 'Nome do solicitante',
+  requestor_email: 'E-mail do solicitante',
+  requestor_telephone: 'Telefone do solicitante',
+  requestor_ramal: 'Ramal do solicitante',
+  equipment_id: 'Grupo de recurso',
+  attachment_file: 'Anexo'
+};
+
+/**
+ * Texto da linha "Campos obrigatorios" ou null para omitir a linha.
+ * - objeto de booleanos → so as chaves true, com rotulo pt-BR; nenhuma true → "Nenhum"
+ * - array (formato legado) → itens unidos por virgula; vazio → omite
+ * - null/ausente → omite
+ */
+function formatRequiredFields(requiredFields) {
+  if (requiredFields === null || requiredFields === undefined || requiredFields === '') return null;
+  if (Array.isArray(requiredFields)) {
+    return requiredFields.length > 0 ? requiredFields.join(', ') : null;
+  }
+  if (typeof requiredFields !== 'object') return String(requiredFields);
+  const required = Object.keys(requiredFields)
+    .filter(key => requiredFields[key] === true)
+    .map(key => REQUIRED_FIELD_LABELS[key] || key);
+  return required.length > 0 ? required.join(', ') : 'Nenhum';
+}
+
 function formatDesk(desk) {
   const lines = [];
 
@@ -89,16 +119,8 @@ function formatDesk(desk) {
   if (val(desk.require_service_catalog_open_ticket)) lines.push(`- **Exige catalogo de servicos para abrir ticket:** Sim`);
   if (val(desk.services_catalog_item)) lines.push(`- **Exige catalogo de servicos para fechar ticket:** Sim`);
 
-  const requiredFields = desk.required_fields;
-  if (requiredFields && (Array.isArray(requiredFields) ? requiredFields.length > 0 : true)) {
-    if (Array.isArray(requiredFields)) {
-      if (requiredFields.length > 0) {
-        lines.push(`- **Campos obrigatorios:** ${requiredFields.join(', ')}`);
-      }
-    } else {
-      lines.push(`- **Campos obrigatorios:** ${requiredFields}`);
-    }
-  }
+  const requiredLine = formatRequiredFields(desk.required_fields);
+  if (requiredLine) lines.push(`- **Campos obrigatorios:** ${requiredLine}`);
 
   // Remove trailing empty section if nothing was added
   while (lines.length > 0 && lines[lines.length - 1] === '') {

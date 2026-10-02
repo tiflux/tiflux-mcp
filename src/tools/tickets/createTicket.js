@@ -25,6 +25,7 @@ const { resolveRequestorName, resolveRequestorEmail } = require('../_shared/requ
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
+const { dateTime } = require('../_shared/format');
 
 const MAX_FILES = 10;
 
@@ -290,7 +291,7 @@ async function execute(args, { api }) {
       `**Mesa:** ${ticket.desk.display_name}\n` +
       `**Status:** ${ticket.status.name}\n` +
       `**Prioridade:** ${ticket.priority?.name || 'N/A'}\n` +
-      `**Criado em:** ${ticket.created_at}\n` +
+      `**Criado em:** ${dateTime(ticket.created_at)}\n` +
       parentLine +
       filesLine +
       `\n**URL Externa:** ${ticket.url_external_path}\n` +

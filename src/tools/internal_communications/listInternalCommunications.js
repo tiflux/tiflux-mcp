@@ -9,7 +9,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, pagination } = require('../_shared/format');
+const { footer, pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -34,9 +34,7 @@ function formatCommunicationsList(ticket_number, communications, offset, limit, 
   communications.forEach((comm, index) => {
     const commId = comm.id || 'N/A';
     const authorName = comm.user?.name || 'Autor não informado';
-    const createdAt = comm.created_at
-      ? new Date(comm.created_at).toLocaleString('pt-BR')
-      : 'Data não informada';
+    const createdAt = comm.created_at ? dateTime(comm.created_at, verbosity) : 'Data não informada';
 
     let content = '';
     if (comm.text) {

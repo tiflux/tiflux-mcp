@@ -14,7 +14,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
-const { pagination } = require('../_shared/format');
+const { pagination, dateOnly } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -66,9 +66,7 @@ function formatKnowledgesList(knowledges, opts = {}) {
     const tags = Array.isArray(k.tags) && k.tags.length > 0
       ? k.tags.join(', ')
       : '—';
-    const atualizado = k.updated_at
-      ? new Date(k.updated_at).toLocaleDateString('pt-BR')
-      : '—';
+    const atualizado = dateOnly(k.updated_at);
     text += `| ${k.id} | ${title} | ${privado} | ${pastas} | ${tags} | ${atualizado} |\n`;
   });
 

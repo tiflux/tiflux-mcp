@@ -455,7 +455,11 @@ class TiFluxAPI {
    */
   async searchDesks(deskName = '') {
     const nameParam = deskName ? `&name=${encodeURIComponent(deskName)}` : '';
-    return await this.makeRequest(`/desks?active=true${nameParam}`);
+    // limit=200 (teto da API, validate/index_desk.rb): sem isso, a mesa de nome
+    // exato pode ficar fora da 1a pagina (default 20) quando ha muitas mesas com
+    // nome parecido — BL-030. So transporte (guardrail BE-003); o desempate por
+    // match exato vive em deskResolver.js.
+    return await this.makeRequest(`/desks?active=true&limit=200${nameParam}`);
   }
 
   /**

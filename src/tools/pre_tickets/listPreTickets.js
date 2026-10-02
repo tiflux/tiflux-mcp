@@ -11,7 +11,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { pagination } = require('../_shared/format');
+const { pagination, dateOnly } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -63,9 +63,7 @@ function formatPreTicketsList(preTickets, opts = {}) {
     const title = pt.title || '—';
     const client = pt.client ? pt.client.name : '—';
     const solicitante = pt.requestor_name || '—';
-    const criadoEm = pt.created_at
-      ? new Date(pt.created_at).toLocaleDateString('pt-BR')
-      : '—';
+    const criadoEm = dateOnly(pt.created_at);
     text += `| ${pt.id} | ${title} | ${client} | ${solicitante} | ${criadoEm} |\n`;
   });
 

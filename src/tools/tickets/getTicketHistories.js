@@ -9,12 +9,12 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer, pagination, renderWithinBudget, cutCountLabel } = require('../_shared/format');
+const { footer, pagination, renderWithinBudget, cutCountLabel, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'get_ticket_histories',
-  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados. history_of é obrigatório: 0 = histórico de estágios, 1 = histórico de apontamentos. Filtro operation só é considerado quando history_of=1.',
+  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados (datas do diff em horário de Brasília — no formato compact, ISO UTC curto; hora do dia como HH:MM). history_of é obrigatório: 0 = histórico de estágios, 1 = histórico de apontamentos. Filtro operation só é considerado quando history_of=1.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -46,19 +46,34 @@ const schema = {
 // um objeto viraria "[object Object]" no diff.
 // Always-on: limite de ~200 chars para evitar blowup em objetos aninhados profundos.
 const DIFF_VALUE_MAX = 200;
-function formatDiffValue(value) {
+// Data-hora ISO com fuso (Z ou ±hh:mm): a API grava o diff a partir de
+// saved_changes, entao qualquer coluna de data pode aparecer (changed_first_stage_at
+// sai "...Z", as demais "...000Z") — detecta pelo VALOR, nao pelo nome do campo.
+// Dividida em 2 regex (inicio data-hora + sufixo de fuso) so por causa do teto de
+// complexidade de regex do lint; equivale a
+// /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/.
+const ISO_DATETIME_HEAD_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?/;
+const ISO_ZONE_TAIL_RE = /^(?:Z|[+-]\d{2}:?\d{2})$/;
+
+function isIsoWithZone(str) {
+  const head = ISO_DATETIME_HEAD_RE.exec(str);
+  return head !== null && ISO_ZONE_TAIL_RE.test(str.slice(head[0].length));
+}
+// Hora do dia de apontamento (init_time/end_time) nao passa por aqui: a coluna e
+// string "HH:MM" ja no fuso da organizacao, como o usuario digitou, e sai crua.
+
+function formatDiffValue(value, verbosity) {
   if (value === null || value === undefined) return '—';
+  if (typeof value === 'string' && isIsoWithZone(value)) return dateTime(value, verbosity);
   const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
   return str.length > DIFF_VALUE_MAX ? str.substring(0, DIFF_VALUE_MAX) + '...' : str;
 }
 
-function formatHistoryEvent(event, index) {
+function formatHistoryEvent(event, index, verbosity) {
   const eventId = event.id || 'N/A';
   const action = event.action || 'ação não informada';
   const userName = event.user?.name || 'Usuário não informado';
-  const createdAt = event._created_at
-    ? new Date(event._created_at).toLocaleString('pt-BR')
-    : 'Data não informada';
+  const createdAt = event._created_at ? dateTime(event._created_at, verbosity) : 'Data não informada';
   const eventType = event._type || '';
   const eventOp = event._operation || '';
 
@@ -72,8 +87,8 @@ function formatHistoryEvent(event, index) {
   if (event.changes && Array.isArray(event.changes.fields) && event.changes.fields.length > 0) {
     diffSection = '\n   📝 **Alterações:**\n';
     event.changes.fields.forEach(field => {
-      const oldVal = formatDiffValue(event.changes.old_values?.[field]);
-      const newVal = formatDiffValue(event.changes.new_values?.[field]);
+      const oldVal = formatDiffValue(event.changes.old_values?.[field], verbosity);
+      const newVal = formatDiffValue(event.changes.new_values?.[field], verbosity);
       diffSection += `      • **${field}:** \`${oldVal}\` → \`${newVal}\`\n`;
     });
   }
@@ -102,7 +117,7 @@ function formatHistoriesList(ticketNumber, events, offset, limit, verbosity) {
   return renderWithinBudget({
     head,
     truncatedHead,
-    parts: events.map((event, index) => formatHistoryEvent(event, index)),
+    parts: events.map((event, index) => formatHistoryEvent(event, index, v)),
     pagination: paginationInfo,
     tail: `${sep}${footerStr}`,
     offset: currentOffset,

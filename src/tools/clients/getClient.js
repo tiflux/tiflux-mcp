@@ -8,7 +8,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer } = require('../_shared/format');
+const { footer, dateTime } = require('../_shared/format');
 
 const schema = {
   name: 'get_client',
@@ -78,10 +78,10 @@ function formatClient(client, verbosity) {
   }
 
   if (client.created_at) {
-    text += `\n**Criado em:** ${client.created_at}\n`;
+    text += `\n**Criado em:** ${dateTime(client.created_at, verbosity)}\n`;
   }
   if (client.updated_at) {
-    text += `**Atualizado em:** ${client.updated_at}\n`;
+    text += `**Atualizado em:** ${dateTime(client.updated_at, verbosity)}\n`;
   }
 
   text += `\n${footer(verbosity)}`;

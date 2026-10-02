@@ -318,6 +318,8 @@ Create a new ticket in Tiflux.
 
 > **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
+**Fixed in v2.50.1:** `Criado em` in the success response now shows the creation date/time in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
+
 ### update_ticket
 Update an existing ticket in Tiflux. Supports transferring a ticket to another desk — when `desk_id`/`desk_name` is provided without an explicit `stage_id`/`stage_name`, the MCP automatically resolves the first stage of the destination desk (the stage with `first_stage: true`, or the one with the lowest index as a fallback), preventing invalid-stage errors.
 
@@ -457,7 +459,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `is_closed` (boolean, optional): Legacy status flag. Prefer `filter_by` for more granular control. `is_closed: true` = only closed; `is_closed: false` = only open.
 - `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Under `date_type="solved_in_time"`, "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
 - `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (**closing date** — also recorded on cancellation; cleared again on reopen). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
-- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).**
+- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).** The window's labels use the calendar of the offset `start_datetime` was written in (`-03:00` → Brasília; `Z`/plain date → UTC), so no out-of-range row appears at the edges.
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
@@ -543,16 +545,28 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 - **To COUNT/COMPARE/TREND** → use `get_tickets_comparison`. One MCP call, 2 API requests, answer in hundreds of tokens.
 - **To VIEW individual items** → use `list_tickets` without `group_by`.
 
-**Default comparison period:** If `compare_start_datetime`/`compare_end_datetime` are not provided, the comparison period is the immediately preceding period of the same duration (`compare_end = start_datetime − 1s`; same duration in ms). Provide only `start_datetime` and `end_datetime` and the comparison window is calculated automatically.
+**Default comparison period (calendar-aligned):** If `compare_start_datetime`/`compare_end_datetime` are not provided, the comparison period is the immediately preceding one with the **same number of days/weeks/months**, aligned to the calendar in the UTC offset you wrote `start_datetime` in (the offset is kept in the dates sent to the API):
+- `month`: start and end both shifted back N months (`2026-04-01..2026-09-30` → `2025-10-01..2026-03-31`); the end is shifted as `(end_datetime + 1s) − N months − 1s`, so a full-month window still ends at `start_datetime − 1s` and a partial window keeps the same length and number of months (`2026-09-01..2026-10-01T00:00` → `2026-07-01..2026-08-01T00:00`, not Jul 1–Aug 31). End-of-month is clamped, without rollover (Mar 31 − 1 month = Feb 28; May 31 − 3 months = Feb 28). Never overlaps the main period.
+- `week`: the whole window shifted back 7·N days (`W36–W40` → `W31–W35`), keeping the weekday even when the window starts mid-week.
+- `day`: the whole window shifted back N days (7 days → the 7 days before).
+- `desk`: same duration in ms (`compare_end = start_datetime − 1s`).
+
+**Fixed in v2.50.1:** the automatic window used the same duration in ms for every `group_by`, so a month/week window started inside a partial period (e.g. `2026-04..2026-09` compared against `2025-09-30..2026-03-31`, whose first label is the partial `2025-09`) and every row was paired with the wrong month.
 
 **Default `filter_by` by `date_type`:**
 - `created_at` (default): `filter_by="all"` — historical comparisons count all statuses (open, closed, cancelled).
 - `solved_in_time`: `filter_by="closed"` — comparisons by closing date assume resolved tickets; use `filter_by="all"` to include cancelled too (e.g., 358 closed + 31 cancelled = 389). This aligns with `list_tickets` so both tools return the same number for the same query.
 
+**Periods without tickets show up as 0 on both sides.** The API simply omits a period that had no ticket (it never returns `count: 0`) — without zero-filling, a gap in the middle of either period shifts every following row by one position, making the delta (Δ) wrong for the rest of the table. This tool fills every missing `day`/`week`/`month` bucket (not `desk`, which is matched by desk name instead) inside each period's own window before pairing the two sides, so a month/week/day with zero tickets always appears explicitly with `0`, in both the current and the comparison column.
+
+**Calendar frame of the period labels:** the expected day/week/month labels of both windows are derived in the same UTC offset you wrote `start_datetime` in — `-03:00` → Brasília calendar (the timezone the API groups by); `Z` or a plain date (`2026-01-01`, read as UTC by the API) → UTC calendar. So `2026-01-01`..`2026-03-31` (or `...Z`) gives exactly Jan/Feb/Mar paired with Oct/Nov/Dec, with no out-of-range row. If the API returns a real bucket outside the derived window (e.g., a ticket on Dec 31 at 22:00 Brasília time when the bounds are in `Z`), it is kept at the end of the table, never dropped.
+
+**Row labels — `current ↔ previous`:** day/week/month rows are paired by position, so each row shows both labels (`2026-05 ↔ 2025-11`) in the column `Período (atual ↔ anterior)`. When one side has fewer periods, the missing side is shown as `—` (`— ↔ 2026-W36` or `2026-05 ↔ —`). With the automatic comparison period both sides always have the same number of rows; this only happens when you pass explicit `compare_start_datetime`/`compare_end_datetime` covering a different number of periods — in that case the per-row Δ of the extra row is not meaningful, and the totals compare windows of different lengths (they are only comparable if your two windows have the same length). In `compact`, rows keep the current label (`2026-05:3/1`) and a row that exists only on the previous side is prefixed with `ant.` (`ant.2026-W36:0/2`). `desk` rows are matched by desk name and keep the plain name.
+
 **Parameters:**
 - `start_datetime` (string, required): Start of the main period (ISO 8601, e.g., "2026-01-01T00:00:00Z" or "2026-01-01T00:00:00-03:00")
 - `end_datetime` (string, required): End of the main period (ISO 8601, e.g., "2026-06-30T23:59:59Z")
-- `compare_start_datetime` (string, optional): Start of comparison period (ISO 8601). Must be provided with `compare_end_datetime` (complete pair). If omitted, the immediately preceding period of the same duration is used automatically.
+- `compare_start_datetime` (string, optional): Start of comparison period (ISO 8601). Must be provided with `compare_end_datetime` (complete pair). If omitted, the preceding period with the same number of days/weeks/months (calendar-aligned) is used automatically; `desk` uses the same duration.
 - `compare_end_datetime` (string, optional): End of comparison period (ISO 8601). Pair with `compare_start_datetime`.
 - `group_by` (string, optional): Granularity — "day", "week", "month" (temporal buckets) or "desk" (per-desk breakdown, useful for "which desk grew"). Default: "month".
 - `date_type` (string, optional): Time axis applied to both periods — "created_at" (creation date, default) or "solved_in_time" (closing/resolution date). Consistent across both calls automatically. Accepts timezone offsets beyond Z (e.g., `-03:00`).
@@ -566,7 +580,7 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 - `priority_ids` (string, optional): Comma-separated priority IDs (max 15). Passthrough.
 - `services_catalogs_item_ids` (string, optional): Comma-separated catalog item IDs (max 15). Passthrough.
 
-**Example — compare last 6 months vs the 6 before (automatic adjacent period):**
+**Example — compare last 6 months vs the 6 before (automatic calendar-aligned period: Jul–Dec 2025):**
 ```json
 {
   "start_datetime": "2026-01-01T00:00:00Z",
@@ -605,10 +619,10 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 |---|---|---|---|
 | **Total** | **15** | **12** | **+3 (+25%)** |
 
-| Período | Atual | Anterior | Δ | Δ% |
+| Período (atual ↔ anterior) | Atual | Anterior | Δ | Δ% |
 |---|---|---|---|---|
-| 2026-01 | 10 | 8 | +2 | +25% |
-| 2026-02 | 5 | 4 | +1 | +25% |
+| 2026-01 ↔ 2025-07 | 10 | 8 | +2 | +25% |
+| 2026-02 ↔ 2025-08 | 5 | 4 | +1 | +25% |
 
 *✅ Dados obtidos da API TiFlux em tempo real*
 ```
@@ -764,6 +778,8 @@ Get full details of a client by ID.
 **Parameters:**
 - `client_id` (number, required): Client ID (obtained via `search_client` or `list_clients`)
 - `show_entities` (boolean, optional): Include custom fields (entities) in the response (default: false)
+
+**Fixed in v2.50.1:** `Criado em`/`Atualizado em` now show in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
 
 **Example:**
 ```json
@@ -1229,6 +1245,8 @@ Get full details of a requestor of a client by ID (`GET /clients/{id}/requestors
 - `requestor_id` (number, required): Requestor ID (obtained via `list_requestors` or `search_requestor`)
 - `show_entities` (boolean, optional): Include custom fields (entities) in the response (default: false). When true, each field shows type, `required` flag (suffix `(obrigatório)`), `entity_field_id`, and — for `single_select`/`checkbox` types — the marked options with IDs and a hint to call `list_entity_field_options` for all available options.
 
+**Fixed in v2.50.1:** `Criado em`/`Atualizado em` now show in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
+
 **Example:**
 ```json
 {
@@ -1375,6 +1393,8 @@ Create a new internal communication in a ticket.
 
 > **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
 
+**Fixed in v2.50.1:** `Criada em` in the success response now shows the creation date/time in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
+
 **Example:**
 ```json
 {
@@ -1391,6 +1411,8 @@ List internal communications for a ticket.
 - `ticket_number` (string, required): Ticket number to list communications
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Communications per page (default: 20, max: 200)
+
+**Fixed in v2.50.1:** Each communication's date/time now shows in Brasília time (previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC).
 
 ### get_ticket_files
 Get all files attached to a specific ticket.
@@ -1534,7 +1556,7 @@ List the checklists (forms) of a ticket, with all fields and their fill state. U
 
 **Returns:**
 Per checklist:
-- Name, description, `required` (informational — whether the checklist is required for the client/catalog item), `pending` (whether a required field is missing — this blocks closure), creation and update dates.
+- Name, description, `required` (informational — whether the checklist is required for the client/catalog item), `pending` (whether a required field is missing — this blocks closure), creation and update dates (**fixed in v2.50.1:** now shown in Brasília time — previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC).
 
 Per field (`fields[]`):
 - `index`: the positional reference for the field (the only identifier — not persistent across changes)
@@ -1613,7 +1635,7 @@ List answers (communications with the client) of a specific ticket, paginated.
 
 **Returns:**
 Each answer includes:
-- Author name, date/time, origin (`agent`, `client`, etc.)
+- Author name, date/time (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone), origin (`agent`, `client`, etc.)
 - File count indicator
 - Preview of the content (first 200 characters)
 - Pagination info with hint for next page
@@ -1635,7 +1657,7 @@ Get the full detail of a specific answer from a ticket, including attached files
 - `answer_id` (integer, required): ID of the answer to retrieve
 
 **Returns:**
-- Full answer content (untruncated), author, date, origin
+- Full answer content (untruncated), author, date (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone), origin
 - Complete list of attached files with name, type, size and download URL
 
 **Example:**
@@ -1693,8 +1715,8 @@ List the event history (timeline) of a ticket, showing field changes, stage tran
 
 **Returns:**
 For each event:
-- Action description, user, date/time, event type and operation
-- Diff of changed fields with old → new values
+- Action description, user, date/time (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC), event type and operation
+- Diff of changed fields with old → new values. **Fixed in v2.50.1:** date-time values with a timezone (e.g. `changed_first_stage_at: "2026-10-01T15:28:17Z"`, or any column saved as `...000Z`) are shown in Brasília time (`01/10/2026, 12:28:17`; `compact`: short UTC ISO) instead of raw ISO — detected by the value, not the field name. Appointment time-of-day values (`init_time`/`end_time`) are `HH:MM` strings already in the organization's timezone and are shown as-is. Plain dates and other values are unchanged.
 
 **Example:**
 ```json
@@ -2333,7 +2355,7 @@ Accepts `desk_id` (direct) **or** `desk_name` (fuzzy, uses the same Smart Name R
 - **Atendimento**: appointment type, attendance type, permissions, cancelable tickets, feedback, e-mail settings, desk exchange
 - **SLA**: SLA active flag, SLA goal, can stop SLA, SLA time tracking
 - **Comportamento de tickets**: ticket review settings, reopening rules, time limits, billing behavior
-- **Campos obrigatorios no formulario**: required fields, service catalog requirements
+- **Campos obrigatorios no formulario**: service catalog requirements and the desk's `required_fields` — fields required on ticket opening **and** closing. The API returns a flat object of booleans; only the `true` keys are listed, with Portuguese labels: `requestor_name` → Nome do solicitante, `requestor_email` → E-mail do solicitante, `requestor_telephone` → Telefone do solicitante, `requestor_ramal` → Ramal do solicitante, `equipment_id` → Grupo de recurso, `attachment_file` → Anexo (unknown/legacy keys, e.g. `services_catalog_id`, appear with the raw name). No `true` key → `Nenhum`; `null` → line omitted. **Fixed in v2.50.1:** previously shown as `[object Object]`.
 
 **Example:**
 ```json
@@ -2482,7 +2504,7 @@ List knowledge base articles with optional search and folder filters. Returns a 
 - `limit` (number, optional): Results per page (default: 20, max: 200).
 - `offset` (number, optional): Page number (default: 1).
 
-**Returns:** Markdown table with columns `ID | Titulo | Privado | Pastas | Tags | Atualizado`.
+**Returns:** Markdown table with columns `ID | Titulo | Privado | Pastas | Tags | Atualizado` (**fixed in v2.50.1:** `Atualizado` now shows the Brasília-time date — previously used the host process's timezone).
 
 **Example:**
 ```json
@@ -2510,7 +2532,7 @@ Fetch the full detail of a knowledge base article by ID. The `description` body 
 **Parameters:**
 - `knowledge_id` (number, required): ID of the knowledge article (obtained from `list_knowledges`).
 
-**Returns:** Article detail with title, visibility, tags, creation/update dates, and the full body in Markdown.
+**Returns:** Article detail with title, visibility, tags, creation/update dates (**fixed in v2.50.1:** Brasília-time dates — previously used the host process's timezone), and the full body in Markdown.
 
 **Note on links:** the HTML→Markdown conversion is not a general-purpose HTML sanitizer (final sanitization is the MCP client renderer's responsibility), but it does neutralize the one vector that survives conversion: links and images with an executable URI scheme (`javascript:`, `vbscript:`, and `data:` for links) lose the URL and keep only the visible text/alt. Regular `http(s)` links and inline `data:image/...` images are preserved.
 
@@ -3008,7 +3030,7 @@ List pre-tickets of the organization. Pre-tickets are service requests in a pre-
 | `limit` | number | no | 20 | Results per page (max: 200) |
 | `offset` | number | no | 1 | Page number |
 
-**Returns:** Markdown table `ID | Título | Cliente | Solicitante | Criado em` with pagination footer. Empty list returns a message with guidance.
+**Returns:** Markdown table `ID | Título | Cliente | Solicitante | Criado em` with pagination footer. Empty list returns a message with guidance. **Fixed in v2.50.1:** `Criado em` now shows the Brasília-time date — previously used the host process's timezone.
 
 **Example:**
 ```json
@@ -3402,6 +3424,8 @@ The fallback returns only the **highest-scoring group** of matches — so single
 - If exactly **1 desk** matches → auto-resolved, request proceeds normally.
 - If **multiple desks** match at the same score → returns a list so you can be more specific or use `desk_id` directly.
 - If **no match** → returns a clear error message.
+
+**Fixed in v2.50.1 — exact name wins over a noisier partial match:** the direct search (step 1 above) matches `name` **or** `display_name` as a substring (e.g. `desk_name="Suporte"` also matches a desk named `"Suporte N2"`), which used to make a perfectly exact name ambiguous whenever a similarly-named desk existed. Now, when the direct search returns more than 1 desk, the MCP checks for an exact match (case/accent-insensitive) against `name` or `display_name`: if **exactly one** candidate matches exactly, that one is used directly — no disambiguation needed. If 0 or 2+ candidates match exactly, the behavior is unchanged (the full candidate list is returned for disambiguation).
 
 This applies to: `create_ticket`, `update_ticket`, `list_tickets`, `search_stage`, `search_catalog_item`, `get_desk`, `list_desk_priorities`, and `list_desk_services_catalogs`.
 

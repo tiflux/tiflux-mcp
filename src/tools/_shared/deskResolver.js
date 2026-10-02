@@ -44,12 +44,32 @@ const { resolveEntityByName } = require('./entityResolver');
  * @param {string} deskName - nome (parcial ou exato) da mesa
  */
 async function smartSearchDesks(api, deskName) {
-  const { fuzzyMatchItems } = require('./fuzzyMatch');
+  const { fuzzyMatchItems, normalizeText } = require('./fuzzyMatch');
 
   const directResult = await api.searchDesks(deskName);
 
-  // Propaga erro ou retorna direto se ha resultados
+  // Propaga erro
   if (directResult.error) return directResult;
+
+  // Desempate por match exato unico (BL-030): a busca direta da API e
+  // substring (ILIKE '%termo%' em name OU display_name, ver desks_controller.rb
+  // na analise da spec) — "Suporte" traz "Suporte" e "Suporte N2" juntos, e o
+  // branching de entityResolver.js trata qualquer lista com >1 item como
+  // ambigua. Se exatamente 1 candidato tem name OU display_name igual ao termo
+  // (normalizado: trim + lowercase + sem acento, a mesma equivalencia usada
+  // pela API), devolve so ele. 0 ou 2+ matches exatos: segue ambiguo (lista
+  // original, sem decisao arbitraria).
+  if (directResult.data && directResult.data.length > 1) {
+    const normDeskName = normalizeText(deskName);
+    const exactMatches = directResult.data.filter(d =>
+      normalizeText(d.name) === normDeskName || normalizeText(d.display_name) === normDeskName
+    );
+    if (exactMatches.length === 1) {
+      return { data: exactMatches, status: directResult.status };
+    }
+  }
+
+  // Retorna direto se ha resultados (unico, ou ambiguo sem match exato unico)
   if (directResult.data && directResult.data.length > 0) return directResult;
 
   // Fallback: buscar TODAS as mesas ativas (paginado) e aplicar fuzzy matching

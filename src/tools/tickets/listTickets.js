@@ -39,6 +39,7 @@ const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
+const { zeroFillTemporalBuckets } = require('../_shared/temporalBuckets');
 const { slugToNumber, validSlugs } = require('./createdByWayOf');
 
 // Contrato de GET /tickets (Swagger): services_catalogs_item_ids e priority_ids aceitam
@@ -181,67 +182,6 @@ function ticketRichBlock(ticket, index) {
 function capFilterIds(csv) {
   const ids = [...new Set(String(csv).split(',').map(s => s.trim()).filter(Boolean))];
   return { ids: ids.slice(0, MAX_FILTER_IDS).join(','), capped: ids.length > MAX_FILTER_IDS, total: ids.length };
-}
-
-/**
- * Preenche periodos faltantes num array de buckets temporais com contagem 0.
- * Aplica-se apenas a group_by 'month' e 'day' quando start/end sao informados
- * e ha pelo menos 1 bucket (evita gerar tabela enorme para range sem dados).
- * 'week' e 'desk' retornam o array original.
- */
-function zeroFillTemporalBuckets(buckets, startDateStr, endDateStr, groupBy) {
-  if (!startDateStr || !endDateStr || !buckets || buckets.length === 0) return buckets;
-  if (groupBy !== 'month' && groupBy !== 'day') return buckets;
-
-  const existingMap = new Map(buckets.map(b => [String(b.period), b.count]));
-  const expected = [];
-
-  const start = new Date(startDateStr);
-  const end = new Date(endDateStr);
-
-  // Loops dirigidos por contador (nao por mutacao de Date na condicao): o passo do
-  // periodo e derivado do indice, o que mantem o fim do loop explicitamente
-  // invariante-livre. Datas invalidas produzem NaN e o loop simplesmente nao roda.
-  if (groupBy === 'month') {
-    const startYear = start.getUTCFullYear();
-    const startMonth = start.getUTCMonth();
-    const monthSpan = (end.getUTCFullYear() - startYear) * 12 + (end.getUTCMonth() - startMonth);
-    for (let i = 0; i <= monthSpan; i++) {
-      // Date.UTC normaliza overflow de mes (ex: mes 13 → jan do ano seguinte)
-      const cur = new Date(Date.UTC(startYear, startMonth + i, 1));
-      const y = cur.getUTCFullYear();
-      const m = String(cur.getUTCMonth() + 1).padStart(2, '0');
-      expected.push(`${y}-${m}`);
-    }
-  } else if (groupBy === 'day') {
-    const DAY_MS = 24 * 60 * 60 * 1000;
-    const startDayUtc = Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
-    const endDayUtc = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-    // Safety: limit day zero-fill to 366 days to avoid enormous tables
-    const daySpan = Math.min(Math.floor((endDayUtc - startDayUtc) / DAY_MS), 365);
-    for (let i = 0; i <= daySpan; i++) {
-      const cur = new Date(startDayUtc + i * DAY_MS);
-      const y = cur.getUTCFullYear();
-      const mo = String(cur.getUTCMonth() + 1).padStart(2, '0');
-      const d = String(cur.getUTCDate()).padStart(2, '0');
-      expected.push(`${y}-${mo}-${d}`);
-    }
-  }
-
-  if (expected.length === 0) return buckets;
-
-  const filled = expected.map(period => ({ period, count: existingMap.get(period) ?? 0 }));
-
-  // Nunca descartar bucket que a API devolveu: se algum periodo real cair fora da
-  // faixa derivada (ex: rotulo em fuso diferente do usado no calculo), ele e
-  // preservado no fim da lista em vez de desaparecer da tabela.
-  const expectedSet = new Set(expected);
-  const extras = buckets.filter(b => !expectedSet.has(String(b.period)));
-  if (extras.length > 0) {
-    return [...filled, ...extras.map(b => ({ period: String(b.period), count: b.count }))];
-  }
-
-  return filled;
 }
 
 /**

@@ -13,7 +13,7 @@ const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
-const { pagination } = require('../_shared/format');
+const { pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const RESOURCE_LABEL = 'checklists';
@@ -67,20 +67,22 @@ function resolveRadioOption(value, options) {
 }
 
 /**
- * Formata um timestamp da API em pt-BR, tolerando ausência E valor malformado.
+ * Formata um timestamp da API em horario de Brasilia, tolerando ausência E
+ * valor malformado.
  *
  * Sem a guarda de `Number.isNaN(d.getTime())`, uma string não-nula inválida
  * (ex: `'not-a-date'`) renderizaria o literal "Invalid Date" ao usuário —
  * aqui cai no mesmo placeholder de ausente ('—').
  *
  * @param {string|null|undefined} value
+ * @param {string} [verbosity]
  * @returns {string}
  */
-function formatTimestamp(value) {
+function formatTimestamp(value, verbosity) {
   if (value === null || value === undefined || value === '') return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('pt-BR');
+  return dateTime(value, verbosity);
 }
 
 /**
@@ -166,8 +168,8 @@ function formatChecklistsList(ticketNumber, checklists, offset, limit, total, ve
     const description = cl.description || null;
     const required = cl.required === true ? '⭕ obrigatório' : 'opcional';
     const pending = cl.pending === true ? '🚫 **pendente — bloqueia fechamento**' : '✅ sem pendências';
-    const createdAt = formatTimestamp(cl.created_at);
-    const updatedAt = formatTimestamp(cl.updated_at);
+    const createdAt = formatTimestamp(cl.created_at, verbosity);
+    const updatedAt = formatTimestamp(cl.updated_at, verbosity);
 
     text += `### ${idx + 1}. ${name}\n`;
     if (description) text += `*${description}*\n`;

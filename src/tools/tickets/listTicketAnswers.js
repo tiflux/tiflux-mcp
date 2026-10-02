@@ -10,7 +10,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
-const { footer, pagination } = require('../_shared/format');
+const { footer, pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -35,9 +35,7 @@ function formatAnswersList(ticketNumber, answers, offset, limit, verbosity) {
   answers.forEach((answer, index) => {
     const answerId = answer.id || 'N/A';
     const authorName = answer.author || 'Autor não informado';
-    const answerTime = answer.answer_time
-      ? new Date(answer.answer_time).toLocaleString('pt-BR')
-      : 'Data não informada';
+    const answerTime = answer.answer_time ? dateTime(answer.answer_time, verbosity) : 'Data não informada';
     const origin = answer.answer_origin || 'origem não informada';
 
     let preview = '';

@@ -9,7 +9,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
-const { footer } = require('../_shared/format');
+const { footer, dateTime } = require('../_shared/format');
 
 const schema = {
   name: 'get_ticket_answer',
@@ -61,9 +61,7 @@ async function execute(args, { api, verbosity }) {
     const answer = response.data;
 
     const authorName = answer.author || 'Autor não informado';
-    const answerTime = answer.answer_time
-      ? new Date(answer.answer_time).toLocaleString('pt-BR')
-      : 'Data não informada';
+    const answerTime = answer.answer_time ? dateTime(answer.answer_time, verbosity) : 'Data não informada';
     const origin = answer.answer_origin || 'origem não informada';
 
     const content = answer.name

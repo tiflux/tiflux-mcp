@@ -17,6 +17,7 @@ const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
+const { dateTime } = require('../_shared/format');
 
 const MAX_FILES = 10;
 
@@ -94,7 +95,7 @@ async function execute(args, { api }) {
       `**Ticket:** #${ticket_number}\n` +
       `**ID da Comunicação:** ${communication.id}\n` +
       `**Autor:** ${communication.user?.name || 'Usuário não informado'}\n` +
-      `**Criada em:** ${communication.created_at}\n` +
+      `**Criada em:** ${dateTime(communication.created_at)}\n` +
       `**Conteúdo:** ${communicationText}${communicationText.length >= 200 ? '...' : ''}\n` +
       `${filesInfo}\n` +
       `*✅ Comunicação interna adicionada via API TiFlux*`

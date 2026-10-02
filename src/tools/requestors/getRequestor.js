@@ -8,7 +8,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer } = require('../_shared/format');
+const { footer, dateTime } = require('../_shared/format');
 const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
@@ -57,8 +57,8 @@ function formatRequestor(requestor, verbosity) {
     });
   }
 
-  if (requestor.created_at) text += `\n**Criado em:** ${requestor.created_at}\n`;
-  if (requestor.updated_at) text += `**Atualizado em:** ${requestor.updated_at}\n`;
+  if (requestor.created_at) text += `\n**Criado em:** ${dateTime(requestor.created_at, verbosity)}\n`;
+  if (requestor.updated_at) text += `**Atualizado em:** ${dateTime(requestor.updated_at, verbosity)}\n`;
 
   text += `\n${footer(verbosity)}`;
   return text;

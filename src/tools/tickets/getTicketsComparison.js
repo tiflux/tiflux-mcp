@@ -8,9 +8,11 @@
  * Nome deliberado: o orquestrador do Assistente IA filtra tools por prefixo
  * de leitura (list_, get_, search_) — get_ passa; compare_ seria filtrado fora.
  *
- * Período de comparação default: imediatamente anterior de mesma duração
- * (compare_end = start − 1s; compare_start = compare_end − duração).
- * Sem snapping de calendário.
+ * Período de comparação default:
+ *  - day/week/month: imediatamente anterior com o MESMO NÚMERO de dias/semanas/
+ *    meses, alinhado ao calendário (`previousCalendarPeriod`) — Fase 4 da spec
+ *    correcoes-dado-silencioso (mesma duração em ms desalinhava os meses);
+ *  - desk: imediatamente anterior de mesma duração (`previousPeriod`).
  *
  * filter_by default:
  *   - created_at: 'all' (inclui abertos, fechados e cancelados — ideal para períodos passados)
@@ -26,8 +28,9 @@ const { errorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { footer } = require('../_shared/format');
-const { previousPeriod, validatePeriod } = require('../_shared/periodMath');
+const { previousPeriod, previousCalendarPeriod, validatePeriod } = require('../_shared/periodMath');
 const { capIds, calcDelta, formatDeltaStr } = require('../_shared/reportMath');
+const { zeroFillTemporalBuckets } = require('../_shared/temporalBuckets');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
 
@@ -41,9 +44,11 @@ const schema = {
   name: 'get_tickets_comparison',
   description: `Compara a CONTAGEM de tickets entre dois períodos numa única chamada (2 requests à API, sem paginar nem listar itens). Use para "compare X vs Y", "evolução", "tendência comparativa". Para VER itens, use list_tickets sem group_by.
 
-- Sem compare_start_datetime/compare_end_datetime → período imediatamente anterior de mesma duração (compare_end = start_datetime − 1s).
+- Sem compare_start_datetime/compare_end_datetime → período imediatamente anterior com o mesmo número de dias/semanas/meses, alinhado ao calendário (ex.: abr–set → out–mar); group_by="desk" → mesma duração (compare_end = start_datetime − 1s).
+- Linhas de day/week/month pareiam por posição e mostram os dois rótulos ("2026-05 ↔ 2025-11"); lado sem período correspondente aparece como "—" (só acontece com compare_* de comprimento diferente).
 - filter_by padrão: "all" com created_at; "closed" com solved_in_time — mesmo número que list_tickets para a mesma pergunta.
 - group_by="desk" alinha por nome de mesa ("qual mesa cresceu").
+- Períodos sem ticket (day/week/month) aparecem com 0 nos dois lados — a API omite o período sem ticket, e sem esse preenchimento um mês/semana/dia faltando no meio deslocaria o Δ de todas as linhas seguintes.
 
 Exemplos: "últimos 6 meses vs os 6 anteriores" → só start/end; "mesa X por mês, 1º vs 2º semestre" → group_by="month" + desk_name; "qual mesa mais cresceu em fechados, trimestre vs anterior" → group_by="desk" + date_type="solved_in_time".`,
   inputSchema: {
@@ -59,7 +64,7 @@ Exemplos: "últimos 6 meses vs os 6 anteriores" → só start/end; "mesa X por m
       },
       compare_start_datetime: {
         type: 'string',
-        description: 'Início do período de comparação (ISO 8601). Opcional (padrão na descrição da tool). Informe junto com compare_end_datetime (par completo).'
+        description: 'Início do período de comparação (ISO 8601). Opcional — padrão: período anterior com o mesmo número de dias/semanas/meses, alinhado ao calendário; desk = mesma duração. Informe junto com compare_end_datetime (par completo).'
       },
       compare_end_datetime: {
         type: 'string',
@@ -119,8 +124,10 @@ Exemplos: "últimos 6 meses vs os 6 anteriores" → só start/end; "mesa X por m
 
 /**
  * Alinha buckets temporais (day/week/month) por índice ordinal.
- * Lado menor preenchido com 0/—.
- * Retorna array de { period, current, previous }.
+ * Lado menor preenchido com 0; rótulo do lado faltante = null.
+ * Retorna array de { period (atual), previousPeriod (anterior), current, previous }
+ * — os 2 rótulos ficam explícitos porque o casamento é por posição (Fase 4:
+ * a linha que sobrava herdava o rótulo do anterior e duplicava "2026-W36").
  */
 function alignTemporalBuckets(currentBuckets, previousBuckets) {
   const curr = [...currentBuckets].sort((a, b) => String(a.period).localeCompare(String(b.period)));
@@ -129,7 +136,8 @@ function alignTemporalBuckets(currentBuckets, previousBuckets) {
   const rows = [];
   for (let i = 0; i < len; i++) {
     rows.push({
-      period: curr[i]?.period ?? prev[i]?.period ?? `—`,
+      period: curr[i]?.period ?? null,
+      previousPeriod: prev[i]?.period ?? null,
       current: curr[i]?.count ?? 0,
       previous: prev[i]?.count ?? 0
     });
@@ -156,6 +164,24 @@ function alignDeskBuckets(currentBuckets, previousBuckets) {
   }
   rows.sort((a, b) => b.current - a.current);
   return rows;
+}
+
+/** Célula de rótulo (rich): desk = nome da mesa; temporal = "atual ↔ anterior". */
+function richRowLabel(row, isDesk) {
+  if (isDesk) return row.period;
+  return `${row.period ?? '—'} ↔ ${row.previousPeriod ?? '—'}`;
+}
+
+/** Rótulo compact: o do período atual; linha só do anterior vira "ant.<rótulo>". */
+function compactRowLabel(row) {
+  if (row.period != null) return row.period;
+  return `ant.${row.previousPeriod}`;
+}
+
+/** Período de comparação padrão (sem compare_*): calendário p/ temporal, duração p/ desk. */
+function defaultComparePeriod(startIso, endIso, groupBy) {
+  if (groupBy === 'desk') return previousPeriod(startIso, endIso);
+  return previousCalendarPeriod(startIso, endIso, groupBy, { offsetFrom: startIso });
 }
 
 async function execute(args, { api, verbosity, logger }) {
@@ -232,7 +258,7 @@ async function execute(args, { api, verbosity, logger }) {
     compareStart = compare_start_datetime;
     compareEnd = compare_end_datetime;
   } else {
-    const prev = previousPeriod(start_datetime, end_datetime);
+    const prev = defaultComparePeriod(start_datetime, end_datetime, group_by);
     compareStart = prev.start;
     compareEnd = prev.end;
   }
@@ -379,10 +405,30 @@ async function execute(args, { api, verbosity, logger }) {
   }
 
   // --- Alinhar buckets ---
+  // Zero-fill ANTES de alinhar por ordinal: cada lado e zerado na propria janela
+  // (atual: start_datetime..end_datetime; comparacao: compareStart..compareEnd),
+  // nao por chave — os 2 periodos tem rotulos diferentes (ex.: "2026-03" x
+  // "2025-03"). Sem isso, um mes sem ticket no meio de um lado some da API (nao
+  // volta com count:0) e todas as linhas seguintes escorregam uma posicao (BL-015).
+  // `fillEmpty: true`: um periodo inteiro sem ticket tambem precisa sair zerado
+  // (ja passou pelo diagnostico de "ambos vazios" acima). `desk` fica de fora:
+  // alignDeskBuckets ja casa por nome de mesa, nao por posicao.
   const isDesk = group_by === 'desk';
+  const filledCurrentBuckets = isDesk
+    ? currentBuckets
+    : zeroFillTemporalBuckets(currentBuckets, start_datetime, end_datetime, group_by, { fillEmpty: true, offsetFrom: start_datetime });
+  const filledCompareBuckets = isDesk
+    ? compareBuckets
+    : zeroFillTemporalBuckets(compareBuckets, compareStart, compareEnd, group_by, {
+      fillEmpty: true,
+      // Mesmo quadro de calendario da janela atual: previousCalendarPeriod ja
+      // devolve no offset escrito, mas compare_* informado pode vir em outro fuso;
+      // sem isso os 2 lados seriam rotulados em quadros diferentes (Δ deslocado).
+      offsetFrom: start_datetime
+    });
   const rows = isDesk
     ? alignDeskBuckets(currentBuckets, compareBuckets)
-    : alignTemporalBuckets(currentBuckets, compareBuckets);
+    : alignTemporalBuckets(filledCurrentBuckets, filledCompareBuckets);
 
   const { delta: totalDelta, deltaPercent: totalDeltaPct } = calcDelta(currentTotal, compareTotal);
 
@@ -392,7 +438,7 @@ async function execute(args, { api, verbosity, logger }) {
   // --- Formatters ---
   if (v === 'compact') {
     const deltaStr = formatDeltaStr(totalDelta, totalDeltaPct);
-    const bucketsStr = rows.map(r => `${r.period}:${r.current}/${r.previous}`).join(' · ');
+    const bucketsStr = rows.map(r => `${compactRowLabel(r)}:${r.current}/${r.previous}`).join(' · ');
     const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
     const line1 = `Comparação por ${unitLabel}${dtSuffix}: atual ${currentTotal} vs anterior ${compareTotal} → Δ ${deltaStr}`;
     const line2 = bucketsStr ? `Buckets (atual/anterior): ${bucketsStr}` : '';
@@ -407,14 +453,14 @@ async function execute(args, { api, verbosity, logger }) {
   out += `| | Período atual | Período anterior | Δ |\n|---|---|---|---|\n`;
   out += `| **Total** | **${currentTotal}** | **${compareTotal}** | **${deltaStr}** |\n\n`;
 
-  const colLabel = isDesk ? 'Mesa' : 'Período';
+  const colLabel = isDesk ? 'Mesa' : 'Período (atual ↔ anterior)';
   out += `| ${colLabel} | Atual | Anterior | Δ | Δ% |\n|---|---|---|---|---|\n`;
   for (const row of rows) {
     const { delta, deltaPercent } = calcDelta(row.current, row.previous);
     const sign = delta >= 0 ? '+' : '';
     const pctStr = deltaPercent === 'novo' ? 'novo' : `${sign}${deltaPercent}%`;
     const deltaCell = `${sign}${delta}`;
-    out += `| ${row.period} | ${row.current} | ${row.previous} | ${deltaCell} | ${pctStr} |\n`;
+    out += `| ${richRowLabel(row, isDesk)} | ${row.current} | ${row.previous} | ${deltaCell} | ${pctStr} |\n`;
   }
 
   const footerStr = footer(v);
