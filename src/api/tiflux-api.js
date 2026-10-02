@@ -2196,6 +2196,25 @@ class TiFluxAPI {
   }
 
   /**
+   * Cria uma nova pasta de conhecimento.
+   * POST /knowledge-folders
+   *
+   * So transporte: body → makeRequest POST (guardrail BE-003).
+   * Logica (campo obrigatorio, formatacao) vive no slice.
+   *
+   * @param {object} body - { title (obrigatorio), description?, icon?, tags? }
+   * @returns {Promise<{data, status, error}>}
+   */
+  async createKnowledgeFolder(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest('/knowledge-folders', 'POST', jsonData, headers);
+  }
+
+  /**
    * Atualiza parcialmente uma pasta de conhecimento existente.
    * PUT /knowledge-folders/{id}
    *

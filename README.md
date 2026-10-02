@@ -2489,7 +2489,7 @@ Use the `id` as `department_id` in `list_inbox_chats`, `list_my_chats`, `list_in
 
 Search and manage the organization's knowledge base articles. Without the "Gerenciar base de conhecimento" permission, only public articles and those from the user's attendant group are returned.
 
-**API limitations (v2):** There is no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`). To edit an existing article, use `update_knowledge`. To archive an article (soft-delete: content and versions are kept, but it can only be restored in the TiFlux app), use `delete_knowledge`. There is no versions endpoint — the API only exposes `created_at`/`updated_at`; sending `description` via `update_knowledge` creates a new version, but past versions cannot be listed, compared, or restored via MCP. Folders cannot be created via the API (no `POST /knowledge-folders`) or deleted via MCP (`DELETE /knowledge-folders/{id}` exists in the API but is intentionally out of scope: it is a **hard delete** — the folder is removed for good, articles that were only in it are archived, and it is unlinked from any AI Agents that used it as a knowledge source; only the organization's default folder is protected); `update_knowledge_folder` can only edit existing folders.
+**API limitations (v2):** There is no endpoint for uploading images or attachments; images must be embedded by URL (Markdown `![alt](url)`). To edit an existing article, use `update_knowledge`. To archive an article (soft-delete: content and versions are kept, but it can only be restored in the TiFlux app), use `delete_knowledge`. There is no versions endpoint — the API only exposes `created_at`/`updated_at`; sending `description` via `update_knowledge` creates a new version, but past versions cannot be listed, compared, or restored via MCP. Folders can be created via `create_knowledge_folder` and edited via `update_knowledge_folder`, but cannot be deleted via MCP (`DELETE /knowledge-folders/{id}` exists in the API but is intentionally out of scope: it is a **hard delete** — the folder is removed for good, articles that were only in it are archived, and it is unlinked from any AI Agents that used it as a knowledge source; only the organization's default folder is protected).
 
 ### list_knowledges
 List knowledge base articles with optional search and folder filters. Returns a Markdown table with ID, title, visibility, folders, tags, and last updated date.
@@ -2655,6 +2655,42 @@ Partially update an existing knowledge base folder (title, description, icon, ta
 **Errors:**
 - `403`: Missing the "Gerenciar conhecimento" permission.
 - `404`: Folder not found, or belongs to another organization.
+- `422`: Validation error (empty/too-long title, non-emoji icon, tag with comma, tags total over 255 chars) — the API's error detail is shown in the response.
+
+### create_knowledge_folder
+Create a new knowledge base folder. Requires the "Gerenciar conhecimento" permission. The folder always starts empty — use `create_knowledge` with `knowledge_folder_ids` to publish articles into it.
+
+**Required fields:**
+- `title` (string): Folder title (max 255 chars; empty string rejected by the API).
+
+**Optional fields:**
+- `description` (string): Folder description. **Plain text** — unlike `create_knowledge`, this field does not accept Markdown/HTML conversion.
+- `icon` (string): A single emoji (e.g. `"🚀"`). Empty string (`""`) or more than one emoji is rejected by the API (422).
+- `tags` (array of strings): Tags must not contain commas; the combined length (including separator commas) must not exceed 255 chars.
+
+**Returns:** Confirmation with the new folder's ID, title, icon, tags, description, and article count (always `0` — a new folder is always empty).
+
+**Example:**
+```json
+{ "title": "Rede e VPN", "icon": "🚀", "tags": ["rede", "VPN"] }
+```
+
+**Example response:**
+```
+**Pasta de conhecimento #15 criada**
+
+**ID:** 15
+**Titulo:** Rede e VPN
+**Icone:** 🚀
+**Tags:** rede, VPN
+**Descricao:** —
+**Artigos:** 0
+
+*Pasta criada vazia — use create_knowledge com knowledge_folder_ids: [15] para publicar artigos nela.*
+```
+
+**Errors:**
+- `403`: Missing the "Gerenciar conhecimento" permission.
 - `422`: Validation error (empty/too-long title, non-emoji icon, tag with comma, tags total over 255 chars) — the API's error detail is shown in the response.
 
 ### list_knowledge_folders
@@ -3853,6 +3889,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /knowledge-folders/{id}` - Fetch full detail of a knowledge folder by ID (`get_knowledge_folder`). Returns title, description, icon, tags, total article count, and list of visible articles
 - `PUT /knowledge-folders/{id}` - Partially update an existing knowledge folder: title, description, icon, tags (`update_knowledge_folder`). Only fields provided are sent. `icon: null` explicitly clears the folder's icon (distinct from omitting the field, which preserves it). Does not alter the folder's articles. Requires "Gerenciar conhecimento" permission
 - `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
+- `POST /knowledge-folders` - Create a new knowledge base folder (`create_knowledge_folder`). Required: `title`. Optional: `description`, `icon`, `tags`. The new folder always starts empty (`qty_knowledges: 0`). Requires "Gerenciar conhecimento" permission
 - `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract plus `kind` (`"contract"` | `"contract_group"`); secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`). Inactive records never appear, regardless of `status`.
 - `GET /contract-groups/{id}` - Get the detail of a contract group (modality Shared), including its member contracts (`get_contract_group`). Unlike `list_contracts`, monetary values are **not** masked without the "Visualizar valores dos tickets" permission. Requires "Visualizar contratos" permission + Tickets License.
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
