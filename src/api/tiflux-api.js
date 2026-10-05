@@ -1382,10 +1382,11 @@ class TiFluxAPI {
   async listTechnicalGroups(filters = {}) {
     const params = new URLSearchParams();
     const offset = Math.max(1, parseInt(filters.offset) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 100));
+    const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
     params.append('offset', offset);
     params.append('limit', limit);
-    return await this.makeRequest(`/technical-groups?${params.toString()}`);
+    const response = await this.makeRequest(`/technical-groups?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**
@@ -1401,7 +1402,119 @@ class TiFluxAPI {
     const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 200));
     params.append('offset', offset);
     params.append('limit', limit);
-    return await this.makeRequest(`/technical-groups/${groupId}/users?${params.toString()}`);
+    const response = await this.makeRequest(`/technical-groups/${groupId}/users?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Busca detalhe de um grupo de atendentes (expedientes, compromisso, opcionalmente departamentos).
+   * GET /technical-groups/{id}
+   *
+   * So transporte (BE-003): `show_departments` so entra na query quando pedido
+   * (default da API ja e false). Sem schema formal na Swagger (so `example`) —
+   * o slice deve ser defensivo com campos ausentes.
+   *
+   * @param {number|string} id
+   * @param {object} [options]
+   * @param {boolean} [options.showDepartments]
+   */
+  async getTechnicalGroup(id, { showDepartments } = {}) {
+    const params = new URLSearchParams();
+    if (showDepartments) params.append('show_departments', 'true');
+    const query = params.toString();
+    const suffix = query ? `?${query}` : '';
+    return await this.makeRequest(`/technical-groups/${encodeURIComponent(id)}${suffix}`);
+  }
+
+  /**
+   * Lista as mesas relacionadas a um grupo de atendentes.
+   * GET /technical-groups/{id}/desks
+   * So transporte (BE-003): clamp de offset/limit, surface do total (X-Total-Items).
+   *
+   * @param {number|string} id
+   * @param {object} [filters] - { offset, limit }
+   */
+  async listTechnicalGroupDesks(id, filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, Number.parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, Number.parseInt(filters.limit) || 20)));
+    const response = await this.makeRequest(`/technical-groups/${encodeURIComponent(id)}/desks?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Lista os clientes relacionados a um grupo de atendentes.
+   * GET /technical-groups/{id}/clients
+   * So transporte (BE-003): clamp de offset/limit, surface do total (X-Total-Items).
+   *
+   * @param {number|string} id
+   * @param {object} [filters] - { offset, limit }
+   */
+  async listTechnicalGroupClients(id, filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, Number.parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, Number.parseInt(filters.limit) || 20)));
+    const response = await this.makeRequest(`/technical-groups/${encodeURIComponent(id)}/clients?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Lista os grupos de permissoes da organizacao.
+   * GET /role-groups
+   * So transporte (BE-003): clamp de offset/limit, surface do total (X-Total-Items).
+   *
+   * @param {object} [filters] - { offset, limit }
+   */
+  async listRoleGroups(filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, Number.parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, Number.parseInt(filters.limit) || 20)));
+    const response = await this.makeRequest(`/role-groups?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Busca detalhe de um grupo de permissoes, incluindo `roles[]` (permissoes concedidas).
+   * GET /role-groups/{id}
+   *
+   * @param {number|string} id
+   */
+  async getRoleGroup(id) {
+    return await this.makeRequest(`/role-groups/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Lista os usuarios de um grupo de permissoes, com filtro opcional por email.
+   * GET /role-groups/{id}/users
+   * So transporte (BE-003): clamp de offset/limit, `email` so entra na query quando
+   * informado, surface do total (X-Total-Items).
+   *
+   * @param {number|string} id
+   * @param {object} [filters] - { email, offset, limit }
+   */
+  async listRoleGroupUsers(id, filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, Number.parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, Number.parseInt(filters.limit) || 20)));
+    if (filters.email != null && filters.email !== '') params.append('email', filters.email);
+    const response = await this.makeRequest(`/role-groups/${encodeURIComponent(id)}/users?${params.toString()}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Lista os grupos de atendentes vinculados a um grupo de permissoes.
+   * GET /role-groups/{id}/technical-groups
+   * So transporte (BE-003): clamp de offset/limit, surface do total (X-Total-Items).
+   *
+   * @param {number|string} id
+   * @param {object} [filters] - { offset, limit }
+   */
+  async listRoleGroupTechnicalGroups(id, filters = {}) {
+    const params = new URLSearchParams();
+    params.append('offset', Math.max(1, Number.parseInt(filters.offset) || 1));
+    params.append('limit', Math.min(200, Math.max(1, Number.parseInt(filters.limit) || 20)));
+    const response = await this.makeRequest(`/role-groups/${encodeURIComponent(id)}/technical-groups?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**

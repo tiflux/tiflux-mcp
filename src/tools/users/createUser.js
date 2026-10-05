@@ -36,7 +36,7 @@ const schema = {
       },
       technical_group_id: {
         type: 'number',
-        description: 'ID do grupo técnico ao qual o usuário será vinculado (obrigatório se technical_group_name não informado)'
+        description: 'ID do grupo técnico ao qual o usuário será vinculado (obrigatório se technical_group_name não informado). Use list_technical_groups para descobrir o id.'
       },
       technical_group_name: {
         type: 'string',

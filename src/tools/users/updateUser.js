@@ -47,7 +47,7 @@ const schema = {
       },
       technical_group_id: {
         type: 'number',
-        description: 'ID do novo grupo técnico (opcional)'
+        description: 'ID do novo grupo técnico (opcional). Use list_technical_groups para descobrir o id.'
       },
       technical_group_name: {
         type: 'string',

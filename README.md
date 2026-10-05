@@ -160,6 +160,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
 - **Faturamentos**: consultar o histórico de faturamentos da organização com filtros por período de emissão, vencimento, cliente (por ID ou nome), NFe, ticket e situação (`get_billings_history`); exige permissão "Faturar serviços avulsos e contratos" e licença Tickets
 - **Catálogo de serviços (CRUD)**: criar, listar, atualizar e remover catálogos, áreas e itens de catálogo nos três níveis da hierarquia (catálogo → área → item); remoção em cascata com contagem pre-flight informativa (não é gate: não há confirmação nem dry-run); resolução automática de nome em todos os níveis (`services_catalog_name`, `area_name`); requer role `service_catalogs_manage`
+- **Estrutura da organização (somente leitura)**: consultar grupos de atendentes (mesas, clientes e usuários vinculados, expedientes e departamentos) e grupos de permissões (permissões concedidas, usuários membros com filtro por e-mail, e grupos de atendentes vinculados); requer as permissões "Gerenciar mesas de serviços" e "Gerenciar grupos de permissão"
 
 O catálogo completo, com parâmetros e exemplos de cada ferramenta, está em [Available Tools](#available-tools) (em inglês).
 
@@ -3832,6 +3833,135 @@ Remove (soft delete) a service catalog item. No cascade — items are leaf nodes
 { "services_catalogs_area_id": 10, "id": 50 }
 ```
 
+## Organization Groups Tools
+
+Read-only tools for inspecting the organization's structure: attendant groups (technical groups — SLA expedients, linked desks/clients/users) and permission groups (role groups — which permissions they grant, their members, and which attendant groups they're linked to). Use `list_technical_groups`/`list_role_groups` to discover IDs — the API does not support filtering these endpoints by name — then drill down with the `get_*`/`list_*_*` tools below. The `technical_group_id` discovered here also feeds `technical_group_id`/`technical_group_name` in `create_user`/`update_user` and `technical_group_ids` in `create_knowledge`/`update_knowledge`.
+
+### list_technical_groups
+List the organization's attendant groups (technical groups): ID and name. The API does **not** accept a name/search filter on this endpoint — only pagination (`offset`/`limit`); to find a specific group, paginate (up to `limit: 200`) and look for the name in the response. Requires the "Gerenciar mesas de serviços" permission.
+
+**Parameters:**
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Results per page (default: 20, max: 200)
+
+**Returns:** Markdown list with `id` and `name` per group.
+
+**Example:**
+```json
+{ "limit": 50 }
+```
+
+### get_technical_group
+Get the detail of an attendant group by ID: name, description, whether it has an attendance compromise (`has_compromise`), periodic appointment-hours email setting, and expedients (start/end time, weekdays, holiday flag). Pass `show_departments: true` to also include the linked departments (id, name) — off by default. `technical_group_id` must come from a `list_technical_groups` row (the API does not accept name search on either endpoint).
+
+**Parameters:**
+- `technical_group_id` (number, required): Attendant group ID (from `list_technical_groups`)
+- `show_departments` (boolean, optional): Include linked departments. Default: `false`
+
+**Returns:** Markdown with description (truncated at 800 chars), compromise flag, periodic-hours setting, expedients list and, when requested, the departments list.
+
+**Example:**
+```json
+{ "technical_group_id": 219, "show_departments": true }
+```
+
+### list_technical_group_desks
+List the desks (service queues) linked to an attendant group. Requires the "Gerenciar mesas de serviços" permission.
+
+**Parameters:**
+- `technical_group_id` (number, required): Attendant group ID (from `list_technical_groups`)
+- `offset` / `limit` (number, optional): Pagination (default 20, max 200)
+
+**Returns:** Markdown list with `id`, internal name, display name, active status and appointment type per desk.
+
+**Example:**
+```json
+{ "technical_group_id": 10 }
+```
+
+### list_technical_group_clients
+List the clients linked to an attendant group. Requires the "Gerenciar mesas de serviços" permission.
+
+**Parameters:**
+- `technical_group_id` (number, required): Attendant group ID (from `list_technical_groups`)
+- `offset` / `limit` (number, optional): Pagination (default 20, max 200)
+
+**Returns:** Markdown list with `id`, name, corporate name (`social`), CNPJ (`social_revenue`) and active status per client.
+
+**Example:**
+```json
+{ "technical_group_id": 10 }
+```
+
+### list_technical_group_users
+List the users/attendants that belong to an attendant group. This endpoint was already used internally by `search_user`'s non-admin fallback, but had no dedicated tool until now. Requires the "Gerenciar mesas de serviços" permission.
+
+**Parameters:**
+- `technical_group_id` (number, required): Attendant group ID (from `list_technical_groups`)
+- `offset` / `limit` (number, optional): Pagination (default 20, max 200)
+
+**Returns:** Markdown list with name, e-mail, type (Cliente/Atendente/Administrador), active status, last login (`Nunca` when `null`) and 2FA status per user.
+
+**Example:**
+```json
+{ "technical_group_id": 10 }
+```
+
+### list_role_groups
+List the organization's permission groups (role groups): ID, name and whether the group can be deleted (`deletable` — default organization groups, such as "Administrador" and "Clientes", cannot). The API does **not** accept a name/search filter — only pagination. Requires the "Gerenciar grupos de permissão" permission.
+
+**Parameters:**
+- `offset` / `limit` (number, optional): Pagination (default 20, max 200)
+
+**Returns:** Markdown list with `id`, name and whether the group is deletable.
+
+**Example:**
+```json
+{ "limit": 50 }
+```
+
+### get_role_group
+Get the detail of a permission group by ID: name, description, whether it's deletable, and the `roles[]` it grants (id, name, description of each permission). `role_group_id` must come from a `list_role_groups` row.
+
+**Parameters:**
+- `role_group_id` (number, required): Permission group ID (from `list_role_groups`)
+
+**Returns:** Markdown with description, deletable flag and the list of granted permissions (description truncated at 200 chars; omitted entirely in compact verbosity).
+
+**Example:**
+```json
+{ "role_group_id": 116 }
+```
+
+### list_role_group_users
+List the users that belong to a permission group. Optional `email` filter (up to 255 chars). **Note:** the Swagger incorrectly documents the item's `id` as "ID do grupo de permissões" — it is actually the **user**'s ID, as the endpoint's own example shows. Requires the "Gerenciar grupos de permissão" permission.
+
+**Parameters:**
+- `role_group_id` (number, required): Permission group ID (from `list_role_groups`)
+- `email` (string, optional, max 255 chars): Filter users by e-mail
+- `offset` / `limit` (number, optional): Pagination (default 20, max 200)
+
+**Returns:** Markdown list with name, e-mail, type (Cliente/Atendente/Administrador), active status, last login, 2FA status and the user's attendant group (`technical_group_id`).
+
+**Example:**
+```json
+{ "role_group_id": 116, "email": "ana@example.com" }
+```
+
+### list_role_group_technical_groups
+List the attendant groups (technical groups) linked to a permission group.
+
+**Parameters:**
+- `role_group_id` (number, required): Permission group ID (from `list_role_groups`)
+- `offset` / `limit` (number, optional): Pagination (default 20, max 200)
+
+**Returns:** Markdown list with `id` and `name` per attendant group.
+
+**Example:**
+```json
+{ "role_group_id": 116 }
+```
+
 ## API Endpoints Used
 
 The MCP server integrates with the following Tiflux API v2 endpoints:
@@ -3882,8 +4012,15 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and as level 3 of the `search_requestor` fallback chain — the matched user's email becomes `requestor_email`). Returns 403 for non-admin users — handled automatically by the fallback below.
 - `GET /users/me` - Current authenticated user (used as the final level of the `search_requestor` chain — suggests opening the ticket as yourself via `requestor_email`).
 - `GET /technical-users` - Search technical attendants with server-side filtering by name, email, desk_id, client_id (`search_technical_user`). **Does not require user management permission** — works for admin and non-admin. **Primary path** for `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, `list_tickets`. Note: absent from the public swagger.json as of 2026-06-18 but live in production.
-- `GET /technical-groups` - List attendant groups (used by `search_user` non-admin fallback and as fallback for `responsible_name` resolution when `/technical-users` returns 404/403)
-- `GET /technical-groups/{id}/users` - List users in an attendant group (non-admin fallback for `search_user` — deduplicated, fuzzy-matched)
+- `GET /technical-groups` - List attendant groups: `id`, `name` (`list_technical_groups`; also used by `search_user` non-admin fallback and as fallback for `responsible_name` resolution when `/technical-users` returns 404/403). No name/search filter — pagination only. Header `X-Total-Items`. Requires "Gerenciar mesas de serviços" permission.
+- `GET /technical-groups/{id}` - Get the detail of an attendant group: description, compromise flag, periodic-hours setting, expedients and, with `show_departments=true`, linked departments (`get_technical_group`). No formal schema in the Swagger (only `example`). Requires "Gerenciar mesas de serviços" permission.
+- `GET /technical-groups/{id}/desks` - List desks linked to an attendant group (`list_technical_group_desks`). Header `X-Total-Items`. Requires "Gerenciar mesas de serviços" permission.
+- `GET /technical-groups/{id}/clients` - List clients linked to an attendant group (`list_technical_group_clients`). Header `X-Total-Items`. Requires "Gerenciar mesas de serviços" permission.
+- `GET /technical-groups/{id}/users` - List users in an attendant group (`list_technical_group_users`; also the non-admin fallback for `search_user` — deduplicated, fuzzy-matched). Header `X-Total-Items`. Requires "Gerenciar mesas de serviços" permission.
+- `GET /role-groups` - List the organization's permission groups: `id`, `name`, `deletable` (`list_role_groups`). No name/search filter — pagination only. Header `X-Total-Items`. Requires "Gerenciar grupos de permissão" permission.
+- `GET /role-groups/{id}` - Get the detail of a permission group, including the `roles[]` it grants (`get_role_group`). Requires "Gerenciar grupos de permissão" permission.
+- `GET /role-groups/{id}/users` - List users of a permission group, with optional `email` filter (`list_role_group_users`). **Note:** the Swagger's item schema mislabels `id` as the permission group's ID — it's actually the user's ID. Header `X-Total-Items`. Requires "Gerenciar grupos de permissão" permission.
+- `GET /role-groups/{id}/technical-groups` - List attendant groups linked to a permission group (`list_role_group_technical_groups`). Header `X-Total-Items`. Requires "Gerenciar grupos de permissão" permission.
 - `GET /departments` - List organization departments with optional name search (`list_departments`). Admin: all active; non-admin: only linked to attendant group
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
