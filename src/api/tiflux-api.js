@@ -594,6 +594,51 @@ class TiFluxAPI {
   }
 
   /**
+   * Retorna o detalhe de um contrato individual.
+   * GET /contracts/{id}
+   *
+   * So transporte (BE-003): validacao do id, formatacao e a mensagem especial
+   * de 404 para contrato-membro-de-grupo ficam no slice `get_contract`.
+   *
+   * @param {number|string} id - ID do contrato
+   */
+  async getContract(id) {
+    return await this.makeRequest(`/contracts/${id}`);
+  }
+
+  /**
+   * Lista os tipos de contrato da organizacao.
+   * GET /contract-types
+   *
+   * Sem parametro de busca (a API nao aceita `search` neste endpoint — so
+   * paginacao offset/limit). So transporte (BE-003).
+   *
+   * @param {object} filters - { offset (int, default 1), limit (int, default 20, max 200) }
+   */
+  async listContractTypes(filters = {}) {
+    const params = new URLSearchParams();
+
+    const limit = Math.min(200, Math.max(1, Number.parseInt(filters.limit) || 20));
+    const offset = Math.max(1, Number.parseInt(filters.offset) || 1);
+
+    params.append('limit', limit);
+    params.append('offset', offset);
+
+    const response = await this.makeRequest(`/contract-types?${params.toString()}`);
+
+    // Surface o total real (header X-Total-Items). Node minuscula os headers,
+    // mas o fallback capitalizado segue o padrao de listTickets/checklists e
+    // blinda contra transporte que preserve a caixa (review PR #104).
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = Number.parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+
+    return response;
+  }
+
+  /**
    * Retorna historico de faturamentos (GET /reports/billings/history).
    *
    * Filtros opcionais (passados via URLSearchParams):

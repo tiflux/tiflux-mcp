@@ -2803,7 +2803,7 @@ List the organization's contracts (read-only). Returns a Markdown table with 9 c
 
 **Contract groups (Shared modality):** a row with `kind: "contract_group"` is a **contract group**, not an individual contract — its ID column renders as `<id> · grupo` (e.g. `5 · grupo`). Contracts and contract groups come from **separate tables with independent IDs**: the same number can appear twice in the listing, once as a plain contract and once as a group. When the current page has at least one group, a footer explains this and points to `get_contract_group` for the group's detail and member contracts. A missing `kind` field (older API/mock) is treated as a plain `"contract"`.
 
-**Note:** Inactive records (`active: false`) **never** appear in this listing, regardless of the `status` filter. Member contracts of a Shared contract group **never** appear as their own row either — only the group row shows up; use `get_contract_group` to see its members. Only `GET /contracts` exists in the API v2 for listing — there is no `GET /contracts/{id}` and no endpoint to list contract types (contract group detail is covered by `get_contract_group`). This means `contract_type_ids` filter IDs can only be discovered via `include_details: true`, which surfaces `contract_type.id` for each contract.
+**Note:** Inactive records (`active: false`) **never** appear in this listing, regardless of the `status` filter. Member contracts of a Shared contract group **never** appear as their own row either — only the group row shows up; use `get_contract_group` to see its members. For the detail of an individual contract, use `get_contract` (a contract ID that is a group member returns `404` there — use `get_contract_group` in that case). To discover `contract_type_ids` values, use `list_contract_types` (recommended); `include_details: true` remains a useful alternative, surfacing `client.id`/`contract_type.id` alongside the contract row without an extra round-trip.
 
 **Permissions:** The monetary fields (`rider_tax`, `rider_value`) are only available in the details block when using `include_details: true`, and only for users with the "Visualizar valores dos tickets" permission. Without it, the API returns `"--"` for those fields (rendered as-is). `total_value` is shown in the default table column.
 
@@ -2841,6 +2841,30 @@ List the organization's contracts (read-only). Returns a Markdown table with 9 c
 - **#87508** · cliente ID 2274047 · tipo ID 178 · duracao: — · reajuste a cada 12 meses · adicional: R$ 974,30 (taxa R$ 0,00)
 ```
 
+### list_contract_types
+List the contract types registered in the organization: ID, name, and modality (humanized text, e.g. "Horas", "Compartilhado", "Crédito"). No search parameter — only pagination (`offset`/`limit`). The IDs returned are the ones accepted by the `contract_type_ids` filter of `list_contracts`: use this tool to discover those IDs instead of running `list_contracts` with `include_details: true`.
+
+**Permissions:** Requires "Visualizar contratos" permission.
+
+**Parameters (all optional):**
+- `offset` (number): Page number (default: 1).
+- `limit` (number): Results per page (default: 20, max: 200).
+
+**Returns:** Markdown table `ID | Nome | Modalidade`. A missing/untranslated `modality` from the API (blueprint has a `rescue ""` fallback) renders as `—` instead of an empty cell. Total count from `X-Total-Items` header shown in the pagination footer when available.
+
+**Example:**
+```json
+{ "limit": 50 }
+```
+
+**Example response:**
+```
+| ID | Nome | Modalidade |
+|---|---|---|
+| 1 | Contrato Horas | Horas |
+| 2 | Contrato Compartilhado | Compartilhado |
+```
+
 ### get_contract_group
 Get the detail of a contract group (Shared modality) by ID: name, client, contract type, status (Ativo/Inativo — this endpoint returns `200` even for an inactive group, which `list_contracts` hides), expiration, duration, automatic renewal, billing configuration (automatic with N days before due date, or batch), consumption reminder (percent + e-mails), last rider (number, release/version, due day, monthly value, tax, discount, description), and the group's member contracts.
 
@@ -2860,6 +2884,27 @@ Get the detail of a contract group (Shared modality) by ID: name, client, contra
 **Example:**
 ```json
 { "contract_group_id": 5 }
+```
+
+### get_contract
+Get the detail of an individual contract (not Shared modality) by ID: name, client, contract type (name + modality), status (active/expired/inactive/cancelled/cancellation scheduled, billed, with appointments), expiration, duration, automatic renewal, permits appointments pending readjustment, billing (automatic with N days before due date, or batch), consumption reminder, technical observations, created/updated timestamps, and the last rider (number, release/version, due day, monthly value, discount, description, closing period, and items when applicable).
+
+**Note:** a contract that is a **member of a contract group** (Shared modality) returns `404` here even though its ID exists — member contracts are only queried through their group. The error message explains both possibilities (non-existent ID or group member) and points to `get_contract_group`. The `kind` field from `list_contracts` tells you which route to use: `"contract"` → `get_contract`, `"contract_group"` → `get_contract_group`. IDs of contracts and contract groups are independent and can collide.
+
+**Permissions:** Requires "Visualizar contratos" + Tickets License. Monetary fields of the rider come as `"--"` without the "Visualizar valores dos tickets" permission — the MCP renders what the API returns, without masking on its own.
+
+**Parameters:**
+- `contract_id` (number, required): ID of the contract (from a `list_contracts` row without the `· grupo` suffix). Must be a positive integer.
+
+**Returns (rich):** header with name and `#id`; client (name + id); contract type (name + id + modality); status (with extra flags in parentheses when `billed`/`has_appointments`/`readjust` are true); expiration; duration; automatic renewal; permits appointments pending readjustment; billing; consumption reminder; created/updated timestamps; last rider section (number, release, due day, monthly value, discount — `R$` for `discount_type: "currency"`, `%` for `"percent"`, raw otherwise — closing period, description, and an item list when the rider has `items`); technical observations (truncated at 800 chars).
+
+**Returns (compact):** header, client, status, and monthly value on a single line.
+
+**Errors:** `404` (`error_code 40401`) explains the contract may not exist OR may be a group member, and suggests `get_contract_group`. `403` (`40301`/`40304`) includes a hint about the "Visualizar contratos" permission and the Tickets License.
+
+**Example:**
+```json
+{ "contract_id": 87508 }
 ```
 
 ### list_equipments
@@ -3890,8 +3935,10 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `PUT /knowledge-folders/{id}` - Partially update an existing knowledge folder: title, description, icon, tags (`update_knowledge_folder`). Only fields provided are sent. `icon: null` explicitly clears the folder's icon (distinct from omitting the field, which preserves it). Does not alter the folder's articles. Requires "Gerenciar conhecimento" permission
 - `GET /knowledge-folders` - List knowledge base folders (`list_knowledge_folders`)
 - `POST /knowledge-folders` - Create a new knowledge base folder (`create_knowledge_folder`). Required: `title`. Optional: `description`, `icon`, `tags`. The new folder always starts empty (`qty_knowledges: 0`). Requires "Gerenciar conhecimento" permission
-- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract plus `kind` (`"contract"` | `"contract_group"`); secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. No `GET /contracts/{id}` exists in the API; no endpoint to list contract types (IDs discoverable only via `include_details`). Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`). Inactive records never appear, regardless of `status`.
+- `GET /contracts` - List the organization's contracts (`list_contracts`), read-only. Returns 14 fields per contract plus `kind` (`"contract"` | `"contract_group"`); secondary fields (IDs, `rider_value`/`rider_tax`, durations) exposed via `include_details: true`. Header `X-Total-Items` for total count. Monetary fields require "Visualizar valores dos tickets" permission (otherwise `"--"`). Inactive records never appear, regardless of `status`.
+- `GET /contracts/{id}` - Get the detail of an individual (non-Shared) contract, including its last rider (`get_contract`). A contract that is a member of a contract group returns `404` here (member contracts are queried through `get_contract_group` instead). Monetary fields of the rider require "Visualizar valores dos tickets" permission (otherwise `"--"`). Requires "Visualizar contratos" permission + Tickets License.
 - `GET /contract-groups/{id}` - Get the detail of a contract group (modality Shared), including its member contracts (`get_contract_group`). Unlike `list_contracts`, monetary values are **not** masked without the "Visualizar valores dos tickets" permission. Requires "Visualizar contratos" permission + Tickets License.
+- `GET /contract-types` - List the contract types registered in the organization: ID, name, modality (`list_contract_types`). No search parameter, only pagination. Header `X-Total-Items` for total count. The IDs returned are the ones accepted by the `contract_type_ids` filter of `GET /contracts`. Requires "Visualizar contratos" permission.
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/billings/history` - Billing history report (`get_billings_history`). Returns paginated array of billing records with `billing_id`, `billing_date`, `client_id`, `client_name`, `due_date`, `nfe_number`, `paid`, `real_value`, `reversal`. Filters: `billing_start_date`/`billing_end_date` (pair), `due_start_date`/`due_end_date` (pair), `client_id`, `nfe_number`, `ticket_number`, `_type` (billed|reversed|paid). Header `X-Total-Items` for total count. Requires "Faturar serviços avulsos e contratos" permission + Tickets license (403 code `40301` without permission, `40304` without license).

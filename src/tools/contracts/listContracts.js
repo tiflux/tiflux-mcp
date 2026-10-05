@@ -5,11 +5,11 @@
  * Filtros opcionais (todos CSV): client_ids, contract_type_ids, status
  * (actives|readjust|expired) + paginacao offset/limit.
  *
- * Read-only: a API v2 expoe apenas GET /contracts e PUT /contracts/{id};
- * nao existe GET /contracts/{id}, por isso nao ha tool de detalhe de contrato
- * individual. Tambem nao existe endpoint de listagem de tipos de contrato —
- * por isso include_details expoe client.id e contract_type.id, que alimentam
- * os filtros client_ids e contract_type_ids.
+ * Read-only: PUT /contracts/{id} segue fora de escopo (ver get_contract para
+ * detalhe de contrato individual). include_details continua util por expor
+ * client.id e contract_type.id junto da linha do contrato, sem round-trip
+ * extra — mas o jeito recomendado de descobrir contract_type_ids e
+ * list_contract_types.
  *
  * Contratos e grupos de contrato (modalidade Compartilhado) vem de tabelas
  * distintas, com IDs independentes: o mesmo numero pode aparecer duas vezes
@@ -40,17 +40,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { footer, pagination, currencyBRL, appendWithinBudget, continuationLine, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
-
-// Traducoes PT-BR sem default silencioso: valor desconhecido cai no valor cru da API.
-const MODALITY_LABELS = {
-  Free: 'Gratuito',
-  Credit: 'Crédito',
-  Shared: 'Compartilhado',
-  Hours: 'Horas',
-  'Saas/Product': 'SaaS/Produto',
-  'Per ticket': 'Por ticket',
-  'Cumulative Hours': 'Horas cumulativas'
-};
+const { modalityLabel } = require('../_shared/contractModality');
 
 const STATUS_LABELS = {
   actives: 'Ativo',
@@ -60,13 +50,13 @@ const STATUS_LABELS = {
 
 const schema = {
   name: 'list_contracts',
-  description: 'Listar contratos da organizacao (somente leitura). Retorna tabela com 9 colunas: ID, Nome, Cliente, Tipo, Modalidade, Situacao (com "(cancelado)" quando aplicavel), Expiracao, Reajuste e Valor total. Filtros opcionais por cliente (client_ids CSV), tipo de contrato (contract_type_ids CSV) e situacao (status CSV: actives, readjust, expired — por padrao a API lista apenas actives). Registros inativos (active:false) nunca aparecem, seja qual for o status pedido. Linhas de grupo de contrato (modalidade Compartilhado) mostram a coluna ID como "<id> · grupo" — grupos e contratos tem IDs independentes, o mesmo numero pode aparecer duas vezes; os contratos-membro de um grupo nao aparecem como linha propria, use get_contract_group para ver o detalhe e os membros. Com include_details:true exibe bloco extra por contrato com IDs de cliente e tipo (uteis nos filtros, pois nao ha endpoint de listagem de tipos de contrato) e campos monetarios detalhados. Os valores monetarios so sao exibidos para usuarios com a permissao "Visualizar valores dos tickets".',
+  description: 'Listar contratos da organizacao (somente leitura). Retorna tabela com 9 colunas: ID, Nome, Cliente, Tipo, Modalidade, Situacao (com "(cancelado)" quando aplicavel), Expiracao, Reajuste e Valor total. Filtros opcionais por cliente (client_ids CSV), tipo de contrato (contract_type_ids CSV) e situacao (status CSV: actives, readjust, expired — por padrao a API lista apenas actives). Registros inativos (active:false) nunca aparecem, seja qual for o status pedido. Linhas de grupo de contrato (modalidade Compartilhado) mostram a coluna ID como "<id> · grupo" — grupos e contratos tem IDs independentes, o mesmo numero pode aparecer duas vezes; os contratos-membro de um grupo nao aparecem como linha propria, use get_contract_group para ver o detalhe e os membros. Para o detalhe de um contrato individual, use get_contract (um ID de contrato que seja membro de um grupo responde 404 la — use get_contract_group nesse caso). Para descobrir os IDs de contract_type_ids, use list_contract_types (jeito recomendado); com include_details:true esta tool tambem exibe bloco extra por contrato com IDs de cliente e tipo, e campos monetarios detalhados, sem round-trip extra. Os valores monetarios so sao exibidos para usuarios com a permissao "Visualizar valores dos tickets".',
   inputSchema: {
     type: 'object',
     properties: {
       include_details: {
         type: 'boolean',
-        description: 'Quando true, exibe um bloco de detalhe apos a tabela com: client.id (para usar em client_ids), contract_type.id (para usar em contract_type_ids, pois nao ha endpoint de listagem de tipos), duration, readjust_duration e valores rider_value/rider_tax. NAO e enviado a API — e rendering-only. Default false.'
+        description: 'Quando true, exibe um bloco de detalhe apos a tabela com: client.id (para usar em client_ids), contract_type.id (para usar em contract_type_ids — alternativa a list_contract_types, sem round-trip extra), duration, readjust_duration e valores rider_value/rider_tax. NAO e enviado a API — e rendering-only. Default false.'
       },
       client_ids: {
         type: 'string',
@@ -95,7 +85,7 @@ function idCell(c) {
 }
 
 function renderContractRow(c) {
-  const modality = MODALITY_LABELS[c.modality] || c.modality || '—';
+  const modality = modalityLabel(c.modality);
   const statusLabel = `${STATUS_LABELS[c.status] || c.status || '—'}${c.cancelled ? ' (cancelado)' : ''}`;
   const clientName = c.client?.name || '—';
   const typeName = c.contract_type?.name || '—';
