@@ -1873,7 +1873,7 @@ List appointments (work-hour records) of a specific ticket with optional filters
 - `limit` (number, optional): Appointments per page (default: 20, max: 200)
 
 **Returns:**
-Each appointment card shows date, time range, attendant, client (when available), and description. When `external_user_name` is present it is shown as a separate line outside the valorization block (valid on any desk type). When the desk has valorization enabled, the card also includes:
+Each appointment card shows date, time range, attendant, client (when available), and the full description (never truncated). When `external_user_name` is present it is shown as a separate line outside the valorization block (valid on any desk type). When the desk has valorization enabled, the card also includes:
 - Attendance type: External (Externo), Remote (Remoto), or Internal (Interno)
 - Service type: Loose (Avulso) with loose service name, or Contract with contract name
 - Travel shift name and value (`shift`) when applicable — or "Deslocamento de: #N — Title" when `shift_owner_ticket` is set (carona)
@@ -1916,7 +1916,7 @@ List all appointments across all tickets for a date range with optional filters 
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 
 **Returns:**
-Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, contract name (or "sem contrato" when none), desk, ticket number and title, description (truncated at 120 chars). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis. When `contract_ids` is active, a footer warns that appointments without a contract are not shown.
+Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, contract name (or "sem contrato" when none), desk, ticket number and title, full description (never truncated, in both `rich` and `compact` — the API has no single-appointment endpoint, so a cut description could not be recovered). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis. When `contract_ids` is active, a footer warns that appointments without a contract are not shown.
 
 **Example:**
 ```json

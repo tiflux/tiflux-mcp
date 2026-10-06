@@ -81,10 +81,9 @@ function formatAppointmentItem(appt, index, verbosity) {
   const userName = appt.user?.name || 'Atendente não informado';
   const clientName = appt.client?.name || null;
 
-  let desc = appt.description || 'Sem descrição';
-  if (desc.length > 150) {
-    desc = desc.substring(0, 150) + '...';
-  }
+  // Descrição integral: a API v2 não tem GET unitário de apontamento, então o que
+  // fosse cortado aqui ficaria inacessível. O tamanho fica com renderWithinBudget.
+  const desc = appt.description || 'Sem descrição';
 
   let text = `**${index + 1}. Apontamento #${apptId}**\n` +
     `   📅 **Data:** ${apptDate}\n` +

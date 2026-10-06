@@ -15,7 +15,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
-const { renderList, renderWithinBudget, currencyBRL, row, pagination, truncate, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
+const { renderList, renderWithinBudget, currencyBRL, row, pagination, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { durationMinutes } = require('./appointmentMath');
 const { compactValorizationCells } = require('./valorizationCompact');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -55,8 +55,8 @@ function renderAppointmentItem(appt) {
   // item 6: contract e campo de topo do apontamento (view :global); sem exigir include_valorization
   const contractName = appt.contract?.name || 'sem contrato';
 
-  let desc = appt.description || '';
-  if (desc.length > 120) desc = desc.substring(0, 120) + '...';
+  // Descrição integral (sem GET unitário na API v2); o tamanho fica com renderWithinBudget.
+  const desc = appt.description || '';
 
   let text = `**#${appt.id}** · ${date} · ${initTime}–${endTime}\n`;
   text += `  👤 ${userName} · 🏢 ${clientName} · 📋 ${contractName} · 🗂️ ${deskName} · 🎫 #${ticketNum} — ${ticketTitle}\n`;
@@ -91,9 +91,9 @@ function compactAppointmentCells(appt) {
   const { attendance, value, flags } = compactValorizationCells(appt.valorization);
   if (appt.external_user_name) flags.push(`executor:${appt.external_user_name}`);
 
-  // Política única de truncamento no compact (F2): 200 caracteres, via helper
-  // compartilhado — antes truncava em 80 aqui, sem paridade com o resto do produto.
-  const desc = truncate(appt.description, 200);
+  // Compact remove formatação, nunca dado: descrição integral (row/escapeCell achata
+  // as quebras de linha e escapa `|`). Antes truncava em 200 e o resto era irrecuperável.
+  const desc = appt.description || '';
 
   return [
     appt.id,
