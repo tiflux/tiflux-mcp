@@ -8,7 +8,8 @@ const slices = [
   require('./listDesks'),
   require('./getDesk'),
   require('./listDeskPriorities'),
-  require('./listDeskServicesCatalogs')
+  require('./listDeskServicesCatalogs'),
+  require('./createDesk')
 ];
 
 class DeskTools {

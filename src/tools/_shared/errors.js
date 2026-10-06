@@ -115,4 +115,21 @@ function extractApiErrorDetail(response) {
   }
 }
 
-module.exports = { errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode, extractApiErrorDetail };
+/**
+ * Bloco Markdown "Detalhes" com as mensagens por campo do `detail` da API v2
+ * (ex.: 422 42202 `{ description: ["can't be blank"] }` → `• **description:** can't be blank`).
+ *
+ * @param {{error?: string, data?: object}} response
+ * @returns {string} '**Detalhes:**\n• **campo:** msg\n' ou '' quando nao ha detail
+ */
+function formatApiErrorDetail(response) {
+  const detail = extractApiErrorDetail(response);
+  if (!detail) return '';
+  const lines = Object.entries(detail).map(([field, msgs]) => `• **${field}:** ${[msgs].flat().join(', ')}`);
+  return lines.length ? `**Detalhes:**\n${lines.join('\n')}\n` : '';
+}
+
+module.exports = {
+  errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse,
+  extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail
+};

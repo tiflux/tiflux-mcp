@@ -13,7 +13,8 @@ const slices = [
   require('./getRequestor'),
   require('./createRequestor'),
   require('./updateRequestor'),
-  require('./updateRequestorEntities')
+  require('./updateRequestorEntities'),
+  require('./deleteRequestor')
 ];
 
 class RequestorTools {

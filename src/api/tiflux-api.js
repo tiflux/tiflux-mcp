@@ -9,6 +9,7 @@
  * `{ error, status }` em falha — handlers MCP nao precisam mudar.
  */
 
+const crypto = require('node:crypto');
 const HttpClient = require('../infrastructure/http/HttpClient');
 const { APIError, TimeoutError, NetworkError } = require('../utils/errors');
 const ClientFingerprint = require('../telemetry/ClientFingerprint');
@@ -451,6 +452,37 @@ class TiFluxAPI {
   }
 
   /**
+   * Cria uma resposta EM NOME DO CLIENTE em um ticket.
+   * POST /tickets/{ticket_number}/client-answers (multipart/form-data — unico content-type documentado)
+   * Campos: name (texto HTML, obrigatorio), author_name (obrigatorio), files[] (ate 10, 25MB cada).
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} ticketNumber
+   * @param {object} fields - { name, author_name }
+   * @param {Array<{content: string, filename: string}>} [files] - anexos base64
+   */
+  async createClientAnswer(ticketNumber, { name, author_name }, files) {
+    try {
+      const processed = this._processAttachments(files, MAX_BASE64_BYTES_25MB, '25MB');
+      if (processed.error) return processed;
+
+      const { buffer, headers } = this._buildMultipart({
+        fields: [{ name: 'name', value: name }, { name: 'author_name', value: author_name }],
+        files: processed.processedFiles
+      });
+
+      return await this.makeRequestBinary(
+        `/tickets/${encodeURIComponent(ticketNumber)}/client-answers`,
+        'POST',
+        buffer,
+        headers
+      );
+    } catch (error) {
+      return { error: `Erro interno: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
    * Busca mesas por nome
    */
   async searchDesks(deskName = '') {
@@ -693,6 +725,21 @@ class TiFluxAPI {
   }
 
   /**
+   * Cria uma mesa de servico.
+   * POST /desks — body JSON plano (sem schema formal na Swagger; campos dos exemplos).
+   * Resposta 201 tem o mesmo shape de GET /desks/{id}.
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {object} body - { name, display_name, description, ... }
+   */
+  async createDesk(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(jsonData) };
+    return await this.makeRequest('/desks', 'POST', jsonData, headers);
+  }
+
+
+  /**
    * Lista prioridades de uma mesa especifica com paginacao.
    *
    * @param {number} deskId - ID da mesa
@@ -910,15 +957,25 @@ class TiFluxAPI {
    * Retorna `{ buffer, headers }` pronto para makeRequestBinary.
    */
   _buildMultipart({ fields = [], files = [] }) {
-    const boundary = `----formdata-tiflux-${Date.now()}`;
+    // Boundary aleatorio (128 bits): nao adivinhavel, entao um valor de campo
+    // (ex: `name`/`author_name` vindos do usuario) nao consegue fechar a parte e
+    // injetar partes extras. O check abaixo cobre a colisao (improvavel) restante.
+    const boundary = `----formdata-tiflux-${crypto.randomBytes(16).toString('hex')}`;
     const parts = [];
 
     for (const { name, value } of fields) {
+      const text = String(value);
+      if (text.includes(`--${boundary}`)) {
+        throw new Error('Valor de campo multipart contem o boundary — requisicao abortada');
+      }
+      // Nome do campo vai no header da parte: remove CR/LF/aspas (o VALOR mantem
+      // quebras de linha legitimas — e o corpo da parte, nao header).
+      const safeName = String(name).replace(/[\r\n"]/g, '');
       let fieldPart = '';
       fieldPart += `--${boundary}\r\n`;
-      fieldPart += `Content-Disposition: form-data; name="${name}"\r\n`;
+      fieldPart += `Content-Disposition: form-data; name="${safeName}"\r\n`;
       fieldPart += '\r\n';
-      fieldPart += value + '\r\n';
+      fieldPart += text + '\r\n';
       parts.push(Buffer.from(fieldPart));
     }
 
@@ -1275,6 +1332,30 @@ class TiFluxAPI {
   }
 
   /**
+   * Remove um solicitante de um cliente.
+   * DELETE /clients/{client_id}/requestors/{id}
+   * A Swagger nao documenta a resposta 2xx: 204 ou corpo nulo viram `{ data: null, status: 204 }`.
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} clientId
+   * @param {number|string} id
+   */
+  async deleteRequestor(clientId, id) {
+    try {
+      const response = await this.makeRequest(
+        `/clients/${encodeURIComponent(clientId)}/requestors/${encodeURIComponent(id)}`,
+        'DELETE'
+      );
+      if (response.status === 204 || (!response.error && response.data == null)) {
+        return { data: null, status: 204 };
+      }
+      return response;
+    } catch (error) {
+      return { error: `Erro interno ao deletar solicitante: ${error.message}`, status: 'INTERNAL_ERROR' };
+    }
+  }
+
+  /**
    * Cria um novo solicitante em um cliente
    * POST /clients/{client_id}/requestors
    *
@@ -1365,6 +1446,22 @@ class TiFluxAPI {
       'Content-Length': Buffer.byteLength(jsonData)
     };
     return await this.makeRequest(`/users/${encodeURIComponent(id)}`, 'PUT', jsonData, headers);
+  }
+
+  /**
+   * Atualiza o perfil do PROPRIO usuario autenticado (dono da API key / token OAuth).
+   * PUT /users/profile — body JSON plano: { name, email, extension, telephone, country_code }.
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {object} body - campos a atualizar (somente os informados)
+   */
+  async updateMyProfile(body) {
+    const jsonData = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    return await this.makeRequest('/users/profile', 'PUT', jsonData, headers);
   }
 
   /**
@@ -2488,7 +2585,8 @@ class TiFluxAPI {
    * Lista equipamentos/recursos da organizacao com paginacao.
    * GET /equipments
    *
-   * Filtros opcionais: client_id, include_manufacturer (bool), include_system (bool)
+   * Filtros opcionais: client_id, include_manufacturer (bool), include_system (bool),
+   * include_technical_info (bool — inventario de hardware: processor, memory, disks, etc.)
    * + paginacao offset/limit (default 20, max 200).
    * Anexa response.total via header X-Total-Items (padrao listTickets).
    *
@@ -2506,6 +2604,7 @@ class TiFluxAPI {
     if (filters.client_id != null) params.append('client_id', filters.client_id);
     if (filters.include_manufacturer) params.append('include_manufacturer', 'true');
     if (filters.include_system) params.append('include_system', 'true');
+    if (filters.include_technical_info) params.append('include_technical_info', 'true');
 
     const response = await this.makeRequest(`/equipments?${params.toString()}`);
 

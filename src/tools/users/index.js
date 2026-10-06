@@ -12,7 +12,8 @@ const slices = [
   require('./searchTechnicalUser'),
   require('./createUser'),
   require('./getUser'),
-  require('./updateUser')
+  require('./updateUser'),
+  require('./updateMyProfile')
 ];
 
 class UserTools {

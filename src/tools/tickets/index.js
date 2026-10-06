@@ -44,7 +44,8 @@ const slices = [
   require('./deleteTicketAnswer'),
   require('./deleteTicketAnswerFile'),
   require('./getTicketsFeedbackReport'),
-  require('./updateTicketChecklistItem')
+  require('./updateTicketChecklistItem'),
+  require('./createClientAnswer')
 ];
 
 class TicketTools {

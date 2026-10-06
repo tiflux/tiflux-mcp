@@ -145,17 +145,17 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 ## Funcionalidades
 
 - **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`)
-- **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada)
+- **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada); registrar resposta em nome do cliente (`create_client_answer`, só Administrador)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
-- **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador)
-- **Solicitantes**: buscar, criar, atualizar e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
-- **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat
+- **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador); atualizar o próprio perfil — nome, ramal e telefone (`update_my_profile`; troca de e-mail bloqueada no MCP)
+- **Solicitantes**: buscar, criar, atualizar, excluir (`delete_requestor`) e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
+- **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat; criar mesas de serviço (`create_desk` — a API não exclui mesas)
 - **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente; criar e editar a estrutura (grupos, subcampos e opções) diretamente via IA — sem exclusão na API v2, correções via `update_*` ou pelo portal
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
 - **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status, distinguindo contratos de grupos de contrato (modalidade Compartilhado, linhas "· grupo"); detalhe de um grupo de contrato com seus contratos-membro via `get_contract_group`
-- **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; exibir detalhes completos de hardware e inventário de um recurso individual (processador, memória, discos, rede, SO, fabricante, campos personalizados) via `get_equipment`; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
+- **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; inventário de hardware resumido na listagem (CPU, RAM, discos, antivírus, Windows Update, com alertas ⚠️) via `include_technical_info`; exibir detalhes completos de hardware e inventário de um recurso individual (processador, memória, discos, rede, SO, fabricante, campos personalizados) via `get_equipment`; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
 - **Faturamentos**: consultar o histórico de faturamentos da organização com filtros por período de emissão, vencimento, cliente (por ID ou nome), NFe, ticket e situação (`get_billings_history`); exige permissão "Faturar serviços avulsos e contratos" e licença Tickets
@@ -748,6 +748,30 @@ Create a new answer (client communication) in a specific ticket.
 }
 ```
 
+### create_client_answer
+Register an answer **on behalf of the client** in a ticket — the message is recorded as if the client had replied, with the author given in `author_name`. To answer the client as an attendant, use `create_ticket_answer`.
+
+**Permissions:** Administrators only (403 otherwise — the error message says so).
+
+**Audit trail:** the answer is not indistinguishable from a real client reply — the API prefixes the author with `[API]` (e.g. `[API] Maria Souza`) and records the origin as `api`, so the ticket history shows it was registered via the API.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number
+- `text` (string, required): Client's answer. Accepts Markdown — the MCP converts it to HTML before sending (`name` field).
+- `author_name` (string, required): Client name shown as the author
+- `files_base64` (array, optional): `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each)
+
+**Example:**
+```json
+{
+  "ticket_number": "123",
+  "text": "Tested here and it **works** now, thanks!",
+  "author_name": "Maria Souza"
+}
+```
+
+**Returns:** Answer ID, author (e.g. `[API] Maria Souza`), date/time (`answer_time`), origin (`answer_origin`) and the number/names of attached files. Endpoint: `POST /tickets/{ticket_number}/client-answers` (always multipart).
+
 ### search_client
 Search for clients by name (shortcut — name-only). Use `list_clients` for full filters and pagination.
 
@@ -1175,6 +1199,24 @@ Update an existing user/agent (partial update — **requires administrator permi
 
 **Returns:** Confirmation with user ID, updated name, and list of updated fields.
 
+### update_my_profile
+Update the profile of the **authenticated user itself** — the owner of the API key or of the OAuth login used by the MCP (same behavior in Server and SDK modes). To edit another user, use `update_user`.
+
+**Parameters** (all optional, at least one required — an empty call returns "Nenhum campo para atualizar" without calling the API; unknown fields are ignored):
+- `name` (string): New name
+- `extension` (integer): Extension — an integer here (unlike `update_user`, where it is a string). Digit-only strings (`"500"`) are coerced; anything else is rejected before the API call.
+- `telephone` (string): Telephone
+- `country_code` (string): ISO 3166-1 alpha-2 country of the telephone (e.g. `"BR"`, `"US"`; upper-cased automatically). The API assumes `BR` when omitted.
+
+**E-mail change is blocked by the MCP.** The API accepts `email`, but an agent manipulated by prompt injection could point the account to an attacker's address (the confirmation link would go there → account takeover). `email` is not in the schema; if a client sends it anyway, the whole call is refused before reaching the API ("Troca de e-mail não permitida pelo MCP") and nothing is changed. Change the e-mail through the TiFlux portal.
+
+**Example:**
+```json
+{ "telephone": "(51) 99999-9999", "country_code": "BR" }
+```
+
+**Returns:** Updated profile fields (name, e-mail, extension, telephone) and the list of fields sent. Endpoint: `PUT /users/profile`.
+
 ### search_requestor
 Search for requestors (ticket openers) in Tiflux by name, email, or telephone. Uses the dedicated `GET /requestors` endpoint with server-side filtering — no client-side limit.
 
@@ -1325,6 +1367,24 @@ Update a requestor's custom fields (entities) (`PUT /clients/{id}/requestors/{re
   ]
 }
 ```
+
+### delete_requestor
+Delete a requestor of a client. **Irreversible through the API.** The requestor must belong to the given `client_id`.
+
+**Permissions:** Requires "Gerenciar clientes e grupos de recursos" (403 otherwise).
+
+**Parameters:**
+- `client_id` (number, required): Client the requestor belongs to
+- `requestor_id` (number, required): Requestor ID to delete (use `list_requestors`/`search_requestor` to find it)
+
+**Example:**
+```json
+{ "client_id": 724, "requestor_id": 555 }
+```
+
+**Behavior observed on 2026-10-06:** the API answers `204` and the requestor disappears from listings (`list_requestors`/`search_requestor`), but `get_requestor` by ID still returns it and repeating the DELETE answers `204` again (soft delete, with no restore endpoint).
+
+**Returns:** `✅ Solicitante #555 (Name) removido` — the name comes from a best-effort lookup before the deletion (if it fails, the delete still runs and the message omits the name). 404 → the requestor does not exist or belongs to another client. Endpoint: `DELETE /clients/{client_id}/requestors/{id}`.
 
 ### search_stage
 Search for stages of a specific desk to use in ticket updates.
@@ -2372,6 +2432,36 @@ Or using fuzzy name resolution:
 }
 ```
 
+### create_desk
+Create a service desk. **The API has no way to delete desks** — a created desk can only be deactivated (in the portal, or created with `active: false`).
+
+**Permissions:** "Gerenciar mesas de serviços" (403 `40301`) + Tickets License (403 `40304`) — each case has its own message.
+
+**Parameters:**
+- `name` (string, required): Internal name
+- `display_name` (string, required): Display name
+- `description` (string, required): Description
+- `appointment_type` (string, optional): `"Without Appointments"`, `"Appointments with Valorization"` or `"Appointments with no Valorization"`
+- `attendance_type` (string, optional): `"All technical groups"` or `"Only selected technical groups"`
+- `sla_goal` (integer, optional): SLA goal (%)
+- Booleans (optional): `active`, `receiving_new_tickets`, `internal_desk`, `cancelable_tickets`, `desk_exchange`, `require_service_catalog_open_ticket`, `desk_with_sla`, `ticket_review`, `add_ticket_feedback`, `can_reopen_revised_tickets`, `user_without_access_create_ticket`
+- `required_fields` (object, optional): booleans `requestor_name`, `requestor_email`, `requestor_telephone`, `requestor_ramal`, `equipment_id`, `attachment_file` (true = required on the ticket form)
+
+Review, reopening, reminder and summary settings (`review_type`, `behavior_billed_tickets`, `behavior_not_billed_tickets`, `default_revised`, `time_limit_to_reopening`, `ticket_with_sla_time`, `can_stop_sla`, `reminder`, `summary`, `services_catalog_item`) are not exposed in this version — adjust them in the portal. Invalid enums, non-boolean flags and unknown `required_fields` keys are rejected before the API call; only the informed keys are sent. When omitted, the API applies its own defaults (observed on 2026-10-06: `Appointments with Valorization`, `Only selected technical groups`, SLA active).
+
+**Example:**
+```json
+{
+  "name": "suporte-n2",
+  "display_name": "Suporte N2",
+  "description": "Segundo nível de suporte",
+  "appointment_type": "Without Appointments",
+  "required_fields": { "requestor_email": true }
+}
+```
+
+**Returns:** The created desk in the same format as `get_desk` (sections Identificacao, Atendimento, SLA, ...). 422 (`42202`) lists the message per field (e.g. `description: can't be blank`). Endpoint: `POST /desks`.
+
 ### list_desk_priorities
 Listar prioridades configuradas em uma mesa do Tiflux. Use para descobrir os IDs de prioridade antes de criar ou atualizar tickets (ex: "alta prioridade" → `priority_id`). O filtro `priority_name` e feito client-side com fuzzy match apos buscar os registros da API.
 
@@ -2909,7 +2999,7 @@ Get the detail of an individual contract (not Shared modality) by ID: name, clie
 ```
 
 ### list_equipments
-List equipments/resources of the organization. Returns a Markdown table with ID, name, client, type, group, online status, and IP address for each resource. Optional blocks for manufacturer (`manufacturer`) and OS (`system`) info can be requested via flags — only populated for machines with the TiFlux agent installed.
+List equipments/resources of the organization. Returns a Markdown table with ID, name, client, type, group, online status, and IP address for each resource. Optional blocks for manufacturer (`manufacturer`), OS (`system`) and a summarized hardware inventory (`include_technical_info`) can be requested via flags — only populated for machines with the TiFlux agent installed.
 
 **Note:** Agent-specific fields (`online`, `ipv4`, `last_seen`, `agent`) are only present for machines with the TiFlux agent. Manual resources (no agent) show `—` in those columns.
 
@@ -2920,21 +3010,34 @@ List equipments/resources of the organization. Returns a Markdown table with ID,
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `client_id` | number | no | — | Filter resources of a specific client (client ID) |
-| `include_manufacturer` | boolean | no | false | Include manufacturer info (make, model, serial/asset tag). Only populated for agent-machines |
-| `include_system` | boolean | no | false | Include OS info (name, version, kernel, timezone). Only populated for agent-machines |
+| `include_manufacturer` | boolean | no | false | Include manufacturer info (make, model, serial/asset tag). No processor/memory — use `include_technical_info` for that. Only populated for agent-machines |
+| `include_system` | boolean | no | false | Include OS info (name, version, kernel). Only populated for agent-machines |
+| `include_technical_info` | boolean | no | false | Include a one-line hardware inventory summary per resource: CPU, RAM, disks (size and % used), antivirus and pending Windows Updates. In compact mode, only CPU, RAM and the fullest disk. Network, motherboard, video, S.M.A.R.T., sound and printers stay in `get_equipment`. Only populated for agent-machines |
 | `limit` | number | no | 20 | Results per page (max: 200) |
 | `offset` | number | no | 1 | Page number |
 
-**Returns:** Markdown table `ID | Nome | Cliente | Tipo | Grupo | Online | IP`. When `include_manufacturer`/`include_system` are requested and present, additional sections are appended below the table. Pagination footer with total count when available.
+**Returns:** Markdown table `ID | Nome | Cliente | Tipo | Grupo | Online | IP`. When `include_manufacturer`/`include_system`/`include_technical_info` are requested and present, additional sections are appended below the table. Pagination footer with total count when available.
+
+**Inventory line** (`include_technical_info: true`), e.g.:
+`• **NOTE-01** (#11) — CPU: Intel i5-8250U | RAM: 8 GB | Discos: C: 238.4 GB 91% ⚠️ | Antivirus: Windows Defender (ativo, atualizado) | Windows Update: 3 pendente(s) ⚠️ criticas pendentes`
+- ⚠️ flags a disk at ≥ 90% usage, an inactive/outdated antivirus and pending critical updates.
+- Empty blocks (`[]`, `null`, `{pending_count: 0}`) take no space; a resource with no inventory gets no line.
+
+**Response budget:** the page is cut at ~40k characters at a resource boundary (table and sections show the same resources), with a continuation line (`offset`/`limit` to resume). With more than 50 resources and no explicit verbosity, the list switches to compact automatically.
 
 **Example:**
 ```json
 { "client_id": 724, "include_manufacturer": true, "limit": 50 }
 ```
 
+```json
+{ "client_id": 724, "include_technical_info": true }
+```
+
 **Typical flows:**
 - "Machines of client X online?" → `list_equipments` with `client_id` → filter `online`.
 - "Manufacturer/asset tag of a machine?" → `list_equipments` with `include_manufacturer: true`.
+- "Which machines have a nearly full disk or outdated antivirus?" → `list_equipments` with `include_technical_info: true` → look for ⚠️; then `get_equipment` for the full inventory.
 
 ---
 
@@ -3977,6 +4080,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/answers` - List ticket answers (client communications), paginated
 - `GET /tickets/{ticket_number}/answers/{id}` - Get specific ticket answer with attached files
 - `DELETE /tickets/{ticket_number}/answers/{id}` - Remove a ticket answer (`delete_ticket_answer`)
+- `POST /tickets/{ticket_number}/client-answers` - Create an answer on behalf of the client (`create_client_answer`). Multipart: `name`, `author_name`, `files[]` (up to 10, 25MB each). Administrators only.
 - `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
 - `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; response includes `services_catalog` and `priority` per ticket). Also supports `group_by` (values: day/week/month/desk) for aggregated counts — returns `{ group_by, date_type, total, buckets: [{period, count}] }` instead of a ticket list. **Note:** `group_by` and the aggregated response shape are not documented in the public Swagger as of 2026-06-30; the feature was added in api_rails ticket #96694 and is live in production. Used internally by `get_tickets_comparison` (2 calls per invocation) and `list_tickets` (with `group_by` param). A documentation request has been registered with the API team.
@@ -4005,10 +4109,11 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /clients/{client_id}/requestors` - Create a requestor in a client (`create_requestor`).
 - `PUT /clients/{client_id}/requestors/{id}` - Update a requestor (`update_requestor`, partial).
 - `PUT /clients/{client_id}/requestors/{id}/entities` - Update a requestor's custom fields (`update_requestor_entities`).
-- `DELETE /clients/{client_id}/requestors/{id}` - Delete a requestor (mapped; **not yet implemented** as an MCP tool — out of current scope).
+- `DELETE /clients/{client_id}/requestors/{id}` - Delete a requestor of a client (`delete_requestor`). Irreversible. Requires "Gerenciar clientes e grupos de recursos".
 - `POST /users` - Create a new user/agent (`create_user`). Admin-only — returns 403 for non-admin keys.
 - `GET /users/{id}` - Get user details (`get_user`). Admin-only.
 - `PUT /users/{id}` - Update user fields (`update_user`, partial). Admin-only.
+- `PUT /users/profile` - Update the authenticated user's own profile: `name`, `extension` (integer), `telephone`, `country_code` (`update_my_profile`). The API also accepts `email`, but the MCP blocks e-mail changes.
 - `GET /users` - Search users (used by `search_user`, `responsible_name` auto-resolve, and as level 3 of the `search_requestor` fallback chain — the matched user's email becomes `requestor_email`). Returns 403 for non-admin users — handled automatically by the fallback below.
 - `GET /users/me` - Current authenticated user (used as the final level of the `search_requestor` chain — suggests opening the ticket as yourself via `requestor_email`).
 - `GET /technical-users` - Search technical attendants with server-side filtering by name, email, desk_id, client_id (`search_technical_user`). **Does not require user management permission** — works for admin and non-admin. **Primary path** for `responsible_name` auto-resolve in `create_ticket`, `update_ticket`, `list_tickets`. Note: absent from the public swagger.json as of 2026-06-18 but live in production.
@@ -4024,6 +4129,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /departments` - List organization departments with optional name search (`list_departments`). Admin: all active; non-admin: only linked to attendant group
 - `GET /desks` - Search/list desks (used by Smart Name Resolution and `list_desks`)
 - `GET /desks/{id}` - Get full desk configuration (`get_desk`)
+- `POST /desks` - Create a service desk (`create_desk`). Required: `name`, `display_name`, `description`. 201 has the same shape as `GET /desks/{id}`. Requires "Gerenciar mesas de serviços" + Tickets License. No `DELETE /desks` exists in API v2.
 - `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`, `update_ticket` priority_name resolution, `list_tickets` priority_name resolution)
 - `GET /desks/{id}/services-catalogs` - Get desk service catalogs (`list_desk_services_catalogs`)
 - `GET /desks/{id}/stages` - Get desk stages
@@ -4079,7 +4185,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/billings/history` - Billing history report (`get_billings_history`). Returns paginated array of billing records with `billing_id`, `billing_date`, `client_id`, `client_name`, `due_date`, `nfe_number`, `paid`, `real_value`, `reversal`. Filters: `billing_start_date`/`billing_end_date` (pair), `due_start_date`/`due_end_date` (pair), `client_id`, `nfe_number`, `ticket_number`, `_type` (billed|reversed|paid). Header `X-Total-Items` for total count. Requires "Faturar serviços avulsos e contratos" permission + Tickets license (403 code `40301` without permission, `40304` without license).
-- `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system` flags, pagination. Requires "Visualizar recursos" + Tickets License.
+- `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system`, `include_technical_info` (hardware inventory: processor, memory, disks, antivirus, windows_update, etc. — summarized to one line per resource) flags, pagination. Requires "Visualizar recursos" + Tickets License.
 - `GET /equipments/{id}` - Get full details of a single equipment/resource (`get_equipment`). Returns hardware inventory, OS, manufacturer, network, custom fields (optional). Requires "Visualizar recursos" + Tickets License.
 - `POST /equipments` - Create a new equipment/resource (`create_equipment`). Required: `name`, `client_id`, `equipment_type_id`. Optional: `equipment_group_id` (auto-assigned if omitted), `acquisition_date`, `warranty_date`.
 - `PUT /equipments/{id}` - Update an existing equipment/resource (`update_equipment`). Partial update — only provided fields are sent.
