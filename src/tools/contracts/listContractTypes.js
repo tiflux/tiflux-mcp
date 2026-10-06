@@ -13,7 +13,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse } = require('../_shared/contractShared');
+const { internalErrorResponse, extractApiErrorCode } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { parseIntStrict } = require('../_shared/validators');
@@ -42,10 +43,23 @@ function renderContractTypeRow(type) {
   return `| ${type.id} | ${type.name || '—'} | ${modality} |\n`;
 }
 
+/**
+ * Mensagem quando a pagina pedida veio vazia mas o filtro tem resultados em
+ * outras paginas (C2/H15) — mesmo padrao de listContracts.js.
+ */
+function pageBeyondEndMessage(offset, limit, total) {
+  const lastPage = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  return `*Página ${offset} está além do fim: ${total} tipo(s) de contrato no total, última página ${lastPage} (limit ${limit}).*`;
+}
+
 function formatContractTypesList(types, offset, limit, verbosity, total) {
   const v = verbosity || 'rich';
 
   if (!types || types.length === 0) {
+    const totalNum = Number.parseInt(total, 10);
+    if (!Number.isNaN(totalNum) && totalNum > 0) {
+      return pageBeyondEndMessage(offset, limit, totalNum);
+    }
     return (
       'Nenhum tipo de contrato encontrado.\n\n' +
       '*Verifique se a organização possui tipos de contrato cadastrados.*'
@@ -83,11 +97,27 @@ async function execute(args, { api, verbosity }) {
     const response = await api.listContractTypes(filters);
 
     if (response.error) {
-      return errorResponse(
-        `**❌ Erro ao listar tipos de contrato**\n\n` +
-        `**Código:** ${response.status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique suas permissões ("Visualizar contratos").*`
+      // C3/H16: mesmo rodape por codigo de listContracts.js.
+      const errorCode = extractApiErrorCode(response);
+
+      if (errorCode === 42201) {
+        return contractApiErrorResponse(
+          'Erro ao listar tipos de contrato',
+          response,
+          '*Corrija o(s) filtro(s) indicados em `detail`.*'
+        );
+      }
+
+      if (errorCode === 40304) return contractsLicenseErrorResponse();
+
+      if (errorCode === 40301) {
+        return contractsAccessDeniedResponse('Acesso negado ao listar tipos de contrato', response, errorCode);
+      }
+
+      return contractApiErrorResponse(
+        'Erro ao listar tipos de contrato',
+        response,
+        '*Verifique suas permissões ("Visualizar contratos").*'
       );
     }
 

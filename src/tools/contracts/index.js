@@ -8,7 +8,8 @@ const slices = [
   require('./listContracts'),
   require('./getContractGroup'),
   require('./getContract'),
-  require('./listContractTypes')
+  require('./listContractTypes'),
+  require('./getContractUsage')
 ];
 
 class ContractTools {

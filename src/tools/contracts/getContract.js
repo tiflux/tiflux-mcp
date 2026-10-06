@@ -18,21 +18,25 @@
  * campos monetarios do aditivo vem "--" sem a permissao "Visualizar valores
  * dos tickets"; a tool renderiza o que a API devolve, sem mascara propria.
  *
- * Duplicacao de helpers de formatacao do aditivo com getContractGroup.js
- * (discountCell/formatBilling/formatConsumptionReminder e o esqueleto de
- * formatLastRiderRich): decisao registrada na spec — duplicar em vez de
- * extrair para _shared/, guardrail de extracao e >=3 usos (aqui sao 2).
+ * Formatadores do cadastro (desconto, faturamento, lembrete de consumo,
+ * cabecalho do ultimo aditivo) e respostas de erro comuns as tools de
+ * contrato vivem em `_shared/contractShared.js` (extraidos no pos-review do
+ * PR #109, duplicacao apontada pelo SonarCloud).
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
 const { footer, currencyBRL, truncate, dateTime } = require('../_shared/format');
-const { modalityLabel } = require('../_shared/contractModality');
+const { modalityLabel, periodLabel, billingLabel } = require('../_shared/contractModality');
+const {
+  contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
+  requirePositiveIdField, isObjectPayload, unexpectedPayloadResponse,
+  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines
+} = require('../_shared/contractShared');
 
 const schema = {
   name: 'get_contract',
-  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembrete de consumo, observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento e itens, quando aplicável). Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembrete de consumo, observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -44,32 +48,6 @@ const schema = {
     required: ['contract_id']
   }
 };
-
-/** Desconto do aditivo: R$ quando discount_type "currency", % quando "percent", cru nos demais casos. */
-function discountCell(discount_type, discount_value) {
-  if (discount_value === null || discount_value === undefined) return '—';
-  if (discount_type === 'currency') return currencyBRL(discount_value);
-  if (discount_type === 'percent') return `${discount_value}%`;
-  return String(discount_value);
-}
-
-function formatBilling(contract) {
-  if (contract.automatic_billing) {
-    const days = contract.billing_days_before;
-    const hasDays = days !== null && days !== undefined;
-    const suffix = hasDays ? ` (${days} dias antes do vencimento)` : '';
-    return `Automático${suffix}`;
-  }
-  if (contract.billing_in_batch) return 'Em lote';
-  return '—';
-}
-
-function formatConsumptionReminder(reminder) {
-  if (!reminder || !reminder.notification) return 'Desativado';
-  const percent = reminder.percent !== null && reminder.percent !== undefined ? `${reminder.percent}%` : '—';
-  const emails = reminder.emails || '—';
-  return `Ativo — alerta em ${percent} de consumo; e-mails: ${emails}`;
-}
 
 /** Situação do contrato: precedência cancelado > cancelamento agendado > expirado > inativo > ativo. */
 function situacaoLabel(contract) {
@@ -93,21 +71,94 @@ function formatRiderItems(items) {
   return `- Itens:\n${lines.join('\n')}\n`;
 }
 
+/** `qtd_hours_decimal` com 1 casa e vírgula (ex: 30 → "30,0 h") — franquia da API costuma vir redonda. */
+function decimalHour(n) {
+  return `${Number(n).toFixed(1).replace('.', ',')} h`;
+}
+
+// Campos do aditivo por modalidade (A2/H3): a API tem uma view por modalidade
+// no aditivo (`contract_rider_blueprint.rb`), mas so expoe os campos que de
+// fato existem naquele aditivo — a decisao de renderizar e SEMPRE por
+// presenca do campo no payload (`!= null`), nunca checando
+// `contract.contract_type.modality` (o slice nao tem esse dado aqui e nao
+// deveria depender dele: ver guardrail BE-003, isso e so apresentacao). Um
+// helper por grupo de campos mantem a complexidade ciclomatica baixa.
+
+function commonRiderLines(lastRider) {
+  const lines = [];
+  if (lastRider.start_date != null) lines.push(`- Início: ${lastRider.start_date}`);
+  // `cancel_date` e o FIM DA VIGENCIA do aditivo (portal: "Data de expiracao";
+  // start_date + duration - 1 dia), preenchido em todo aditivo. So vira data de
+  // cancelamento quando `cancelled: true` (aditivo de cancelamento).
+  if (lastRider.cancelled) {
+    lines.push(`- Cancelado em ${lastRider.cancel_date ?? '—'}`);
+  } else if (lastRider.cancel_date != null) {
+    lines.push(`- Fim da vigência: ${lastRider.cancel_date}`);
+  }
+  if (lastRider.period_name != null) lines.push(`- Periodicidade: ${periodLabel(lastRider.period_name)}`);
+  if (lastRider.billing_name != null) lines.push(`- Cobrança: ${billingLabel(lastRider.billing_name)}`);
+  if (lastRider.closing_period_name) lines.push(`- Período de fechamento: ${periodLabel(lastRider.closing_period_name)}`);
+  return lines;
+}
+
+/** Horas / Horas cumulativas. */
+function hoursRiderLines(lastRider) {
+  const lines = [];
+  if (lastRider.qtd_hours != null) {
+    const decimal = lastRider.qtd_hours_decimal != null ? ` (${decimalHour(lastRider.qtd_hours_decimal)})` : '';
+    lines.push(`- Franquia de horas: ${lastRider.qtd_hours}${decimal}`);
+  }
+  if (lastRider.surplus_hour_value != null) lines.push(`- Valor da hora excedente: ${currencyBRL(lastRider.surplus_hour_value)}`);
+  if (lastRider.accumulation_cycle != null) lines.push(`- Ciclo de acumulação: ${lastRider.accumulation_cycle} fechamento(s)`);
+  return lines;
+}
+
+/** Por atendimento. */
+function ticketRiderLines(lastRider) {
+  const lines = [];
+  if (lastRider.qtd_tickets != null) lines.push(`- Franquia de atendimentos: ${lastRider.qtd_tickets}`);
+  if (lastRider.surplus_ticket_value != null) lines.push(`- Valor do atendimento excedente: ${currencyBRL(lastRider.surplus_ticket_value)}`);
+  return lines;
+}
+
+/** Crédito. */
+function creditRiderLines(lastRider) {
+  const lines = [];
+  if (lastRider.external_value != null) lines.push(`- Valor externo: ${currencyBRL(lastRider.external_value)}`);
+  if (lastRider.internal_value != null) lines.push(`- Valor interno: ${currencyBRL(lastRider.internal_value)}`);
+  if (lastRider.remote_value != null) lines.push(`- Valor remoto: ${currencyBRL(lastRider.remote_value)}`);
+  return lines;
+}
+
+/** Livre. */
+function freeRiderLines(lastRider) {
+  const lines = [];
+  if (lastRider.max_equipments != null) lines.push(`- Máx. de equipamentos: ${lastRider.max_equipments}`);
+  if (lastRider.additional_equipment_value != null) lines.push(`- Valor por equipamento adicional: ${currencyBRL(lastRider.additional_equipment_value)}`);
+  return lines;
+}
+
 function formatLastRiderRich(lastRider) {
   if (!lastRider) return '*Nenhum aditivo encontrado.*\n';
   const descricao = lastRider.description ? truncate(lastRider.description, 800) : '—';
-  const lines = [
-    '### Último aditivo',
-    `- Número: ${lastRider.rider_number ?? '—'} · versão ${lastRider.release ?? '—'}`,
-    `- Vencimento: dia ${lastRider.due_day ?? '—'}`,
-    `- Valor mensal: ${currencyBRL(lastRider.value)}`
-  ];
   // `tax` nao aparece no exemplo da Swagger de GET /contracts/{id} (aparece no
   // de contract-groups); mantido defensivo — so renderiza se a API mandar.
-  if (lastRider.tax !== undefined) lines.push(`- Taxa: ${currencyBRL(lastRider.tax)}`);
-  lines.push(`- Desconto: ${discountCell(lastRider.discount_type, lastRider.discount_value)}`);
-  if (lastRider.closing_period_name) lines.push(`- Período de fechamento: ${lastRider.closing_period_name}`);
-  lines.push(`- Descrição: ${descricao}`);
+  const taxLine = lastRider.tax !== undefined ? [`- Taxa: ${currencyBRL(lastRider.tax)}`] : [];
+  const createdByLine = lastRider.created_by?.name ? [`- Criado por: ${lastRider.created_by.name}`] : [];
+
+  const lines = [
+    ...lastRiderHeaderLines(lastRider),
+    ...taxLine,
+    `- Desconto: ${discountCell(lastRider.discount_type, lastRider.discount_value)}`,
+    ...commonRiderLines(lastRider),
+    ...hoursRiderLines(lastRider),
+    ...ticketRiderLines(lastRider),
+    ...creditRiderLines(lastRider),
+    ...freeRiderLines(lastRider),
+    `- Descrição: ${descricao}`,
+    ...createdByLine
+  ];
+
   const itemsBlock = formatRiderItems(lastRider.items);
   return lines.join('\n') + '\n' + itemsBlock;
 }
@@ -163,12 +214,7 @@ function formatContract(contract, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  // ID validado estritamente (inteiro) antes de virar path na URL — honra o
-  // `type: number` do schema e nunca interpola argumento MCP cru em /contracts/{id}.
-  const contract_id = requireIntField(args, 'contract_id');
-  if (contract_id < 1) {
-    throw new Error('contract_id deve ser um número inteiro positivo');
-  }
+  const contract_id = requirePositiveIdField(args, 'contract_id');
 
   try {
     const response = await api.getContract(contract_id);
@@ -177,10 +223,9 @@ async function execute(args, { api, verbosity }) {
       const errorCode = extractApiErrorCode(response);
 
       if (errorCode === 40401 || response.status === 404) {
-        return errorResponse(
-          `**❌ Contrato #${contract_id} não encontrado**\n\n` +
-          `**Código:** ${response.status}\n` +
-          `**Mensagem:** ${response.error}\n\n` +
+        return contractApiErrorResponse(
+          `Contrato #${contract_id} não encontrado`,
+          response,
           `*Isto acontece quando o ID não existe OU quando o contrato #${contract_id} é MEMBRO de um grupo de ` +
           `contrato (modalidade Compartilhado) — contratos-membro são consultados pelo grupo, não individualmente. ` +
           `Se for este o caso, use \`get_contract_group\` com o ID do grupo (coluna "· grupo" em \`list_contracts\`). ` +
@@ -188,21 +233,10 @@ async function execute(args, { api, verbosity }) {
         );
       }
 
-      if (errorCode === 40304) {
-        return errorResponse(
-          '**❌ Sem licença para visualizar contratos**\n\n' +
-          'Sua organização não possui licença ativa para o módulo de tickets (erro 40304).\n\n' +
-          '*Entre em contato com o suporte TiFlux para verificar o licenciamento.*'
-        );
-      }
+      if (errorCode === 40304) return contractsLicenseErrorResponse();
 
       if (errorCode === 40301 || response.status === 403) {
-        return errorResponse(
-          `**❌ Acesso negado ao contrato #${contract_id}**\n\n` +
-          `**Código:** ${response.status} (erro ${errorCode || 'N/A'})\n` +
-          `**Mensagem:** ${response.error}\n\n` +
-          `*Verifique se o usuário possui a permissão "Visualizar contratos" e se a organização tem Licença Tickets.*`
-        );
+        return contractsAccessDeniedResponse(`Acesso negado ao contrato #${contract_id}`, response, errorCode);
       }
 
       return apiFailureResponse(
@@ -212,12 +246,8 @@ async function execute(args, { api, verbosity }) {
       );
     }
 
-    if (!response.data || typeof response.data !== 'object' || Array.isArray(response.data)) {
-      return errorResponse(
-        `**⚠️ Resposta inesperada ao buscar contrato #${contract_id}**\n\n` +
-        `A API retornou sucesso mas sem os dados do contrato.\n\n` +
-        `*Verifique se o contrato #${contract_id} existe.*`
-      );
+    if (!isObjectPayload(response.data)) {
+      return unexpectedPayloadResponse(`contrato #${contract_id}`, 'do contrato', `o contrato #${contract_id}`);
     }
 
     return textResponse(formatContract(response.data, verbosity));

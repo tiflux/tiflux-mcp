@@ -639,6 +639,23 @@ class TiFluxAPI {
   }
 
   /**
+   * Consumo e saldo por ciclo de apuracao de um contrato individual.
+   * GET /contracts/{id}/usage
+   *
+   * So transporte (BE-003): validacao de `base_date`, semantica dos ciclos
+   * (unidade por modalidade, mascaramento, mensagens de `cycles: []`) e
+   * formatacao ficam no slice `get_contract_usage`.
+   *
+   * @param {number|string} id - ID do contrato (nao de grupo — grupo nao tem `/usage`)
+   * @param {object} [options]
+   * @param {string} [options.base_date] - YYYY-MM-DD, opcional (default da API: hoje)
+   */
+  async getContractUsage(id, { base_date } = {}) {
+    const suffix = base_date ? `?base_date=${encodeURIComponent(base_date)}` : '';
+    return await this.makeRequest(`/contracts/${id}/usage${suffix}`);
+  }
+
+  /**
    * Lista os tipos de contrato da organizacao.
    * GET /contract-types
    *

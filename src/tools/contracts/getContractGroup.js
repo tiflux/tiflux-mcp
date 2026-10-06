@@ -8,23 +8,31 @@
  * linha "· grupo" de list_contracts — um ID de contrato comum nao serve aqui
  * (a API devolve 404).
  *
- * Divergencia conhecida da API (reportada ao time, #99188/#100479 — ver
- * api-analysis.md da spec): os valores monetarios do grupo NAO sao mascarados
- * para quem nao tem a permissao "Visualizar valores dos tickets", ao contrario
- * de list_contracts (que devolve "--"). O MCP renderiza o que a API devolve e
- * nao inventa mascara — nao ha como o MCP saber a permissao do usuario a partir
- * desta resposta.
+ * Mascaramento de valores (A5 — a divergencia antiga foi REFUTADA e corrigida
+ * pela API, ver api-analysis.md da spec 2026-10-01 e a atualizacao 2026-10-05):
+ * `value`/`discount_value`/`tax` do ultimo aditivo vem "--" sem a permissao
+ * "Visualizar valores dos tickets", igual a list_contracts/get_contract. A
+ * tool renderiza o que a API devolve, sem mascara propria.
  *
  * `last_rider` pode ser um aditivo CANCELADO (a API usa
  * `order(:rider,:release).last` sem filtrar cancelamento, e a view usada aqui
  * nao traz flag de cancelamento) — por isso o rotulo e sempre "Ultimo aditivo",
  * nunca "aditivo vigente".
+ *
+ * Situacao (A3/H5): a API so expoe `active` neste endpoint (sem `expired`),
+ * entao `groupSituacao()` deriva Expirado/Cancelado/Inativo/Ativo a partir de
+ * `expiration_date` e `last_rider.cancelled` — ver precedencia no comentario
+ * da funcao.
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
-const { footer, currencyBRL, truncate, appendWithinBudget } = require('../_shared/format');
+const { internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
+const { footer, currencyBRL, truncate, appendWithinBudget, dateOnly } = require('../_shared/format');
+const {
+  contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
+  requirePositiveIdField, isObjectPayload, unexpectedPayloadResponse,
+  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines
+} = require('../_shared/contractShared');
 
 // Teto local da secao de membros (nao e o RESPONSE_ITEM_BUDGET da resposta inteira —
 // so evita que um grupo com centenas de membros estoure sozinho; cabecalho + aditivo +
@@ -33,7 +41,7 @@ const MEMBERS_BUDGET = 20000;
 
 const schema = {
   name: 'get_contract_group',
-  description: 'Buscar o detalhe de um grupo de contrato (modalidade Compartilhado) pelo ID: nome, cliente, tipo, situação (Ativo/Inativo — o endpoint devolve 200 mesmo para grupo inativo, que list_contracts esconde), expiração, duração, renovação automática, faturamento (automático com N dias antes do vencimento, ou em lote), lembrete de consumo (percentual e e-mails), último aditivo (número, versão, dia de vencimento, valor mensal, taxa, desconto em R$ ou %, descrição) e os contratos-membro do grupo. O ID precisa vir de uma linha "· grupo" de list_contracts — grupos e contratos têm IDs independentes, o mesmo número pode existir nos dois, e um ID de contrato comum não serve aqui (404). Atenção: diferente de list_contracts, este endpoint NÃO mascara valores monetários para usuários sem a permissão "Visualizar valores dos tickets" (divergência conhecida da API, já reportada ao time). Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um grupo de contrato (modalidade Compartilhado) pelo ID: nome, cliente, tipo, situação (Ativo/Inativo/Expirado/Cancelado — derivada da expiração e do cadastro; o endpoint devolve 200 mesmo para grupo inativo ou expirado, que list_contracts esconde), expiração, duração, renovação automática, faturamento (automático com N dias antes do vencimento, ou em lote), lembrete de consumo (percentual e e-mails), último aditivo (número, versão, dia de vencimento, valor mensal, taxa, desconto em R$ ou %, descrição) e os contratos-membro do grupo. O ID precisa vir de uma linha "· grupo" de list_contracts — grupos e contratos têm IDs independentes, o mesmo número pode existir nos dois, e um ID de contrato comum não serve aqui (404). Campos monetários do aditivo (valor, desconto, taxa) vêm "--" sem a permissão "Visualizar valores dos tickets" — mesma regra de list_contracts e get_contract. Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -46,40 +54,28 @@ const schema = {
   }
 };
 
-/** Desconto do aditivo: R$ quando discount_type "currency", % quando "percent", cru nos demais casos. */
-function discountCell(discount_type, discount_value) {
-  if (discount_value === null || discount_value === undefined) return '—';
-  if (discount_type === 'currency') return currencyBRL(discount_value);
-  if (discount_type === 'percent') return `${discount_value}%`;
-  return String(discount_value);
-}
-
-function formatBilling(group) {
-  if (group.automatic_billing) {
-    const days = group.billing_days_before;
-    const hasDays = days !== null && days !== undefined;
-    const suffix = hasDays ? ` (${days} dias antes do vencimento)` : '';
-    return `Automático${suffix}`;
+/**
+ * Situacao do grupo (A3/H5), com precedencia: cancelado (`last_rider.cancelled`
+ * — a view `:shared` do aditivo nao traz esse campo hoje, entao este caso e
+ * defensivo, so dispara se a API passar a mandar) > expirado (`expiration_date`
+ * no passado, em America/Sao_Paulo) > inativo (`active:false`) > ativo.
+ */
+function groupSituacao(group) {
+  if (group.last_rider?.cancelled) return 'Cancelado';
+  if (group.expiration_date) {
+    const today = dateOnly(new Date().toISOString());
+    const expiration = dateOnly(group.expiration_date);
+    if (expiration < today) return 'Expirado';
   }
-  if (group.billing_in_batch) return 'Em lote';
-  return '—';
-}
-
-function formatConsumptionReminder(reminder) {
-  if (!reminder || !reminder.notification) return 'Desativado';
-  const percent = reminder.percent !== null && reminder.percent !== undefined ? `${reminder.percent}%` : '—';
-  const emails = reminder.emails || '—';
-  return `Ativo — alerta em ${percent} de consumo; e-mails: ${emails}`;
+  if (group.active === false) return 'Inativo';
+  return 'Ativo';
 }
 
 function formatLastRiderRich(lastRider) {
   if (!lastRider) return '*Nenhum aditivo encontrado.*\n';
   const descricao = lastRider.description ? truncate(lastRider.description, 800) : '—';
   const lines = [
-    '### Último aditivo',
-    `- Número: ${lastRider.rider_number ?? '—'} · versão ${lastRider.release ?? '—'}`,
-    `- Vencimento: dia ${lastRider.due_day ?? '—'}`,
-    `- Valor mensal: ${currencyBRL(lastRider.value)}`,
+    ...lastRiderHeaderLines(lastRider),
     `- Taxa: ${currencyBRL(lastRider.tax)}`,
     `- Desconto: ${discountCell(lastRider.discount_type, lastRider.discount_value)}`,
     `- Descrição: ${descricao}`
@@ -106,7 +102,7 @@ function formatMembersCompact(contracts) {
 
 function formatContractGroup(group, verbosity) {
   const v = verbosity || 'rich';
-  const situacao = group.active ? 'Ativo' : 'Inativo';
+  const situacao = groupSituacao(group);
 
   if (v === 'compact') {
     const clientLabel = group.client ? `${group.client.name} (#${group.client.id})` : '—';
@@ -146,13 +142,7 @@ function formatContractGroup(group, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  // ID validado estritamente (inteiro) antes de virar path na URL — honra o
-  // `type: number` do schema e nunca interpola argumento MCP cru em /contract-groups/{id}.
-  const contract_group_id = requireIntField(args, 'contract_group_id');
-  // parseIntStrict aceita 0; o schema promete "inteiro positivo" — 0 nunca e um ID valido.
-  if (contract_group_id < 1) {
-    throw new Error('contract_group_id deve ser um número inteiro positivo');
-  }
+  const contract_group_id = requirePositiveIdField(args, 'contract_group_id');
 
   try {
     const response = await api.getContractGroup(contract_group_id);
@@ -161,30 +151,18 @@ async function execute(args, { api, verbosity }) {
       const errorCode = extractApiErrorCode(response);
 
       if (errorCode === 40401 || response.status === 404) {
-        return errorResponse(
-          `**❌ Grupo de contrato #${contract_group_id} não encontrado**\n\n` +
-          `**Código:** ${response.status}\n` +
-          `**Mensagem:** ${response.error}\n\n` +
+        return contractApiErrorResponse(
+          `Grupo de contrato #${contract_group_id} não encontrado`,
+          response,
           `*O ID precisa vir de uma linha "· grupo" de \`list_contracts\` — grupos e contratos têm IDs ` +
           `independentes, e um ID de contrato comum não serve aqui.*`
         );
       }
 
-      if (errorCode === 40304) {
-        return errorResponse(
-          '**❌ Sem licença para visualizar contratos**\n\n' +
-          'Sua organização não possui licença ativa para o módulo de tickets (erro 40304).\n\n' +
-          '*Entre em contato com o suporte TiFlux para verificar o licenciamento.*'
-        );
-      }
+      if (errorCode === 40304) return contractsLicenseErrorResponse();
 
       if (errorCode === 40301 || response.status === 403) {
-        return errorResponse(
-          `**❌ Acesso negado ao grupo de contrato #${contract_group_id}**\n\n` +
-          `**Código:** ${response.status} (erro ${errorCode || 'N/A'})\n` +
-          `**Mensagem:** ${response.error}\n\n` +
-          `*Verifique se o usuário possui a permissão "Visualizar contratos" e se a organização tem Licença Tickets.*`
-        );
+        return contractsAccessDeniedResponse(`Acesso negado ao grupo de contrato #${contract_group_id}`, response, errorCode);
       }
 
       return apiFailureResponse(
@@ -194,12 +172,8 @@ async function execute(args, { api, verbosity }) {
       );
     }
 
-    if (!response.data || typeof response.data !== 'object' || Array.isArray(response.data)) {
-      return errorResponse(
-        `**⚠️ Resposta inesperada ao buscar grupo de contrato #${contract_group_id}**\n\n` +
-        `A API retornou sucesso mas sem os dados do grupo.\n\n` +
-        `*Verifique se o grupo #${contract_group_id} existe.*`
-      );
+    if (!isObjectPayload(response.data)) {
+      return unexpectedPayloadResponse(`grupo de contrato #${contract_group_id}`, 'do grupo', `o grupo #${contract_group_id}`);
     }
 
     return textResponse(formatContractGroup(response.data, verbosity));
