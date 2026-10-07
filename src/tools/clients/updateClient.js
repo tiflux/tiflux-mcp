@@ -9,6 +9,7 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { clientWritableFieldSchemas, CLIENT_WRITABLE_FIELDS } = require('../_shared/clientShared');
+const { dateTime } = require('../_shared/format');
 
 const schema = {
   name: 'update_client',
@@ -37,7 +38,7 @@ const schema = {
 // name/social tambem sao atualizaveis, alem dos campos compartilhados.
 const UPDATABLE_FIELDS = ['name', 'social', ...CLIENT_WRITABLE_FIELDS];
 
-async function execute(args, { api }) {
+async function execute(args, { api, verbosity }) {
   requireField(args, 'client_id');
 
   const { client_id } = args;
@@ -74,7 +75,10 @@ async function execute(args, { api }) {
       `**✅ Cliente #${client_id} atualizado com sucesso!**\n\n` +
       `**ID:** ${client.id || client_id}\n` +
       `**Nome:** ${client.name || args.name || 'N/A'}\n` +
-      `**Campos atualizados:** ${updatedFields}\n\n` +
+      `**Campos atualizados:** ${updatedFields}\n` +
+      // updated_at = ultima alteracao real (API devolve desde 2026-10-06; PUT sem mudanca nao avanca a data)
+      (client.updated_at ? `**Atualizado em:** ${dateTime(client.updated_at, verbosity)}\n` : '') +
+      `\n` +
       `*✅ Cliente atualizado via API TiFlux*`
     );
   } catch (error) {

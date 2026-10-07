@@ -806,6 +806,8 @@ Get full details of a client by ID.
 
 **Fixed in v2.50.1:** `Criado em`/`Atualizado em` now show in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
 
+**Note:** the API v2 started returning `created_at`/`updated_at` in `GET /clients/{id}` on 2026-10-06, so `Criado em`/`Atualizado em` now actually appear in the response (Brasília time in `rich`, UTC with `Z` in `compact`). `list_clients`/`search_client` don't include these dates — the listing endpoint doesn't return them.
+
 **Example:**
 ```json
 {
@@ -846,6 +848,8 @@ Update an existing client (partial update — only provided fields are sent).
 **Parameters:**
 - `client_id` (number, required): Client ID to update
 - All fields from `create_client` (all optional)
+
+**Response:** confirmation with ID, name, updated fields and `Atualizado em` (the API's `updated_at` — Brasília time in `rich`, UTC in `compact`), i.e. the client's last actual change. If the submitted values are identical to the current ones, the API doesn't touch `updated_at`, so the date stays the previous one.
 
 **Example:**
 ```json
