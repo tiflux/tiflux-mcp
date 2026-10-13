@@ -23,7 +23,7 @@
  * Chaves não-admin recebem 403 com error_code 40301.
  */
 
-const { runFeedbackReport, withTitle } = require('../_shared/feedbackReport');
+const { runFeedbackReport, withTitle, compactListRenderer } = require('../_shared/feedbackReport');
 const { feedbackReportSchemaProperties } = require('../_shared/schemaProps');
 const { row, renderWithinBudget } = require('../_shared/format');
 
@@ -37,6 +37,12 @@ const schema = {
 - **Contagem/comparação de tickets** → get_tickets_comparison
 
 **Período de comparação padrão:** se compare_start_date/compare_end_date não forem informados, o período de comparação é o imediatamente anterior de mesma duração (compare_end = start_date − 1s; mesma duração). Forneça apenas start_date e end_date e o período de comparação é calculado automaticamente.
+
+**Relatório de um dia só:** start_date == end_date é aceito (ex.: "como foi a satisfação de chats ontem?"). O período de comparação padrão nesse caso é o dia anterior.
+
+**Datas são dias inteiros em UTC** — hora e fuso são ignorados pela API.
+
+**Sem avaliações no período:** quando nenhum chat foi avaliado, a média e a taxa de resposta aparecem como "—" (não "0.0") — não houve avaliação, não houve nota zero.
 
 **Filtro por nota não existe na API** — para filtrar por nota (rating), use include_list=true e filtre a lista retornada por rating client-side (ex: "mostre só os chats com nota < 3").
 
@@ -81,8 +87,8 @@ function richRow(chat) {
  * substitui o "Há mais itens — offset N+1" (que pularia os itens não mostrados).
  */
 function renderList(list, { effectiveLimit, effectiveOffset, maxChars, title = '', truncatedTitle }) {
-  const tableHead = `| ID | Cliente | Responsável | Nota | Data avaliação | Ticket |\n` +
-    `|----|---------|-------------|------|----------------|--------|\n`;
+  const tableHead = `| ID | Cliente | Responsável | Nota | Última msg do cliente (≈ avaliação) | Ticket |\n` +
+    `|----|---------|-------------|------|--------------------------------------|--------|\n`;
   const middle = `\n*Para detalhes completos de um chat: use \`get_chat\` com o id retornado.*\n` +
     `*Para filtrar por nota: filtre a coluna "Nota" da lista acima client-side (não há filtro por nota na API).*\n`;
 
@@ -108,15 +114,7 @@ function compactRow(chat) {
   ])}\n`;
 }
 
-function renderListCompact(list, { effectiveLimit, effectiveOffset, moreLine = '', maxChars, title = '', truncatedTitle } = {}) {
-  const tableHead = 'id|cliente|responsavel|nota|data|ticket\n';
-  return renderWithinBudget({
-    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
-    parts: list.map(compactRow),
-    pagination: moreLine,
-    maxChars, offset: effectiveOffset, limit: effectiveLimit, verbosity: 'compact'
-  });
-}
+const renderListCompact = compactListRenderer('id|cliente|responsavel|nota|ultima_msg_cliente(aprox_avaliacao)|ticket\n', compactRow);
 
 async function execute(args, ctx) {
   return runFeedbackReport(args, ctx, {

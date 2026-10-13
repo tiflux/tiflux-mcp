@@ -66,6 +66,38 @@ function renderInteractivePayload(text) {
 }
 
 /**
+ * Formata o conteúdo de uma mídia anexada (H13). Com `url`: rótulo por tipo
+ * (imagem/áudio de voz/áudio/documento) + link; caption (quando houver) vai na
+ * linha seguinte, sem truncar (H12). Sem `url`: mantém o rótulo antigo
+ * `[anexo: <caption> (<content_type>)]` (fallback defensivo — a API sempre
+ * manda url em produção).
+ * @param {object} media - { content_type, url, is_voice, caption }
+ * @returns {string}
+ */
+function formatMediaContent(media) {
+  const contentType = media.content_type || 'arquivo';
+
+  if (!media.url) {
+    return media.caption
+      ? `[anexo: ${media.caption} (${contentType})]`
+      : `[anexo: ${contentType}]`;
+  }
+
+  let label;
+  if (media.is_voice) {
+    label = `[áudio de voz: ${media.url}]`;
+  } else if (typeof contentType === 'string' && contentType.startsWith('image/')) {
+    label = `[imagem: ${media.url}]`;
+  } else if (typeof contentType === 'string' && contentType.startsWith('audio/')) {
+    label = `[áudio: ${media.url}]`;
+  } else {
+    label = `[documento ${contentType}: ${media.url}]`;
+  }
+
+  return media.caption ? `${label}\n${media.caption}` : label;
+}
+
+/**
  * Formata o papel do autor em pt-BR.
  * @param {object|null} author - { type, id, name }
  * @returns {string}
@@ -101,16 +133,12 @@ function formatMessage(msg) {
   const authorLabel = formatAuthorLabel(msg.author);
   const time = msg.created_at || 'sem horário';
 
-  // Conteúdo: texto ou referência de anexo
+  // Conteúdo: texto integral (H12 — sem truncar) ou referência de anexo
   let content;
   if (msg.media) {
-    const contentType = msg.media.content_type || 'arquivo';
-    // Sem caption, exibir só o content_type — repeti-lo entre parênteses seria redundante
-    content = msg.media.caption
-      ? `[anexo: ${truncate(msg.media.caption, 150)} (${contentType})]`
-      : `[anexo: ${contentType}]`;
+    content = formatMediaContent(msg.media);
   } else if (msg.text) {
-    content = renderInteractivePayload(msg.text) || truncate(msg.text, 150);
+    content = renderInteractivePayload(msg.text) || msg.text;
   } else {
     content = `[${msg.type || 'mensagem'}]`;
   }
@@ -119,13 +147,14 @@ function formatMessage(msg) {
 
   let line = `**${authorLabel}** [${time}]${delivery}\n${content}`;
 
-  // Reply/quote
+  // Reply/quote — H13: cita o autor da mensagem original quando disponível
   if (msg.quoted_message) {
     const quoted = msg.quoted_message;
     const quotedText = quoted.text
-      ? (renderInteractivePayload(quoted.text) || truncate(quoted.text, 80))
+      ? (renderInteractivePayload(quoted.text) || quoted.text)
       : `[${quoted.type || 'mensagem'}]`;
-    line += `\n↩ resposta a: "${quotedText}"`;
+    const quotedAuthor = quoted.author_name ? ` ${quoted.author_name}` : '';
+    line += `\n↩ resposta a${quotedAuthor}: "${quotedText}"`;
   }
 
   return line + '\n';
@@ -140,17 +169,17 @@ function formatMessage(msg) {
  * @param {string} verbosity
  * @returns {string}
  */
-function formatTranscript(messages, offset, limit, chatId, verbosity) {
+function formatTranscript(messages, offset, limit, chatId, verbosity, total) {
   const currentOffset = parseInt(offset) || 1;
   const currentLimit = parseInt(limit) || 20;
   const v = verbosity || 'rich';
 
   const plural = messages.length === 1 ? 'mensagem' : 'mensagens';
   const head = `**Mensagens do Chat #${chatId}** (${messages.length} ${plural})\n\n`;
-  const truncatedHead = (shown) => `**Mensagens do Chat #${chatId}** (${cutCountLabel(shown, null, messages.length, 'mensagens')})\n\n`;
+  const truncatedHead = (shown) => `**Mensagens do Chat #${chatId}** (${cutCountLabel(shown, total, messages.length, 'mensagens')})\n\n`;
   const parts = messages.map((msg, idx) => (idx > 0 ? '\n---\n\n' : '') + formatMessage(msg));
 
-  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: messages.length, unit: 'mensagens' }, v);
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: messages.length, total, unit: 'mensagens' }, v);
   const footerStr = footer(v);
   const sep = footerStr ? '\n' : '';
   // Teto por item (F3): corta entre mensagens, com offset/limit exatos para continuar.
@@ -164,7 +193,8 @@ function formatTranscript(messages, offset, limit, chatId, verbosity) {
     offset: currentOffset,
     limit: currentLimit,
     unit: 'mensagens',
-    verbosity: v
+    verbosity: v,
+    total
   });
 }
 
@@ -234,7 +264,7 @@ async function execute(args, { api, verbosity }) {
       );
     }
 
-    return textResponse(formatTranscript(messages, offset, limit, id, verbosity));
+    return textResponse(formatTranscript(messages, offset, limit, id, verbosity, response.total));
   } catch (error) {
     return errorResponse(
       `**Erro interno ao listar mensagens do chat**\n\n` +

@@ -8,9 +8,9 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
-const { footer } = require('../_shared/format');
+const { footer, dateTime } = require('../_shared/format');
 const { ticketReference } = require('../_shared/chatTicket');
-const { originLabel } = require('../_shared/chatFields');
+const { originLabel, waitingLabel, personLine } = require('../_shared/chatFields');
 
 const schema = {
   name: 'get_chat',
@@ -33,36 +33,32 @@ function formatChatCard(chat, verbosity) {
   const canceled = chat.canceled ? 'Sim' : 'Não';
   const assessment = chat.assessment != null ? chat.assessment : 'Sem avaliação';
   const clientName = chat.client?.name || 'Não informado';
-  const requestorName = chat.requestor?.name || 'Não informado';
   const department = chat.department?.name || 'Não informado';
   const responsible = chat.responsible?.name || 'Sem responsável';
   const origin = originLabel(chat.origin, 'Não informado');
   const room = chat.room || 'Não informado';
   const online = chat.online ? 'Online' : 'Offline';
-  const waitingAnswer = chat.waiting_answer ? 'Sim' : 'Não';
   const ticket = ticketReference(chat.ticket) || 'Sem ticket vinculado';
   const startedBy = chat.started_by || 'Não informado';
-  const createdAt = chat.created_at || 'Não informado';
-  const updatedAt = chat.updated_at || 'Não informado';
-  const assumedAt = chat.assumed_at || 'Não informado';
-
-  let lastMsg = chat.last_client_message || 'Sem mensagem';
-  if (lastMsg.length > 150) lastMsg = lastMsg.substring(0, 150) + '...';
+  const createdAt = dateTime(chat.created_at, verbosity);
+  const updatedAt = dateTime(chat.updated_at, verbosity);
+  const assumedAt = dateTime(chat.assumed_at, verbosity);
+  const lastClientMessage = dateTime(chat.last_client_message, verbosity);
 
   return (
     `**Chat #${id}**\n\n` +
     `**Status:** ${archived === 'Sim' ? 'Arquivado' : 'Ativo'} | Cancelado: ${canceled}\n` +
     `**Avaliação:** ${assessment}\n` +
-    `**Online:** ${online} | Aguardando resposta: ${waitingAnswer}\n\n` +
+    `**Online:** ${online} | ${waitingLabel(chat.waiting_answer)}\n\n` +
     `**Cliente:** ${clientName}\n` +
-    `**Requerente:** ${requestorName}\n` +
+    `**${personLine(chat.requestor, { includeEmail: true })}**\n` +
     `**Departamento:** ${department}\n` +
     `**Responsável:** ${responsible}\n\n` +
     `**Origem:** ${origin}\n` +
     `**Iniciado por:** ${startedBy}\n` +
     `**Sala:** ${room}\n` +
     `**Ticket vinculado:** ${ticket}\n\n` +
-    `**Última mensagem do cliente:** ${lastMsg}\n\n` +
+    `**Última msg do cliente em:** ${lastClientMessage}\n\n` +
     `**Criado em:** ${createdAt}\n` +
     `**Atualizado em:** ${updatedAt}\n` +
     `**Assumido em:** ${assumedAt}\n\n` +

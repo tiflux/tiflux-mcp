@@ -15,6 +15,19 @@ function ticketNumberSchemaProperty(description) {
 }
 
 /**
+ * Propriedade de schema para o filtro `started_by` (tipo de iniciador do chat),
+ * identica nas 4 tools de listagem de chats. Enum fechado conforme a API v2.
+ * @returns {object} objeto de schema pronto para `properties.started_by`
+ */
+function startedByFilterSchemaProperty() {
+  return {
+    type: 'string',
+    enum: ['Client', 'Attendant', 'Campaign', 'API'],
+    description: 'Tipo de iniciador do chat (opcional)'
+  };
+}
+
+/**
  * Propriedades de schema para filtros de data por criacao (`created_at`).
  * Compartilhadas pelas 4 tools de listagem de chats (inbox, mine,
  * in_attendance, archived). Espalhar com `...createdAtFilterSchemaProperties()`
@@ -25,11 +38,11 @@ function createdAtFilterSchemaProperties() {
   return {
     created_at_start: {
       type: 'string',
-      description: 'Filtrar chats criados a partir desta data/hora (>=). Formato recomendado: ISO 8601 YYYY-MM-DDTHH:MM:SSZ (opcional)'
+      description: 'Filtrar chats criados a partir desta data/hora (>=). Data pura (YYYY-MM-DD) = dia inteiro em horário de Brasília (normalizado para 00:00:00-03:00). Com hora, use offset (ex.: -03:00) ou Z (opcional)'
     },
     created_at_end: {
       type: 'string',
-      description: 'Filtrar chats criados até esta data/hora (<=). Formato recomendado: ISO 8601 YYYY-MM-DDTHH:MM:SSZ. Deve ser >= created_at_start (opcional)'
+      description: 'Filtrar chats criados até esta data/hora (<=). Data pura (YYYY-MM-DD) = dia inteiro em horário de Brasília (normalizado para 23:59:59-03:00). Com hora, use offset (ex.: -03:00) ou Z. Deve ser >= created_at_start (opcional)'
     }
   };
 }
@@ -44,11 +57,11 @@ function finishedAtFilterSchemaProperties() {
   return {
     finished_at_start: {
       type: 'string',
-      description: 'Filtrar chats finalizados a partir desta data/hora (>=). Formato recomendado: ISO 8601 YYYY-MM-DDTHH:MM:SSZ. Só aplicável a chats arquivados (opcional)'
+      description: 'Filtrar chats finalizados a partir desta data/hora (>=). Data pura (YYYY-MM-DD) = dia inteiro em horário de Brasília (normalizado para 00:00:00-03:00). Com hora, use offset (ex.: -03:00) ou Z. Só aplicável a chats arquivados (opcional)'
     },
     finished_at_end: {
       type: 'string',
-      description: 'Filtrar chats finalizados até esta data/hora (<=). Formato recomendado: ISO 8601 YYYY-MM-DDTHH:MM:SSZ. Deve ser >= finished_at_start. Só aplicável a chats arquivados (opcional)'
+      description: 'Filtrar chats finalizados até esta data/hora (<=). Data pura (YYYY-MM-DD) = dia inteiro em horário de Brasília (normalizado para 23:59:59-03:00). Com hora, use offset (ex.: -03:00) ou Z. Deve ser >= finished_at_start. Só aplicável a chats arquivados (opcional)'
     }
   };
 }
@@ -128,6 +141,7 @@ function feedbackReportSchemaProperties(includeListDescription) {
 
 module.exports = {
   ticketNumberSchemaProperty,
+  startedByFilterSchemaProperty,
   createdAtFilterSchemaProperties,
   finishedAtFilterSchemaProperties,
   paginationSchemaProperties,

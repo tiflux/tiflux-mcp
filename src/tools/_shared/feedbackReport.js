@@ -17,9 +17,46 @@
 
 const { textResponse } = require('./response');
 const { errorResponse } = require('./errors');
-const { footer, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('./format');
+const { footer, listVerbosity, cutCountLabel, renderWithinBudget, RESPONSE_ITEM_BUDGET } = require('./format');
 const { previousPeriod, validatePeriod } = require('./periodMath');
 const { capIds, calcDelta, formatDeltaStr } = require('./reportMath');
+
+// H25: relatório de UM DIA (start_date === end_date, ambas data pura YYYY-MM-DD)
+// é um pedido válido ("como foi a satisfação de ontem?") — sem isso,
+// validatePeriod rejeita (end > start é exigido) porque duração zero também
+// serve a get_tickets_comparison, que não deve mudar (periodMath.validatePeriod
+// continua intocado; o desvio fica aqui, específico dos relatórios de feedback).
+const PURE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isSameDayReport(start, end) {
+  return typeof start === 'string' && typeof end === 'string' &&
+    PURE_DATE_PATTERN.test(start) && start === end;
+}
+
+/**
+ * Valida um período de relatório de feedback, aceitando o caso especial de um
+ * dia só (H25) antes de cair no `validatePeriod` genérico.
+ */
+function validateReportPeriod(start, end) {
+  if (isSameDayReport(start, end)) return { valid: true };
+  return validatePeriod(start, end);
+}
+
+// H27: chaves de métrica que a API zera por default quando não há avaliação
+// no período (sem isso, "0.0" aparenta ser uma média real de nota zero).
+const ZERO_HIDDEN_METRIC_KEYS = ['rating_average', 'answers_percentage'];
+
+/**
+ * Remove as métricas de "0.0 falso" de um summary quando o período não teve
+ * NENHUMA avaliação (evaluatedCount === 0). Retorna o summary como está quando
+ * há pelo menos 1 avaliado — não mascara uma média real de 0.
+ */
+function hideZeroEvaluatedMetrics(summary, evaluatedCount) {
+  if (evaluatedCount !== 0) return summary;
+  const view = { ...summary };
+  for (const key of ZERO_HIDDEN_METRIC_KEYS) delete view[key];
+  return view;
+}
 
 // Paginacao efetiva da lista (mesmo clamp enviado a API: offset >= 1, limit 1..200).
 function effectivePage(offset, limit) {
@@ -178,7 +215,7 @@ async function runFeedbackReport(args, ctx, cfg) {
     } = args;
 
     // --- Validar período principal ---
-    const mainValidation = validatePeriod(start_date, end_date);
+    const mainValidation = validateReportPeriod(start_date, end_date);
     if (!mainValidation.valid) {
       return errorResponse(
         `**❌ Período principal inválido**\n\n${mainValidation.message}\n\n` +
@@ -201,7 +238,7 @@ async function runFeedbackReport(args, ctx, cfg) {
     }
 
     if (hasCompareStart && hasCompareEnd) {
-      const compareValidation = validatePeriod(compare_start_date, compare_end_date);
+      const compareValidation = validateReportPeriod(compare_start_date, compare_end_date);
       if (!compareValidation.valid) {
         return errorResponse(
           `**❌ Período de comparação inválido**\n\n${compareValidation.message}\n\n` +
@@ -282,13 +319,23 @@ async function runFeedbackReport(args, ctx, cfg) {
     const evaluated = mainSummary[cfg.evaluatedKey] ?? 0;
     const prevEvaluated = compareSummary[cfg.evaluatedKey] ?? 0;
 
+    // H27: sem nenhuma avaliação no período, a API devolve rating_average/
+    // answers_percentage como "0.0" por default do blueprint — uma média 0
+    // falsa (não houve avaliação, não houve nota zero). Oculta as 2 métricas
+    // nesse período (média e Δ viram "—"); as demais (evaluated/finished/
+    // clients_evaluated) continuam exibindo o valor real, inclusive 0.
+    const mainSummaryView = hideZeroEvaluatedMetrics(mainSummary, evaluated);
+    const compareSummaryView = hideZeroEvaluatedMetrics(compareSummary, prevEvaluated);
+
     // F4: sem verbosidade explicita, a lista (include_list) com > 50 itens sai em compact (com aviso).
     const listLength = include_list ? (mainData[cfg.listDataKey] || []).length : undefined;
     const { verbosity: v, notice: autoCompactNotice } = listVerbosity({ verbosity, verbosityExplicit }, listLength);
 
     const report = {
       args: { start_date, end_date, include_list, offset, limit },
-      compareStart, compareEnd, mainData, mainSummary, compareSummary, evaluated, prevEvaluated, autoCompactNotice
+      compareStart, compareEnd, mainData,
+      mainSummary: mainSummaryView, compareSummary: compareSummaryView,
+      evaluated, prevEvaluated, autoCompactNotice
     };
     return textResponse(v === 'compact' ? renderCompactReport(report, cfg) : renderRichReport(report, cfg));
 
@@ -313,4 +360,22 @@ function withTitle(truncatedTitle, tableHead) {
   return typeof truncatedTitle === 'function' ? (shown) => truncatedTitle(shown) + tableHead : undefined;
 }
 
-module.exports = { runFeedbackReport, withTitle };
+/**
+ * `cfg.renderListCompact` padrao dos feedback reports: tabela pipe-separada
+ * (`tableHead` + uma linha por item via `rowFn`) dentro do orcamento de saida.
+ * Identico em chats e tickets — so mudam cabecalho e linha.
+ *
+ * @param {string} tableHead - cabecalho da tabela (terminado em '\n')
+ * @param {(item: object) => string} rowFn - linha compacta de um item
+ * @returns {(list: object[], o?: object) => string}
+ */
+function compactListRenderer(tableHead, rowFn) {
+  return (list, { effectiveLimit, effectiveOffset, moreLine = '', maxChars, title = '', truncatedTitle } = {}) => renderWithinBudget({
+    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
+    parts: list.map(rowFn),
+    pagination: moreLine,
+    maxChars, offset: effectiveOffset, limit: effectiveLimit, verbosity: 'compact'
+  });
+}
+
+module.exports = { runFeedbackReport, withTitle, compactListRenderer };

@@ -130,19 +130,17 @@ async function execute(args, { api }) {
       });
     }
 
-    let changesText = '**Alterações realizadas:**\n';
+    let changesText = '**Alterações solicitadas:**\n';
     if (chatData.user_id !== undefined) changesText += `• Atendente transferido: ID ${chatData.user_id}\n`;
     if (chatData.department_id !== undefined) changesText += `• Departamento transferido: ID ${chatData.department_id}\n`;
     if (chatData.ticket_number !== undefined) changesText += `• Ticket vinculado: #${chatData.ticket_number}\n`;
 
-    // updated_at vem do servidor quando disponível; não inventamos timestamp local.
-    const updatedAt = response.data && response.data.updated_at;
-    const updatedLine = updatedAt ? `**Atualizado em:** ${updatedAt}\n\n` : '';
-
+    // H20: a API processa a atualização de forma assíncrona (job enfileirado).
+    // Não exibimos "Atualizado em" com o updated_at desta resposta — é o relógio
+    // do processamento do request, não um timestamp persistido de conclusão.
     return textResponse(
-      `**✅ Chat #${id} atualizado com sucesso!**\n\n` +
+      `**✅ Atualização do chat #${id} enfileirada**\n\n` +
       `${changesText}\n` +
-      `${updatedLine}` +
       `*✅ Chat atualizado via API TiFlux*`
     );
   } catch (error) {

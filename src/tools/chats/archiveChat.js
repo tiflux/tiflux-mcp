@@ -18,7 +18,9 @@ const schema = {
 
 **services_catalogs_item_id (condicional):** obrigatorio APENAS se a configuracao da organizacao for "Usar catalogo de servicos no chat" — nesse caso a API retorna 422 sem ele. Nao ha busca por nome (a busca de itens de catalogo exige desk_id, que o chat nao fornece); informe o ID diretamente quando necessario.
 
-A API responde 202 (Accepted) — o encerramento pode ser processado de forma assincrona.`,
+**Se a organizacao exigir ticket vinculado para finalizar:** vincule um ticket antes com \`update_chat\` (\`ticket_number\`) — senao o encerramento e descartado no processamento.
+
+A API responde 202 (Accepted) — o encerramento e processado de forma assincrona (job enfileirado).`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -72,7 +74,7 @@ async function execute(args, { api }) {
     return textResponse(
       `**✅ Chat #${id} — encerramento solicitado (202 Accepted)**\n\n` +
       `${detailsText}` +
-      `*A API aceitou a solicitação; o encerramento pode ser processado de forma assíncrona.*`
+      `*A API aceitou a solicitação; o encerramento é processado de forma assíncrona. Se sua organização exigir ticket vinculado para finalizar, vincule antes com \`update_chat\` (\`ticket_number\`) — senão o encerramento é descartado no processamento.*`
     );
   } catch (error) {
     return errorResponse(

@@ -10,7 +10,14 @@
  * de cada slice. O ramo 404 só é exercido por slices que operam sobre um chat existente.
  */
 
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, extractApiErrorCode } = require('../_shared/errors');
+
+// H22: 42203 ("This conversation is no longer active") é devolvido quando o
+// chat já foi encerrado/cancelado — mensagem específica em vez do validationHint
+// genérico do slice (que normalmente orienta sobre OUTRO tipo de erro de campo).
+const CHAT_INACTIVE_ERROR_CODE = 42203;
+const CHAT_INACTIVE_TEXT = 'no longer active';
+const USER_OFFLINE_TEXT = 'User is offline';
 
 function chatWriteApiError(response, { label, id, notFoundHint, validationHint } = {}) {
   const code = response.status;
@@ -32,6 +39,27 @@ function chatWriteApiError(response, { label, id, notFoundHint, validationHint }
     );
   }
   if (code === 422) {
+    const errorText = typeof response.error === 'string' ? response.error : '';
+    const errorCode = extractApiErrorCode(response);
+
+    if (errorCode === CHAT_INACTIVE_ERROR_CODE || errorText.includes(CHAT_INACTIVE_TEXT)) {
+      return errorResponse(
+        `**Chat já encerrado**\n\n` +
+        `${idLine}**Código:** 422\n` +
+        `**Mensagem:** ${response.error}\n\n` +
+        `*Este chat não está mais ativo — não é possível ${label} nele.*`
+      );
+    }
+
+    if (errorText.includes(USER_OFFLINE_TEXT)) {
+      return errorResponse(
+        `**Erro de validação ao ${label}**\n\n` +
+        `${idLine}**Código:** 422\n` +
+        `**Mensagem:** ${response.error}\n\n` +
+        `*Fique online no chat (status do atendente) antes de operar via API.*`
+      );
+    }
+
     return errorResponse(
       `**Erro de validação ao ${label}**\n\n` +
       `${idLine}**Código:** 422\n` +

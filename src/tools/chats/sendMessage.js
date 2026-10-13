@@ -54,7 +54,7 @@ Para HSM com variaveis use parameters (corpo) e header_parameters (cabecalho, ap
       },
       ticket_number: {
         type: 'number',
-        description: 'Vincula o chat criado a um ticket (opcional).'
+        description: 'Vincula o chat criado a um ticket (opcional). Exige client_id: a API só vincula o ticket quando o chat tem um cliente associado. Condições do vínculo: ticket aberto, do mesmo cliente informado em client_id, numa mesa em que o usuário autenticado pode abrir ticket — caso contrário a API ignora o vínculo silenciosamente.'
       },
       client_id: {
         type: 'number',
@@ -107,6 +107,17 @@ async function execute(args, { api }) {
     );
   }
 
+  // H15: a API só vincula o ticket ao chat quando há client_id — sem ele o
+  // vínculo é ignorado silenciosamente (achado da auditoria 2026-10-06).
+  // Erro local ANTES de chamar a API, para não afirmar um vínculo que não ocorreu.
+  if (ticket_number !== undefined && client_id === undefined) {
+    return errorResponse(
+      `**⚠️ client_id obrigatório para vincular ticket_number**\n\n` +
+      `*Informe client_id: a API só vincula o ticket quando o chat tem um cliente associado — sem ele, o vínculo é ignorado sem aviso. ` +
+      `Condições do vínculo: ticket aberto, do mesmo cliente, numa mesa em que você pode abrir ticket.*`
+    );
+  }
+
   try {
     const messageData = { number, integration_id };
 
@@ -140,11 +151,14 @@ async function execute(args, { api }) {
     if (messageData.department_id !== undefined) detailsText += `• Departamento: ID ${messageData.department_id}\n`;
     if (messageData.client_id !== undefined) detailsText += `• Cliente: ID ${messageData.client_id}\n`;
     if (archive) detailsText += `• Arquivado após envio: sim\n`;
+    if (response.data?.job_id) detailsText += `• Job: ${response.data.job_id}\n`;
 
+    // H19: a API aceita o pedido e enfileira o envio — NÃO é garantia de entrega
+    // (confirmado ao vivo: sucesso afirmado para mensagem cuja entrega falhou).
     return textResponse(
-      `**✅ Mensagem enviada com sucesso!**\n\n` +
+      `**📨 Envio enfileirado**\n\n` +
       `${detailsText}\n` +
-      `*✅ Mensagem enviada via API TiFlux*`
+      `*Confira a entrega com \`list_chat_messages\`.*`
     );
   } catch (error) {
     return errorResponse(

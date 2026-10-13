@@ -225,7 +225,7 @@ Clientes MCP (Claude Code, claude.ai) recusam resultados de ferramenta acima de 
 
 | Limite | Quando vale | O que acontece |
 |--------|-------------|----------------|
-| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`), `list_appointments`, `list_appointments_global`, `get_billings_history` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
+| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`), `list_appointments`, `list_appointments_global`, `get_billings_history` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
 | **Teto de ~40k caracteres** | As mesmas listagens, em qualquer modo | A lista é cortada no fim de um item e a linha de corte substitui o bloco de paginação, com o `offset`/`limit` exatos para continuar (ver [Dicas](#dicas-para-reduzir-consumo-de-tokens)). |
 | **Rede global de ~60k caracteres** | Qualquer ferramenta | O texto é cortado no último parágrafo que cabe, com o aviso `…resposta cortada em ~60k caracteres — reduza limit ou refine o recorte.` (`isError` não muda). |
 
@@ -239,7 +239,7 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
 - **Passe IDs quando já os tiver.** Toda ferramenta que aceita um parâmetro `_name` para auto-resolução (ex.: `desk_name`, `stage_name`, `entity_field_name`) fará uma ou mais chamadas extras à API para resolver o nome. Se você guardou o ID de uma chamada anterior, passe-o diretamente (ex.: `desk_id`, `stage_id`, `entity_field_id`) — é sempre mais rápido e barato.
 - **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). A redução varia por família de ferramenta: ~65% em `list_tickets`, e de 20% a 62% nas ferramentas de análise. Para perguntas analíticas o ganho não é só de tamanho: com datas em ISO, durações em minutos e valores decimais, o modelo agrega direto em vez de converter texto antes de calcular.
 - **Pagine deliberadamente.** `list_tickets` com um intervalo de datas amplo em uma mesa movimentada pode retornar centenas de itens. Passe `limit` e `offset` intencionalmente — quando uma página cheia retorna, o modo compact acrescenta uma dica de próxima página (`→ offset: N`) para o modelo saber que pode haver mais a buscar.
-- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `get_ticket_histories` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
+- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats`, `get_ticket_histories` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
   - `rich`: `✂️ Mostrando 98 dos 200 tickets desta página (total 1305) — resposta limitada a ~40k caracteres. Para continuar: offset 2, limit 98`
   - `compact`: `[cortado: 98/200 nesta pág (total 1305) — offset 2 limit 98]`
 
@@ -643,6 +643,12 @@ Relatório de avaliações de atendimento (CSAT) de tickets com comparação aut
 - **Ticket count / trend comparison** → `get_tickets_comparison`
 
 **Default comparison period:** if `compare_start_date`/`compare_end_date` are not provided, the comparison period is the immediately preceding period of the same duration. Provide only `start_date` and `end_date` and the comparison window is calculated automatically.
+
+**Single-day report:** `start_date == end_date` is accepted (e.g. "how was ticket satisfaction yesterday?"). The default comparison period in that case is the previous day.
+
+**Dates are whole UTC days** — time and timezone are ignored by the API.
+
+**No evaluations in a period:** when a period has zero evaluated tickets, the average rating and response rate show as `—` (not `0.0`) — no evaluation happened, it's not a real zero.
 
 **No filter by rating in the API** — to filter by rating, use `include_list=true` and filter the returned list by `rating` client-side.
 
@@ -2066,21 +2072,23 @@ When no pre-appointments exist for the ticket, a friendly message is returned (n
 ## Chats
 
 ### get_chat
-Exibir detalhes de um chat específico pelo id. Retorna card com status, cliente, responsável, departamento, origem, avaliação e datas.
+Exibir detalhes de um chat específico pelo id. Retorna card com status, cliente, contato/solicitante, departamento, origem, avaliação e datas.
 
 **Parameters:**
 - `id` (number, required): Numeric ID of the chat (also accepts numeric string — the handler calls parseInt)
 
 **Returns:**
 Card with all relevant chat fields including:
-- Status (archived, canceled, online, waiting for answer)
-- Client and requestor names
+- Status (archived, canceled, online)
+- `Pendente p/ atendente:` — `Sim` when there is a pending client message for the attendant, `Não (aguardando cliente)` when the attendant already answered/read **or** the client never answered (the API's `waiting_answer` flag is `null` in that case — semantically equivalent to `false`)
+- Client name
+- Contact/requestor: `Solicitante: <name> (ID <id>)` when the chat has a registered requestor, or `Contato: <name> (sem solicitante vinculado)` when it's a free-text contact with no requestor record. Shows the requestor's email when available.
 - Department and responsible attendant
 - Origin channel (the API returns `origin` as an object `{ integration_id, _type, fields }`; the card displays `_type`, e.g. `whatsapp`, `site_widget`, `chat`) and room
 - Linked ticket (number + title, e.g. `#127 — Erro no login`); title is normalized to a single line and truncated at 150 chars; shows `Sem ticket vinculado` when no ticket is linked
 - Assessment rating (1–5) if available
-- Last client message (truncated at 150 chars)
-- Timestamps (created, updated, assumed). **Note:** `assumed_at` in `get_chat` may differ from the listing tools for legacy chats (assumed before the column existed) — the `get_chat` view synthesizes the current timestamp when the column is null but a responsible is set; the listings return the raw column value.
+- `Última msg do cliente em:` — timestamp of the last client message (this field is a date, not message text)
+- Timestamps (created, updated, assumed) in Brazil (São Paulo) time in `rich` verbosity, short UTC in `compact`
 
 **Example:**
 ```json
@@ -2090,7 +2098,7 @@ Card with all relevant chat fields including:
 ```
 
 ### list_inbox_chats
-Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de departamento, cliente, origem, data e paginação.
+Listar chats na caixa de entrada (chats não assumidos) em modo atendente, com filtros opcionais de departamento, cliente, origem, data e paginação. Chats em triagem (bot/departamento, sem responsável) não aparecem aqui — use `list_in_attendance_chats` com `status=triage`.
 
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
@@ -2100,19 +2108,19 @@ Listar chats na caixa de entrada (chats não assumidos) com filtros opcionais de
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
 - `origins` (string, optional): Comma-separated origin channels: `chat`, `site_widget`, `campaign`, `whatsapp`, `whatsapp_web`, `gupshup`, `whatsapp_cloud`
-- `started_by` (string, optional): Chat initiator type: `Client`, `Attendant`, `Campaign`, `API`
-- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
-- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
+- `started_by` (string, optional, enum `Client`/`Attendant`/`Campaign`/`API`): Chat initiator type — the API is case-sensitive and returns 422 for other casing
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Pure date (`YYYY-MM-DD`) = start of day in Brazil time (normalized to `T00:00:00-03:00`); with time, use an explicit offset (e.g. `-03:00`) or `Z`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Pure date (`YYYY-MM-DD`) = end of day in Brazil time (normalized to `T23:59:59-03:00`). Must be >= `created_at_start`
 
 **Returns:**
-Paginated list of chats. Each item includes origin (displayed as `_type`, e.g. `chat`, `whatsapp`), online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked). `Assumido em:` is omitted for inbox chats because they are not yet assumed.
+Paginated list of chats. Each item includes origin (displayed as `_type`, e.g. `chat`, `whatsapp`), online status, `Pendente p/ atendente:` (`Sim`/`Não (aguardando cliente)` — `Não` also covers chats the client never answered), client, contact/requestor (`Solicitante: <name> (ID <id>)` or `Contato: <name> (sem solicitante vinculado)`), department, `Última msg do cliente em:` (timestamp, Brazil time in `rich`), creation date, and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked). `Assumido em:` is omitted for inbox chats because they are not yet assumed. Shows `Total:` when the API returns the total item count; long pages are cut at the end of an item (~40k chars) with an exact continuation `offset`/`limit`.
 
 **Example:**
 ```json
 {
   "origins": "whatsapp",
-  "created_at_start": "2026-06-01T00:00:00Z",
-  "created_at_end": "2026-06-30T23:59:59Z",
+  "created_at_start": "2026-06-01",
+  "created_at_end": "2026-06-30",
   "limit": 10
 }
 ```
@@ -2128,24 +2136,24 @@ Listar chats assumidos pelo usuário autenticado (dono da API key) com filtros o
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
 - `origins` (string, optional): Comma-separated origin channels (see list_inbox_chats)
-- `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
-- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
-- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
+- `started_by` (string, optional, enum `Client`/`Attendant`/`Campaign`/`API`): Chat initiator type (see list_inbox_chats)
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Pure date (`YYYY-MM-DD`) = start of day in Brazil time (normalized to `T00:00:00-03:00`); with time, use an explicit offset or `Z`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Pure date (`YYYY-MM-DD`) = end of day in Brazil time (normalized to `T23:59:59-03:00`). Must be >= `created_at_start`
 
 **Returns:**
-Paginated list of chats assumed by the authenticated user. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `chat`), online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, `Assumido em:` timestamp (raw column from the API — may differ from `get_chat` for legacy chats), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of chats assumed by the authenticated user. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `chat`), online status, `Pendente p/ atendente:` (see list_inbox_chats), client, contact/requestor (`Solicitante:`/`Contato:`, see list_inbox_chats), department, `Última msg do cliente em:` timestamp, creation date, `Assumido em:` timestamp (Brazil time in `rich`), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked). Shows `Total:` when the API returns the total item count.
 
 **Example:**
 ```json
 {
   "department_id": 3,
-  "created_at_start": "2026-06-01T00:00:00Z",
+  "created_at_start": "2026-06-01",
   "limit": 20
 }
 ```
 
 ### list_in_attendance_chats
-Listar todos os chats em atendimento da organização com filtros opcionais de responsável, status, data e paginação.
+Listar todos os chats **abertos** da organização: inclui os não assumidos da caixa de entrada e os em triagem (bot/departamento, sem responsável), além dos já assumidos. Use `user_id` para ver só os chats de um atendente específico.
 
 **Parameters:**
 - `offset` (number, optional): Page number (default: 1, minimum: 1)
@@ -2155,21 +2163,21 @@ Listar todos os chats em atendimento da organização com filtros opcionais de r
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
 - `origins` (string, optional): Comma-separated origin channels (see list_inbox_chats)
-- `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
+- `started_by` (string, optional, enum `Client`/`Attendant`/`Campaign`/`API`): Chat initiator type (see list_inbox_chats)
 - `user_id` (number, optional): Filter by responsible attendant ID
-- `status` (string, optional): Filter by attendance status: `waiting_client`, `waiting_attendance`, `triage`
-- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
-- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
+- `status` (string, optional, enum `waiting_client`/`waiting_attendance`/`triage`): Attendance status. `waiting_client` = there's a pending client message for the attendant. `waiting_attendance` = the attendant already answered/read and is waiting on the client — does **NOT** include chats the client never answered (omit `status` to see those too). `triage` = no responsible yet, in bot/department queue.
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Pure date (`YYYY-MM-DD`) = start of day in Brazil time (normalized to `T00:00:00-03:00`); with time, use an explicit offset or `Z`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Pure date (`YYYY-MM-DD`) = end of day in Brazil time (normalized to `T23:59:59-03:00`). Must be >= `created_at_start`
 
 **Returns:**
-Paginated list of all chats currently in attendance in the organization. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `site_widget`), online/waiting status, client, requestor, department, last client message (truncated at 150 chars), creation date, `Assumido em:` timestamp (raw column from the API — may differ from `get_chat` for legacy chats), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of all open chats in the organization. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `site_widget`), `Atendente: <name> (ID <id>)` or `Atendente: — (não assumido)` when unassigned, `Pendente p/ atendente:` (see list_inbox_chats), client, contact/requestor (`Solicitante:`/`Contato:`, see list_inbox_chats), department, `Última msg do cliente em:` timestamp, creation date, `Assumido em:` timestamp (Brazil time in `rich`), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked). Shows `Total:` when the API returns the total item count.
 
 **Example:**
 ```json
 {
   "user_id": 7,
   "status": "triage",
-  "created_at_start": "2026-06-15T00:00:00Z"
+  "created_at_start": "2026-06-15"
 }
 ```
 
@@ -2184,23 +2192,23 @@ Listar chats arquivados (finalizados ou cancelados) com filtros opcionais de dat
 - `requestor_id` (number, optional): Filter by requestor ID — must be greater than 0
 - `number` (number, optional): Filter by WhatsApp contact number — **requires WhatsApp license**
 - `origins` (string, optional): Comma-separated origin channels (see list_inbox_chats)
-- `started_by` (string, optional): Chat initiator type (see list_inbox_chats)
+- `started_by` (string, optional, enum `Client`/`Attendant`/`Campaign`/`API`): Chat initiator type (see list_inbox_chats)
 - `canceled` (boolean, optional): `true` = only canceled chats, `false` = only normally finished, omitted = all archived chats
-- `created_at_start` (string, optional): Filter chats created on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`
-- `created_at_end` (string, optional): Filter chats created on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `created_at_start`
-- `finished_at_start` (string, optional): Filter chats finished on or after this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Only applicable to archived chats
-- `finished_at_end` (string, optional): Filter chats finished on or before this datetime. Recommended format: ISO 8601 `YYYY-MM-DDTHH:MM:SSZ`. Must be >= `finished_at_start`. Only applicable to archived chats
+- `created_at_start` (string, optional): Filter chats created on or after this datetime. Pure date (`YYYY-MM-DD`) = start of day in Brazil time (normalized to `T00:00:00-03:00`); with time, use an explicit offset or `Z`
+- `created_at_end` (string, optional): Filter chats created on or before this datetime. Pure date (`YYYY-MM-DD`) = end of day in Brazil time (normalized to `T23:59:59-03:00`). Must be >= `created_at_start`
+- `finished_at_start` (string, optional): Filter chats finished on or after this datetime. Same pure-date normalization as `created_at_start`. Only applicable to archived chats
+- `finished_at_end` (string, optional): Filter chats finished on or before this datetime. Same pure-date normalization as `created_at_end`. Must be >= `finished_at_start`. Only applicable to archived chats
 
 **Returns:**
-Paginated list of archived chats. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `chat`), canceled/assessment status, client, requestor, department, last client message (truncated at 150 chars), creation date, `Assumido em:` timestamp (raw column from the API — may differ from `get_chat` for legacy chats), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked).
+Paginated list of archived chats. Each item includes origin (displayed as `_type`, e.g. `whatsapp`, `chat`), canceled/assessment status, client, contact/requestor (`Solicitante:`/`Contato:`, see list_inbox_chats), department, `Última msg do cliente em:` timestamp, creation date, `Assumido em:` timestamp (Brazil time in `rich`), and — when the chat has a linked ticket — `Ticket: #<number> — <title>` (title normalized to a single line and truncated at 150 chars; the whole line is omitted when no ticket is linked). Shows `Total:` when the API returns the total item count.
 
 **Example:**
 ```json
 {
   "canceled": false,
-  "created_at_start": "2026-06-01T00:00:00Z",
-  "created_at_end": "2026-06-30T23:59:59Z",
-  "finished_at_start": "2026-06-15T00:00:00Z",
+  "created_at_start": "2026-06-01",
+  "created_at_end": "2026-06-30",
+  "finished_at_start": "2026-06-15",
   "limit": 50
 }
 ```
@@ -2217,9 +2225,16 @@ Listar as mensagens de um chat em ordem cronológica (transcrição da conversa)
 Conversation transcript in Markdown. Each message includes:
 - Author + role in Portuguese (client → Cliente, attendant → Atendente, system → Sistema, ai → IA), including the name when available
 - Timestamp (`created_at`)
-- Message text (truncated at 150 chars) **or** attachment reference `[anexo: <caption> (<content_type>)]` when `media ≠ null`
-- `↩ resposta a: "<excerpt>"` when `quoted_message` is present (excerpt truncated at 80 chars)
+- **Full message text, never truncated** (the only cap is the overall response budget, which cuts at the end of a message with an exact continuation `offset`/`limit`) **or** a media reference when `media ≠ null`:
+  - Image → `[imagem: <url>]`
+  - Voice note (`media.is_voice`) → `[áudio de voz: <url>]`
+  - Other audio → `[áudio: <url>]`
+  - Any other file → `[documento <content_type>: <url>]`
+  - Caption (when present) is shown on the next line, in full
+  - No `url` in the payload → falls back to `[anexo: <content_type>]`
+- `↩ resposta a <author_name>: "<text>"` when `quoted_message` is present (author name included when available; full quoted text, not truncated)
 - Delivery status when relevant (lido / entregue / ⚠ falhou)
+- Shows `Total:` when the API returns the total message count
 
 Errors: 404 when the chat does not exist, 403 when the account lacks permission or WhatsApp license.
 
@@ -2253,7 +2268,7 @@ Atualizar um chat existente: transferir o atendente (`user_id`), transferir o de
 }
 ```
 
-**Returns:** Markdown confirmation with the list of applied changes.
+**Returns:** Markdown confirmation — `Atualização do chat #<id> enfileirada` — with the list of requested changes. **The API processes the update asynchronously (queued job)**; the response does not include an `Atualizado em:` timestamp (the `updated_at` field in this response is the processing clock, not a persisted completion time).
 
 ### send_message
 Enviar uma mensagem por WhatsApp, **criando o chat no envio**. Use mensagem livre (`message`) **ou** modelo HSM / modelo de chat (`template_id`), nunca os dois juntos.
@@ -2268,13 +2283,13 @@ Enviar uma mensagem por WhatsApp, **criando o chat no envio**. Use mensagem livr
 - `country_code` (string, optional): ISO 3166-1 alpha-2 country code (e.g. `US`). Default `BR`.
 - `name` (string, optional): Requester name.
 - `department_id` (number, optional): Link the created chat to a department.
-- `ticket_number` (number, optional): Link the created chat to a ticket.
+- `ticket_number` (number, optional): Link the created chat to a ticket. **Requires `client_id`** — the API only links the ticket when the chat has an associated client; without it, the API silently ignores the link. Other conditions: the ticket must be open, belong to the same client, and be on a desk where the authenticated user can open tickets.
 - `client_id` (number, optional): Link the created chat to a client.
 - `parameters` (string[], optional): Values for the HSM body variables (`template_id`).
 - `header_parameters` (string[], optional): Values for the HSM header variables — `whatsapp_cloud` only.
 - `archive` (boolean, optional): Default `false`. `true` = create and send straight to the finished/archived box.
 
-**Note:** Besides `number` + `integration_id`, at least one of `message` / `template_id` is required (validated locally). Success status from the API: **201**.
+**Note:** Besides `number` + `integration_id`, at least one of `message` / `template_id` is required (validated locally). `ticket_number` without `client_id` is also rejected locally, before calling the API. Success status from the API: **201**, returned as a **queued job** (`status: 'enqueued'`, `job_id`) — not a guarantee of delivery. Confirm actual delivery with `list_chat_messages`.
 
 **Example (free message):**
 ```json
@@ -2295,14 +2310,16 @@ Enviar uma mensagem por WhatsApp, **criando o chat no envio**. Use mensagem livr
 }
 ```
 
-**Returns:** Markdown confirmation with the send details (type, number, integration, links).
+**Returns:** Markdown confirmation — `**📨 Envio enfileirado**` (never "enviada com sucesso") — with the send details (type, number, integration, links) and the `job_id` when returned by the API.
 
 ### archive_chat
-Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramento pode ser processado de forma assíncrona; o tool trata 202 como sucesso.
+Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramento é processado de forma assíncrona (job enfileirado); o tool trata 202 como sucesso.
 
 **Parameters:**
 - `id` (number, required): Chat ID to finish (accepts numeric string — handler runs `parseInt`)
 - `services_catalogs_item_id` (number, optional): Service catalog item ID. **Conditional:** required **only** when the organization is configured to "Usar catálogo de serviços no chat" — otherwise the API returns 422. **No `catalog_item_name`**: catalog item search requires a `desk_id`, which the chat does not provide; pass the ID directly when needed.
+
+**Note:** If the organization requires a linked ticket to finish a chat, link one first with `update_chat` (`ticket_number`) — otherwise the closing is silently discarded during processing.
 
 **Example:**
 ```json
@@ -2312,7 +2329,7 @@ Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramen
 }
 ```
 
-**Returns:** Markdown confirmation that the chat was finished (202 Accepted).
+**Returns:** Markdown confirmation that the chat was finished (202 Accepted, processed asynchronously).
 
 ### get_chats_feedback_report
 Relatório de avaliações de atendimento (CSAT) de chats com comparação automática de período. Retorna métricas de satisfação (média, avaliados, finalizados, taxa de resposta) com deltas entre dois períodos, e opcionalmente a lista de chats avaliados.
@@ -2323,6 +2340,12 @@ Relatório de avaliações de atendimento (CSAT) de chats com comparação autom
 - **Ticket count / trend comparison** → `get_tickets_comparison`
 
 **Default comparison period:** if `compare_start_date`/`compare_end_date` are not provided, the comparison period is the immediately preceding period of the same duration. Provide only `start_date` and `end_date` and the comparison window is calculated automatically.
+
+**Single-day report:** `start_date == end_date` is accepted (e.g. "how was chat satisfaction yesterday?"). The default comparison period in that case is the previous day.
+
+**Dates are whole UTC days** — time and timezone are ignored by the API.
+
+**No evaluations in a period:** when a period has zero evaluated chats, the average rating and response rate show as `—` (not `0.0`) — no evaluation happened, it's not a real zero.
 
 **No filter by rating in the API** — to filter by rating, use `include_list=true` and filter the returned list by `rating` client-side (e.g., "show only chats with rating < 3").
 

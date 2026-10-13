@@ -1662,7 +1662,8 @@ class TiFluxAPI {
     if (filters.started_by != null) params.append('started_by', filters.started_by);
     appendChatDateFilters(params, filters);
 
-    return await this.makeRequest(`/chats/inbox?${params.toString()}`);
+    const response = await this.makeRequest(`/chats/inbox?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**
@@ -1685,7 +1686,8 @@ class TiFluxAPI {
     if (filters.started_by != null) params.append('started_by', filters.started_by);
     appendChatDateFilters(params, filters);
 
-    return await this.makeRequest(`/chats/mine?${params.toString()}`);
+    const response = await this.makeRequest(`/chats/mine?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**
@@ -1710,7 +1712,8 @@ class TiFluxAPI {
     if (filters.status != null) params.append('status', filters.status);
     appendChatDateFilters(params, filters);
 
-    return await this.makeRequest(`/chats/in_attendance?${params.toString()}`);
+    const response = await this.makeRequest(`/chats/in_attendance?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**
@@ -1734,7 +1737,8 @@ class TiFluxAPI {
     if (filters.canceled != null) params.append('canceled', filters.canceled ? 'true' : 'false');
     appendChatDateFilters(params, filters, { includeFinished: true });
 
-    return await this.makeRequest(`/chats/archived?${params.toString()}`);
+    const response = await this.makeRequest(`/chats/archived?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**
@@ -1840,7 +1844,8 @@ class TiFluxAPI {
     params.append('offset', offset);
     params.append('limit', limit);
 
-    return await this.makeRequest(`/chats/${id}/messages?${params.toString()}`);
+    const response = await this.makeRequest(`/chats/${id}/messages?${params.toString()}`);
+    return this._attachTotalItems(response);
   }
 
   /**

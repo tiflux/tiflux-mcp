@@ -28,7 +28,7 @@
  * Chaves não-admin recebem 403 com error_code 40301.
  */
 
-const { runFeedbackReport, withTitle } = require('../_shared/feedbackReport');
+const { runFeedbackReport, withTitle, compactListRenderer } = require('../_shared/feedbackReport');
 const { feedbackReportSchemaProperties } = require('../_shared/schemaProps');
 const { row, truncate, renderWithinBudget } = require('../_shared/format');
 
@@ -42,6 +42,12 @@ const schema = {
 - **Contagem/comparação de tickets** → get_tickets_comparison
 
 **Período de comparação padrão:** se compare_start_date/compare_end_date não forem informados, o período de comparação é o imediatamente anterior de mesma duração (compare_end = start_date − 1s; mesma duração). Forneça apenas start_date e end_date e o período de comparação é calculado automaticamente.
+
+**Relatório de um dia só:** start_date == end_date é aceito (ex.: "como foi a satisfação de tickets ontem?"). O período de comparação padrão nesse caso é o dia anterior.
+
+**Datas são dias inteiros em UTC** — hora e fuso são ignorados pela API.
+
+**Sem avaliações no período:** quando nenhum ticket foi avaliado, a média e a taxa de resposta aparecem como "—" (não "0.0") — não houve avaliação, não houve nota zero.
 
 **Filtro por nota não existe na API** — para filtrar por nota (rating), use include_list=true e filtre a lista retornada por rating client-side (ex: "mostre só os tickets com nota < 3").
 
@@ -121,15 +127,7 @@ function compactRow(ticket) {
   ])}\n`;
 }
 
-function renderListCompact(list, { effectiveLimit, effectiveOffset, moreLine = '', maxChars, title = '', truncatedTitle } = {}) {
-  const tableHead = 'id|cliente|responsavel|mesa|nota|data|comentario\n';
-  return renderWithinBudget({
-    head: title + tableHead, truncatedHead: withTitle(truncatedTitle, tableHead),
-    parts: list.map(compactRow),
-    pagination: moreLine,
-    maxChars, offset: effectiveOffset, limit: effectiveLimit, verbosity: 'compact'
-  });
-}
+const renderListCompact = compactListRenderer('id|cliente|responsavel|mesa|nota|data|comentario\n', compactRow);
 
 async function execute(args, ctx) {
   return runFeedbackReport(args, ctx, {
