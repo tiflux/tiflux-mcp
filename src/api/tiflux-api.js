@@ -1167,23 +1167,53 @@ class TiFluxAPI {
    * @param {object} filters - { offset, limit }
    */
   async fetchTicketChecklists(ticketNumber, filters = {}) {
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/checklists?${this._pageQuery(filters)}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Lista os valores extras (cobrados do cliente) de um ticket.
+   * GET /tickets/{ticket_number}/extra-values?offset&limit
+   *
+   * Só transporte (guardrail BE-003): clamp offset >= 1 / limit 1..200 e
+   * X-Total-Items → response.total.
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {object} filters - { offset, limit }
+   */
+  async fetchTicketExtraValues(ticketNumber, filters = {}) {
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/extra-values?${this._pageQuery(filters)}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Lista os custos internos (não cobrados do cliente) de um ticket.
+   * GET /tickets/{ticket_number}/internal-costs?offset&limit
+   *
+   * Só transporte (guardrail BE-003), mesmo padrão de fetchTicketExtraValues.
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {object} filters - { offset, limit }
+   */
+  async fetchTicketInternalCosts(ticketNumber, filters = {}) {
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/internal-costs?${this._pageQuery(filters)}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
+   * Querystring `offset&limit` com o clamp padrão dos métodos paginados
+   * (offset >= 1, limit 1..200, default 20). O path com `makeRequest` fica
+   * literal no chamador (o `swagger_analyze.py coverage` detecta endpoints por ele).
+   *
+   * @param {object} filters - { offset, limit }
+   * @returns {string}
+   * @private
+   */
+  _pageQuery(filters = {}) {
     const params = new URLSearchParams();
-
-    const limit = Math.min(200, Math.max(1, parseInt(filters.limit, 10) || 20));
-    const offset = Math.max(1, parseInt(filters.offset, 10) || 1);
-
-    params.append('offset', offset);
-    params.append('limit', limit);
-
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/checklists?${params.toString()}`);
-
-    if (response && !response.error && response.headers) {
-      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
-      const total = parseInt(totalHeader, 10);
-      if (!Number.isNaN(total)) response.total = total;
-    }
-
-    return response;
+    params.append('offset', Math.max(1, parseInt(filters.offset, 10) || 1));
+    params.append('limit', Math.min(200, Math.max(1, parseInt(filters.limit, 10) || 20)));
+    return params.toString();
   }
 
   /**

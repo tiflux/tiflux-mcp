@@ -28,12 +28,14 @@ const ERROR_CODE_NO_TICKETS_LICENSE = 40304;
  * @param {string} [options.action='buscar'] - verbo da operacao usado nas mensagens de 422 e generica.
  *   Default "buscar" (leitura); slices de escrita passam "atualizar" para a mensagem nao mentir
  *   sobre o que falhou (um PUT nao "busca" nada).
+ * @param {string} [options.permissionHint] - dica extra anexada a mensagem do 403 `40301`
+ *   (ex.: quais permissoes liberam o acesso). Ausente, o texto do 40301 nao muda (retrocompativel).
  * @returns {{content: Array, isError: true}} resposta MCP de erro
  */
 function ticketSubresourceErrorResponse(
   response,
   ticketNumber,
-  { resourceLabel, validationHint = '', action = 'buscar' } = {}
+  { resourceLabel, validationHint = '', action = 'buscar', permissionHint = '' } = {}
 ) {
   const status = response?.status;
   const errorCode = extractApiErrorCode(response);
@@ -41,7 +43,8 @@ function ticketSubresourceErrorResponse(
   if (status === 403 && errorCode === ERROR_CODE_NO_PERMISSION) {
     return errorResponse(
       `**🚫 Sem permissão para acessar ${resourceLabel} do ticket #${ticketNumber}**\n\n` +
-      `*Seu usuário não tem permissão para esta operação. Contate o administrador.*`
+      `*Seu usuário não tem permissão para esta operação. Contate o administrador.*` +
+      (permissionHint ? `\n\n${permissionHint}` : '')
     );
   }
 

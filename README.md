@@ -144,7 +144,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 ## Funcionalidades
 
-- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`)
+- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), e custos internos da operação (`list_ticket_internal_costs`), somente leitura
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada); registrar resposta em nome do cliente (`create_client_answer`, só Administrador)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
@@ -225,7 +225,7 @@ Clientes MCP (Claude Code, claude.ai) recusam resultados de ferramenta acima de 
 
 | Limite | Quando vale | O que acontece |
 |--------|-------------|----------------|
-| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`), `list_appointments`, `list_appointments_global`, `get_billings_history` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
+| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`), `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_ticket_extra_values`, `list_ticket_internal_costs` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
 | **Teto de ~40k caracteres** | As mesmas listagens, em qualquer modo | A lista é cortada no fim de um item e a linha de corte substitui o bloco de paginação, com o `offset`/`limit` exatos para continuar (ver [Dicas](#dicas-para-reduzir-consumo-de-tokens)). |
 | **Rede global de ~60k caracteres** | Qualquer ferramenta | O texto é cortado no último parágrafo que cabe, com o aviso `…resposta cortada em ~60k caracteres — reduza limit ou refine o recorte.` (`isError` não muda). |
 
@@ -239,7 +239,7 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
 - **Passe IDs quando já os tiver.** Toda ferramenta que aceita um parâmetro `_name` para auto-resolução (ex.: `desk_name`, `stage_name`, `entity_field_name`) fará uma ou mais chamadas extras à API para resolver o nome. Se você guardou o ID de uma chamada anterior, passe-o diretamente (ex.: `desk_id`, `stage_id`, `entity_field_id`) — é sempre mais rápido e barato.
 - **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). A redução varia por família de ferramenta: ~65% em `list_tickets`, e de 20% a 62% nas ferramentas de análise. Para perguntas analíticas o ganho não é só de tamanho: com datas em ISO, durações em minutos e valores decimais, o modelo agrega direto em vez de converter texto antes de calcular.
 - **Pagine deliberadamente.** `list_tickets` com um intervalo de datas amplo em uma mesa movimentada pode retornar centenas de itens. Passe `limit` e `offset` intencionalmente — quando uma página cheia retorna, o modo compact acrescenta uma dica de próxima página (`→ offset: N`) para o modelo saber que pode haver mais a buscar.
-- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats`, `get_ticket_histories` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
+- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats`, `get_ticket_histories`, `list_ticket_extra_values`, `list_ticket_internal_costs` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
   - `rich`: `✂️ Mostrando 98 dos 200 tickets desta página (total 1305) — resposta limitada a ~40k caracteres. Para continuar: offset 2, limit 98`
   - `compact`: `[cortado: 98/200 nesta pág (total 1305) — offset 2 limit 98]`
 
@@ -1649,6 +1649,47 @@ Per field (`fields[]`):
 ```
 
 Empty result (no checklists) returns a friendly explanatory message. A ticket without checklists can be closed normally.
+
+### list_ticket_extra_values
+List the **extra values** of a ticket (portal tab "Valorização" → "Valores extras"): what will be **charged to the client** on top of the service (e.g., travel, a part, after-hours work). Read-only — the API v2 has no route to create, edit or remove entries.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number (e.g., "6167")
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Entries per page (default: 20, max: 200)
+
+**Example:**
+```json
+{
+  "ticket_number": "6167",
+  "offset": 1,
+  "limit": 20
+}
+```
+
+**Returns** (per entry): date, item (the org's "Valores extras" catalog item, or "Inserido manualmente" for manual entries), description (truncated at 500 chars in `rich`, 120 in `compact`), quantity, unit value, total value, who created it, files (up to 5 per entry with name, size and link, plus "+N arquivos"; `compact` shows only the count) and **Faturado: Sim/Não** (`billed`).
+
+- **Sum footer:** sum of `total_value` of the visible entries, split into **faturado × a faturar** (e.g., `Total do ticket: R$ 201,50` / `Faturado R$ 46,50 · A faturar R$ 155,00`). The label is "Total do ticket" when page 1 covers every entry (`X-Total-Items` ≤ entries shown); otherwise "Soma desta página". Negative values are summed with their sign (the server does not validate it).
+- **Masking:** without the permission **"Visualizar valores dos tickets"**, `unitary_value`/`total_value` come as `--` — except on entries the user created — and are shown as "oculto (sem permissão)" (never `R$ 0,00`). They stay out of the sum, with a note of how many were left out; with some entries hidden the label becomes "Total do ticket (só valores visíveis)" / "Soma desta página (só valores visíveis)", and with every entry hidden no sum is shown ("Soma indisponível: nenhum valor visível"). Blank values are treated the same way. `quantity` and `billed` are never masked.
+- **File links** are signed URLs valid for **72 h**.
+- An extra value that has already been billed can no longer be edited or removed in the portal. When tickets are grouped (merged), extra values move to the main ticket.
+- Not included here: loose appointment values and travel (`list_appointments`, `get_ticket_shifts`). For what the operation spent (not charged), use `list_ticket_internal_costs`.
+- Errors: 404 (ticket not found or from another org), 422 (invalid `ticket_number`); a `ticket_number` that is not a positive integer is rejected before calling the API, 403 `40301` (needs "Visualizar e abrir tickets" / "Visualizar tickets em que eu não sou o responsável"; client users have no access), 403 `40304` (no Tickets license).
+- Response budget: auto `compact` above 50 entries without explicit verbosity; ~40k cut at an entry boundary with continuation line (the sum is recalculated over the entries shown).
+
+### list_ticket_internal_costs
+List the **internal costs** of a ticket (portal tab "Valorização" → "Custos internos"): what the operation **spent** to serve the ticket. Internal costs are **not charged to the client**. Read-only.
+
+**Parameters:** same as `list_ticket_extra_values` (`ticket_number` required, `offset`, `limit`).
+
+**Example:**
+```json
+{
+  "ticket_number": "6167"
+}
+```
+
+**Returns:** same entry layout as `list_ticket_extra_values`, **without** the Faturado column and the billed split (internal costs have no billing concept). Same sum footer ("Total do ticket" / "Soma desta página"), same masking rule (`--` → "oculto (sem permissão)", out of the sum), same 72 h file links, errors and response budget. When tickets are grouped (merged), internal costs **do not move**: they stay on the grouped (cancelled) ticket.
 
 ### update_ticket_checklist_item
 Fill or clear a single checklist field for a ticket. One field per call (1:1 with the API). Use `get_ticket_checklists` first to obtain `checklist_id`, `index`, and the option ids for `checkbox`/`radio` fields.
@@ -4219,6 +4260,8 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/service-types` - List service types available for valorization of a ticket appointment (contract riders and loose services). Used by `get_ticket_service_types` and by `create_appointment` for `loose_service_name`/`contract_name` resolution.
 - `GET /tickets/{ticket_number}/shifts` - List displacements available for valorization of a ticket appointment (travel/visit costs, filterable by contract_id). Used by `get_ticket_shifts` and by `create_appointment` for `shift_name` resolution.
 - `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
+- `GET /tickets/{ticket_number}/extra-values` - List extra values (charged to the client) of a ticket (`list_ticket_extra_values`; paginated via `offset`/`limit`; header `X-Total-Items`)
+- `GET /tickets/{ticket_number}/internal-costs` - List internal costs (not charged to the client) of a ticket (`list_ticket_internal_costs`; paginated via `offset`/`limit`; header `X-Total-Items`)
 - `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, client_ids, contract_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name`, `valorization.shift_owner_ticket`, and `contract` at the item top level (view :global). Used by `list_appointments_global` and `list_appointments_report`.

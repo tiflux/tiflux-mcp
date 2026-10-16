@@ -11,7 +11,8 @@
  * src/handlers/tickets.js (validado via tests/unit/tools/tickets/parity.test.js)
  * + 4 de answers/histories/reopen (spec 2026-06-12-ticket-answers-read)
  * + 2 de upload/delete arquivos (spec 2026-06-16-ticket-files-upload-delete-base64)
- * + 1 de comparação agregada (spec 2026-07-07-tickets-comparison-aggregation).
+ * + 1 de comparação agregada (spec 2026-07-07-tickets-comparison-aggregation)
+ * + 2 de valorização — valores extras / custos internos (spec 2026-10-16-valores-extras-custos-internos).
  * Registry swap ocorre em src/registry/index.js.
  */
 
@@ -45,7 +46,9 @@ const slices = [
   require('./deleteTicketAnswerFile'),
   require('./getTicketsFeedbackReport'),
   require('./updateTicketChecklistItem'),
-  require('./createClientAnswer')
+  require('./createClientAnswer'),
+  require('./listTicketExtraValues'),
+  require('./listTicketInternalCosts')
 ];
 
 class TicketTools {
