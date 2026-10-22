@@ -221,7 +221,7 @@ class TiFluxAPI {
    * `User-Agent` e o ponto canonico de telemetria — definido por ULTIMO de
    * proposito para que nenhum caller sobrescreva o valor do ClientFingerprint.
    */
-  async _sendHttpRequest(endpoint, method, data, headers) {
+  async _sendHttpRequest(endpoint, method, data, headers, requestOptions = {}) {
     if (!this.apiKey) {
       return { error: 'TIFLUX_API_KEY não configurada', status: 'CONFIG_ERROR' };
     }
@@ -241,7 +241,8 @@ class TiFluxAPI {
         headers: requestHeaders,
         data,
         timeout: DEFAULT_TIMEOUT_MS,
-        retryCondition: this._retryConditionForMethod(method)
+        retryCondition: this._retryConditionForMethod(method),
+        ...requestOptions
       });
 
       return { data: response.data, status: response.statusCode, headers: response.headers };
@@ -253,8 +254,8 @@ class TiFluxAPI {
   /**
    * Requisicao HTTP base para endpoints JSON da API v2.
    */
-  async makeRequest(endpoint, method = 'GET', data = null, headers = {}) {
-    return this._sendHttpRequest(endpoint, method, data, headers);
+  async makeRequest(endpoint, method = 'GET', data = null, headers = {}, requestOptions = {}) {
+    return this._sendHttpRequest(endpoint, method, data, headers, requestOptions);
   }
 
   /**
@@ -2087,6 +2088,23 @@ class TiFluxAPI {
       return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/reopen`, 'PUT', jsonData, headers);
     }
     return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/reopen`, 'PUT');
+  }
+
+  /**
+   * Agrupa um ticket em outro (o ticket de `mergeTicketNumber` e cancelado).
+   * POST /tickets/{ticket_number}/merge — operacao irreversivel.
+   *
+   * @param {string|number} ticketNumber - ticket principal (mantido)
+   * @param {number} mergeTicketNumber - ticket a agrupar (cancelado)
+   */
+  async mergeTicket(ticketNumber, mergeTicketNumber) {
+    const jsonData = JSON.stringify({ merge_ticket_number: mergeTicketNumber });
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+    // maxRetries: 0 — irreversivel; refazer apos timeout/erro de rede poderia mascarar um merge ja concluido.
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/merge`, 'POST', jsonData, headers, { maxRetries: 0 });
   }
 
   /**

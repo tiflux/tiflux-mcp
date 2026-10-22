@@ -92,7 +92,7 @@ function formatTicket(ticketNumber, ticket, v) {
     if (hasParent || children.length > 0) {
       const parts = [];
       if (hasParent) {
-        parts.push(`Pai: #${ticket.ticket_reference.ticket_number}`);
+        parts.push(`${ticket.is_grouped ? 'Agrupado em' : 'Pai'}: #${ticket.ticket_reference.ticket_number}`);
       }
       if (children.length > 0) {
         const childNumbers = children.map(c => '#' + c.ticket_number).join(', ');
@@ -205,10 +205,11 @@ function formatTicket(ticketNumber, ticket, v) {
     hierarchyInfo = `\n**Hierarquia:**\n`;
     if (hasParent) {
       const ref = ticket.ticket_reference;
-      hierarchyInfo += `  • Ticket pai: #${ref.ticket_number} — ${ref.title || '(sem título)'}\n`;
+      const refLabel = ticket.is_grouped ? 'Agrupado no ticket' : 'Ticket pai:';
+      hierarchyInfo += `  • ${refLabel} #${ref.ticket_number} — ${ref.title || '(sem título)'}\n`;
     }
     if (children.length > 0) {
-      hierarchyInfo += `  • Tickets filhos (${children.length}):\n`;
+      hierarchyInfo += `  • Tickets filhos (${children.length}) (pode incluir tickets agrupados neste — a API não diferencia; veja get_ticket de cada um):\n`;
       children.forEach(child => {
         hierarchyInfo += `    - #${child.ticket_number} — ${child.title || '(sem título)'}\n`;
       });

@@ -144,7 +144,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 ## Funcionalidades
 
-- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), e custos internos da operação (`list_ticket_internal_costs`), somente leitura
+- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), e custos internos da operação (`list_ticket_internal_costs`), somente leitura; agrupar um ticket em outro, com o agrupado cancelado (`merge_ticket`, irreversível)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada); registrar resposta em nome do cliente (`create_client_answer`, só Administrador)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
@@ -251,7 +251,7 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
 ## Available Tools
 
 ### get_ticket
-Retrieve a specific ticket by ID with comprehensive information including hierarchy (parent ticket and child tickets/sub-tasks), requestor, checklists summary, status, priority, desk, stage, catalog, responsible, client, audit data, SLA and URLs.
+Retrieve a specific ticket by ID with comprehensive information including hierarchy (parent ticket and child tickets/sub-tasks; a merged ticket shows "Agrupado no ticket #N" instead of "Ticket pai", and the main ticket's children may include merged tickets), requestor, checklists summary, status, priority, desk, stage, catalog, responsible, client, audit data, SLA and URLs.
 
 **Parameters:**
 - `ticket_number` (string, required): Number of the ticket to retrieve
@@ -1854,6 +1854,29 @@ Reopen a closed or canceled ticket. Tickets that have been billed cannot be reop
 {
   "ticket_number": 123,
   "disapproval_reason": "The solution did not resolve the issue"
+}
+```
+
+### merge_ticket
+Merge ("Agrupar ticket" in the portal) one ticket into another. The ticket in `merge_ticket_number` is **cancelled** and its content moves to the main ticket (`ticket_number`), which is kept. **Irreversible: there is no "ungroup".** Requires the "Editar tickets" permission, and the main ticket must be in your desks/clients. Before calling, confirm with the user which ticket stays and which is cancelled, showing title and client of both (via `get_ticket`).
+
+**Parameters:**
+- `ticket_number` (integer, required): Main ticket, **kept**; receives the content
+- `merge_ticket_number` (integer, required): Ticket to be merged, **cancelled**
+
+**What moves to the main ticket:** answers, internal communications, appointments, extra values, history, equipment loans and attachments.
+
+**What does NOT move (stays in the cancelled ticket):** internal costs, checklists, custom fields, linked chats, URLs, signatures, SLA times, satisfaction survey and the cancelled ticket's child tickets.
+
+**Side effects:** an automatic reply ("Esse ticket foi agrupado com o ticket N") is posted on the main ticket, authored as `[MCP] <name>` in an OAuth session or `[API] <name>` with an API key, and it may email the requester. The merged ticket's followers and requester email are added to the main ticket's followers. After merging, `get_ticket` on the merged ticket shows "Agrupado no ticket #N" (instead of "Ticket pai"); on the main ticket the merged ones appear among "Tickets filhos" (the API does not tell them apart).
+
+**Common errors (422, all blockers listed at once, translated to PT-BR):** main ticket closed, main ticket is a child of another, ticket to merge already closed/revised, different clients, pending pre-appointment (resolve via `list_pre_appointments`), appointment type mismatch between desks, ticket to merge not found or outside your desks. 403: missing "Editar tickets" permission or Tickets license; 404: main ticket not found. Timeout, network error or HTTP 5xx: the request is never retried and the outcome is uncertain, so the tool asks you to check both tickets with `get_ticket` before repeating the call.
+
+**Example:**
+```json
+{
+  "ticket_number": 435,
+  "merge_ticket_number": 436
 }
 ```
 
@@ -4262,6 +4285,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
 - `GET /tickets/{ticket_number}/extra-values` - List extra values (charged to the client) of a ticket (`list_ticket_extra_values`; paginated via `offset`/`limit`; header `X-Total-Items`)
 - `GET /tickets/{ticket_number}/internal-costs` - List internal costs (not charged to the client) of a ticket (`list_ticket_internal_costs`; paginated via `offset`/`limit`; header `X-Total-Items`)
+- `POST /tickets/{ticket_number}/merge` - Merge a ticket into another; the merged ticket is cancelled, irreversible (`merge_ticket`)
 - `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
 - `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, client_ids, contract_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name`, `valorization.shift_owner_ticket`, and `contract` at the item top level (view :global). Used by `list_appointments_global` and `list_appointments_report`.
