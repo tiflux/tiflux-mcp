@@ -28,6 +28,7 @@ const InfrastructureBootstrap = require('./src/infrastructure/InfrastructureBoot
 
 // Registry central de tools — schemas + roteamento self-describing por handler
 const { createRegistry } = require('./src/registry');
+const { isValidationError } = require('./src/tools/_shared/validators');
 
 const { version } = require('./package.json');
 
@@ -140,12 +141,21 @@ class TifluxMCPServerV2 {
       } catch (error) {
         timer();
 
-        this.logger.error('Tool execution failed', {
-          requestId,
-          toolName: name,
-          error: error.message,
-          stack: error.stack
-        });
+        if (isValidationError(error)) {
+          this.logger.warn('Tool input validation failed', {
+            requestId,
+            toolName: name,
+            error: error.message,
+            errorType: 'validation'
+          });
+        } else {
+          this.logger.error('Tool execution failed', {
+            requestId,
+            toolName: name,
+            error: error.message,
+            stack: error.stack
+          });
+        }
 
         throw error;
       }

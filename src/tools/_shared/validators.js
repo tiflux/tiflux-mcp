@@ -6,10 +6,26 @@
  * patterns que aparecem em 3+ slices.
  */
 
+/**
+ * Erro de input invalido vindo do chamador (campo obrigatorio ausente, inteiro
+ * malformado). Mensagem inalterada; serve so para os bootstraps rebaixarem o
+ * nivel do log (warn em vez de error) via isValidationError.
+ */
+class ValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ValidationError';
+  }
+}
+
+function isValidationError(error) {
+  return error instanceof ValidationError;
+}
+
 function requireField(args, field, message = null) {
   const value = args && args[field];
   if (value === undefined || value === null || value === '') {
-    throw new Error(message || `${field} é obrigatório`);
+    throw new ValidationError(message || `${field} é obrigatório`);
   }
   return value;
 }
@@ -29,7 +45,7 @@ function parseIntStrict(value, field) {
   if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
     return Number.parseInt(value.trim(), 10);
   }
-  throw new Error(`${field} deve ser um número inteiro válido`);
+  throw new ValidationError(`${field} deve ser um número inteiro válido`);
 }
 
 /** requireField + parseIntStrict num passo só (campo obrigatório e numérico). */
@@ -38,4 +54,4 @@ function requireIntField(args, field, message = null) {
   return parseIntStrict(args[field], field);
 }
 
-module.exports = { requireField, parseIntStrict, requireIntField };
+module.exports = { ValidationError, isValidationError, requireField, parseIntStrict, requireIntField };
