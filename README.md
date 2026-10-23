@@ -154,7 +154,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Mesas e catálogo**: explorar mesas, estágios, prioridades e itens de catálogo sem sair do chat; criar mesas de serviço (`create_desk` — a API não exclui mesas)
 - **Campos personalizados**: descobrir entidades, campos e opções para preencher campos customizados corretamente; criar e editar a estrutura (grupos, subcampos e opções) diretamente via IA — sem exclusão na API v2, correções via `update_*` ou pelo portal
 - **Base de conhecimento**: listar e criar artigos, com busca por título/tags e filtro por pasta
-- **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status, distinguindo contratos de grupos de contrato (modalidade Compartilhado, linhas "· grupo"); detalhe de um grupo de contrato com seus contratos-membro via `get_contract_group`; consumo e saldo por ciclo de apuração de um contrato individual (`get_contract_usage`)
+- **Contratos**: listar contratos da organização (somente leitura) com filtros por cliente, tipo e status, distinguindo contratos de grupos de contrato (modalidade Compartilhado, linhas "· grupo"); detalhe de um grupo de contrato com seus contratos-membro via `get_contract_group`; consumo e saldo por ciclo de apuração de um contrato individual (`get_contract_usage`); histórico de aditivos de contrato ou grupo, com valor e início de cada aditivo anterior, inclusive os excluídos (`get_contract_history`); quadro de reajuste — contratos e grupos cujo aditivo vigente encerra até um mês, com os valores-base (`list_contract_readjustments`); lembretes de consumo múltiplos (um alerta por linha) em `get_contract`/`get_contract_group`
 - **Recursos (Equipamentos)**: listar, criar e atualizar equipamentos/ativos de clientes; inventário de hardware resumido na listagem (CPU, RAM, discos, antivírus, Windows Update, com alertas ⚠️) via `include_technical_info`; exibir detalhes completos de hardware e inventário de um recurso individual (processador, memória, discos, rede, SO, fabricante, campos personalizados) via `get_equipment`; consultar softwares instalados (inventário via agente); explorar grupos e tipos de recursos para montar fluxos de inventário de TI via IA
 - **Pré-Tickets**: listar e criar pré-tickets (solicitações em estágio pré-triagem, ainda não convertidas em tickets), com suporte a anexos (até 10 arquivos de 25MB cada)
 - **Templates de Mensagem**: listar templates HSM aprovados para WhatsApp via Gupshup (`list_gupshup_templates`) e WhatsApp Cloud/Meta (`list_whatsapp_cloud_templates`), para alimentar o fluxo de `send_message` com `template_id`
@@ -3052,7 +3052,7 @@ List the contract types registered in the organization: ID, name, and modality (
 ```
 
 ### get_contract_group
-Get the detail of a contract group (Shared modality) by ID: name, client, contract type, status (`Ativo`/`Inativo`/`Expirado`/`Cancelado`, derived from the expiration date and the record — this endpoint returns `200` even for an inactive or expired group, which `list_contracts` hides), expiration, duration, automatic renewal, billing configuration (automatic with N days before due date, or batch), consumption reminder (percent + e-mails), last rider (number, release/version, due day, monthly value, tax, discount, description), and the group's member contracts.
+Get the detail of a contract group (Shared modality) by ID: name, client, contract type, status (`Ativo`/`Inativo`/`Expirado`/`Cancelado`, derived from the expiration date and the record — this endpoint returns `200` even for an inactive or expired group, which `list_contracts` hides), expiration, duration, automatic renewal, billing configuration (automatic with N days before due date, or batch), consumption reminders (one alert per line with scope, percentages and e-mails when the API sends `consumption_reminders[]`; otherwise the legacy single reminder — see `get_contract`), last rider (number, release/version, due day, monthly value, tax, discount, description), and the group's member contracts. For the group's previous riders, use `get_contract_history` with `contract_group_id`.
 
 **Status precedence:** `last_rider.cancelled` → `Cancelado` (defensive — today's view doesn't expose this field, so this only fires if the API starts sending it) > `expiration_date` in the past (America/Sao_Paulo) → `Expirado` > `active: false` → `Inativo` > otherwise `Ativo`.
 
@@ -3075,9 +3075,11 @@ Get the detail of a contract group (Shared modality) by ID: name, client, contra
 ```
 
 ### get_contract
-Get the detail of an individual contract (not Shared modality) by ID: name, client, contract type (name + modality), status (active/expired/inactive/cancelled/cancellation scheduled, billed, with appointments), expiration, duration, automatic renewal, permits appointments pending readjustment, billing (automatic with N days before due date, or batch), consumption reminder, technical observations, created/updated timestamps, and the last rider — number, release/version, due day, monthly value, discount, description, closing period, periodicity and billing timing (translated to PT-BR), and, **when present in the payload** (decided by field presence, never by modality), the fields specific to each modality: hour allowance + surplus hour value (Horas/Horas cumulativas), accumulation cycle (Horas cumulativas), ticket allowance + surplus ticket value (Por atendimento), external/internal/remote value (Crédito), equipment limit + additional equipment value (Livre), and who created the rider.
+Get the detail of an individual contract (not Shared modality) by ID: name, client, contract type (name + modality), status (active/expired/inactive/cancelled/cancellation scheduled, billed, with appointments), expiration, duration, automatic renewal, permits appointments pending readjustment, billing (automatic with N days before due date, or batch), consumption reminders (one alert per line — see below), technical observations, created/updated timestamps, and the last rider — number, release/version, due day, monthly value, discount, description, closing period, periodicity and billing timing (translated to PT-BR), and, **when present in the payload** (decided by field presence, never by modality), the fields specific to each modality: hour allowance + surplus hour value (Horas/Horas cumulativas), accumulation cycle (Horas cumulativas), ticket allowance + surplus ticket value (Por atendimento), external/internal/remote value (Crédito), equipment limit + additional equipment value (Livre), and who created the rider.
 
-**Note:** a contract that is a **member of a contract group** (Shared modality) returns `404` here even though its ID exists — member contracts are only queried through their group. The error message explains both possibilities (non-existent ID or group member) and points to `get_contract_group`. The `kind` field from `list_contracts` tells you which route to use: `"contract"` → `get_contract`, `"contract_group"` → `get_contract_group`. IDs of contracts and contract groups are independent and can collide. For how much of the contract has been consumed and the balance per billing cycle, use `get_contract_usage`.
+**Note:** a contract that is a **member of a contract group** (Shared modality) returns `404` here even though its ID exists — member contracts are only queried through their group. The error message explains both possibilities (non-existent ID or group member) and points to `get_contract_group`. The `kind` field from `list_contracts` tells you which route to use: `"contract"` → `get_contract`, `"contract_group"` → `get_contract_group`. IDs of contracts and contract groups are independent and can collide. For how much of the contract has been consumed and the balance per billing cycle, use `get_contract_usage`. This detail only carries the **last** rider — for previous riders (value and start date of each one, including deleted ones), use `get_contract_history`.
+
+**Consumption reminders (multiple alerts):** when the API returns `consumption_reminders[]` (Swagger snapshot 2026-10-22), the "Lembrete de consumo" line becomes `N alerta(s)` followed by one line per alert: scope (`Contrato e deslocamentos` / `Só contrato` / `Só deslocamentos`; unknown scopes are shown raw), percentages (e.g. `30%, 80%`) and e-mails. When the array is missing or empty, the tool falls back to the single legacy `consumption_reminder` field (`Ativo — alerta em X% …` / `Desativado`). Same behavior in `get_contract_group`.
 
 **Permissions:** Requires "Visualizar contratos" + Tickets License. Monetary fields of the rider come as `"--"` without the "Visualizar valores dos tickets" permission — the MCP renders what the API returns, without masking on its own.
 
@@ -3133,6 +3135,75 @@ Get the consumption and balance per billing cycle of an individual contract (not
 - % usado: 0,11%
 - Excedente: R$ 0,00
 - Deslocamentos usados: 1
+```
+
+### get_contract_history
+Get the rider (aditivo) history of an individual contract (`contract_id`) **or** of a contract group (`contract_group_id`) — pass exactly one of the two (the `· grupo` marker in `list_contracts` tells which). Use it whenever you need the value or start date of riders **before** the current one: `get_contract`, `get_contract_group` and `list_contracts` only expose the **last** rider. New endpoints (`GET /contracts/{id}/histories`, `GET /contract-groups/{id}/histories`, Swagger snapshot 2026-10-22).
+
+The tool reads the **whole** history (pages of 200, up to 5 pages = the 1000 most recent events; above that, a notice says the summary only covers those 1000 events; if the API sends no `X-Total-Items` and 5 full pages were read, a notice says the history may have more events) and returns:
+1. **"Aditivos registrados"** — one row per rider number + release, built by walking the events in chronological order: events with status 0/1/3/4 record the latest snapshot (start date, value, discount), status 2 marks the rider as **excluído** (deleted), and a later event with the same number **reopens** it as "registrado" (rider numbers can be reused). Columns: Nº, Versão, Início, Valor, Desconto (R$ or %), Situação (`registrado`/`excluído`), Último evento (date) and Autor. The summary has its own cap (~15k chars, rich and compact): above it, the highest numbers/releases are left out with a `+N aditivos não exibidos no resumo` notice pointing to the timeline (`events_limit` up to 200) and to `get_contract`/`get_contract_group` for the current rider.
+2. **"Eventos"** — timeline from newest to oldest, cut at `events_limit` and at the response budget (~40k chars; the summary always comes first, within its own cap). Each event shows date/time, type (`Aditivo criado` = 0, `Aditivo alterado` = 1, `Aditivo excluído` = 2 (no value), `Contrato criado` = 3, `Aditivo editado` = 4 (edit via API); unknown → `Status N`), rider number/release, start date, value, discount, description (truncated at 300 chars) and author. A `+N eventos não exibidos` notice says how many were left out.
+
+**Caveats (also in the response footer):** the history is an event trail, not the record — it does **not** carry the rider's end of validity, duration or modality fields (hour allowance, surplus hour value); the tool never infers them (use `get_contract`/`get_contract_group` for the current rider). Events created through the API v2 have the `[API] ` prefix in the description. Riders older than the history log may have no event at all. Without the "Visualizar valores dos tickets" permission, `value`/`discount_value` come as `"--"`.
+
+**Permissions:** requires "Visualizar contratos" (or "Visualizar contrato" for client users) + Tickets License.
+
+**Parameters:**
+- `contract_id` (number, optional): ID of an individual contract (a `list_contracts` row without `· grupo`). Positive integer.
+- `contract_group_id` (number, optional): ID of a contract group (a `· grupo` row). Positive integer.
+- `events_limit` (number, optional): how many events to show in the timeline, 1–200 (default 20; above 200 is clamped to 200; non-integer or < 1 is a validation error). Does not affect the summary.
+
+Passing both IDs, or none, is a local validation error (no API call).
+
+**Returns (compact):** header (`**Histórico — contrato #N** · X eventos`) and one short line per rider (`nº N vR · início · valor · situação`), no timeline.
+
+**Errors:** `404` with `contract_id` uses the same text as `get_contract` (non-existent ID **or** group member — use `contract_group_id`); `404` with `contract_group_id` uses the same text as `get_contract_group` (the ID must come from a `· grupo` row). `403` (`40304`) is the license hint; `403` (`40301`) cites "Visualizar contratos". An empty history returns "Nenhum evento registrado" (not an error).
+
+**Example:**
+```json
+{ "contract_id": 71909, "events_limit": 5 }
+```
+
+**Example response (rich, trimmed):**
+```
+## Histórico de aditivos — contrato #71909
+
+**Eventos registrados:** 21
+
+### Aditivos registrados (8)
+
+| Nº | Versão | Início | Valor | Desconto | Situação | Último evento | Autor |
+|---|---|---|---|---|---|---|---|
+| 1 | 0 | 2024-01-01 | R$ 100,00 | — | registrado | 17/02/2025, 08:52:02 | Fulano |
+| 4 | 0 | 2024-04-01 | R$ 100,00 | — | excluído | 08/10/2026, 13:38:01 | Ciclano |
+| 5 | 0 | 2024-05-01 | R$ 110,00 | — | excluído | 18/06/2026, 07:40:24 | Beltrano |
+
+### Eventos (do mais recente para o mais antigo)
+
+- 08/10/2026, 13:38:01 · **Aditivo excluído** · nº 4 v0 · por Ciclano
+- 08/10/2026, 13:37:39 · **Aditivo criado** · nº 4 v0 · início 2024-04-01 · valor R$ 100,00 · teste · por Ciclano
+```
+
+### list_contract_readjustments
+Contract readjustment board (read-only): lists contracts **and** contract groups whose current rider ends by the end of the month of `date`, with that rider's values — the base for the readjustment calculation. Use it for questions like "which contracts are due for readjustment by November, and with what base value?". New endpoint (`GET /contracts/readjustments`, Swagger snapshot 2026-10-22).
+
+**Permissions:** requires **"Faturar serviços avulsos e contratos"** (role `billing` — the **same** permission as `get_billings_history`, *not* "Visualizar contratos") + Tickets License. It scans the whole organization (no client or technical-group scoping). The `403` message says exactly that. Monetary fields come as `"--"` without "Visualizar valores dos tickets".
+
+**Parameters:**
+- `date` (string, **required**): `YYYY-MM-DD` (e.g. `"2026-11-30"`). Validated locally with the same format the API requires — `2027-04`, `20270430` and non-existent dates like `2027-02-30` fail without calling the API.
+- `client_ids` (string, optional): comma-separated integer client IDs (e.g. `"982,2"`); anything else is a local validation error.
+- `contract_type_id` (number, optional): one contract type ID (from `list_contract_types`).
+- `offset` / `limit` (number, optional): page (1-based) and page size, 1–200 (default 20; above 200 clamped).
+
+**Returns (rich):** table with ID (`<id> · grupo` when `kind: "contract_group"`, same convention as `list_contracts`), Nome, Cliente, Tipo, Modalidade (raw text as the API returns it, e.g. `Hours`, `Saas/Product` — this endpoint returns a translated label, not the numeric enum of `list_contracts`), Fim do aditivo (`rider.cancel_date`), Valor and Taxa — plus an Expiração column **only when** some row on the page has `expiration_date`. Then a **"Detalhes do aditivo"** block per row with only the modality fields that are **non-zero** (hora excedente, atendimento excedente, hora externa/interna/remota, equipamento adicional), the rider's items (`items[]`, SaaS/Produto) and, for groups, the member contracts (`contracts[]`); long item/member lists are cut with a `+N não exibidos` notice. Table and detail block are cut **at the same row** when the response exceeds ~40k chars, with an exact `offset`/`limit` continuation line. Pagination uses `X-Total-Items`; a page past the end says which page is the last.
+
+**Returns (compact):** only the table.
+
+**Errors:** `403` (`40301`) → permission "Faturar serviços avulsos e contratos"; `403` (`40304`) → license; `422` (`42201`) is relayed with the API `detail` (e.g. `limit` above 200, blank `date`).
+
+**Example:**
+```json
+{ "date": "2026-11-30", "client_ids": "845981", "limit": 50 }
 ```
 
 ### list_equipments
@@ -4322,6 +4393,9 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /contracts/{id}` - Get the detail of an individual (non-Shared) contract, including its last rider (`get_contract`). A contract that is a member of a contract group returns `404` here (member contracts are queried through `get_contract_group` instead). Monetary fields of the rider require "Visualizar valores dos tickets" permission (otherwise `"--"`). Requires "Visualizar contratos" permission + Tickets License.
 - `GET /contract-groups/{id}` - Get the detail of a contract group (modality Shared), including its member contracts (`get_contract_group`). Status (Ativo/Inativo/Expirado/Cancelado) is derived from the expiration date and the record. Monetary values are masked (`"--"`) without the "Visualizar valores dos tickets" permission, same as `list_contracts`/`get_contract`. Requires "Visualizar contratos" permission + Tickets License.
 - `GET /contract-types` - List the contract types registered in the organization: ID, name, modality (`list_contract_types`). No search parameter, only pagination. Header `X-Total-Items` for total count. The IDs returned are the ones accepted by the `contract_type_ids` filter of `GET /contracts`. Requires "Visualizar contratos" permission.
+- `GET /contracts/{id}/histories` - Rider event history of an individual contract (`get_contract_history`, new 2026-10-22). Paginated (`offset`/`limit` ≤ 200, `X-Total-Items`); the tool reads up to 5 pages. Event status: 0 rider created, 1 rider changed, 2 rider deleted, 3 contract created, 4 rider edited (via API). A group member returns `404`. Values `"--"` without "Visualizar valores dos tickets". Requires "Visualizar contratos" (or "Visualizar contrato" for client users) + Tickets License.
+- `GET /contract-groups/{id}/histories` - Same history for a contract group (`get_contract_history` with `contract_group_id`). Same shape, pagination and permissions.
+- `GET /contracts/readjustments` - Readjustment board: contracts and groups whose current rider ends by the end of the month of `date` (required, `YYYY-MM-DD`), with the rider's values (`list_contract_readjustments`, new 2026-10-22). Filters `client_ids` (CSV) and `contract_type_id`; `offset`/`limit` ≤ 200; `X-Total-Items`. Requires **"Faturar serviços avulsos e contratos"** (role billing, organization-wide) + Tickets License.
 - `GET /contracts/{id}/usage` - Consumption and balance per billing cycle of an individual contract (`get_contract_usage`, new 2026-10-06). Up to 3 cycles, most recent first, up to an optional `base_date`. No group-level equivalent in the API v2. Requires "Visualizar contratos" (atendente) or "Visualizar contrato" (usuário-cliente) permission + Tickets License.
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).

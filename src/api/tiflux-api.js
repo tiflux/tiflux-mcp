@@ -657,6 +657,76 @@ class TiFluxAPI {
   }
 
   /**
+   * Copia o header X-Total-Items para `response.total` (inteiro), quando
+   * presente. Node minuscula os headers; o fallback capitalizado blinda contra
+   * transporte que preserve a caixa. So transporte.
+   */
+  _attachTotalItems(response) {
+    if (response && !response.error && response.headers) {
+      const totalHeader = response.headers['x-total-items'] ?? response.headers['X-Total-Items'];
+      const total = Number.parseInt(totalHeader, 10);
+      if (!Number.isNaN(total)) response.total = total;
+    }
+    return response;
+  }
+
+  /** Query `limit`/`offset` com os defaults/limites da API v2 (1-based, max 200). */
+  _pageParams({ offset, limit } = {}) {
+    const params = new URLSearchParams();
+    params.append('limit', Math.min(200, Math.max(1, Number.parseInt(limit) || 20)));
+    params.append('offset', Math.max(1, Number.parseInt(offset) || 1));
+    return params;
+  }
+
+  /**
+   * Historico de eventos de aditivo de um contrato individual.
+   * GET /contracts/{id}/histories
+   *
+   * So transporte (BE-003): paginacao completa, resumo por aditivo e
+   * formatacao ficam no slice `get_contract_history`.
+   *
+   * @param {number|string} id - ID do contrato
+   * @param {object} [page] - { offset (pagina 1-based), limit (max 200) }
+   */
+  async getContractHistories(id, page = {}) {
+    const params = this._pageParams(page);
+    return this._attachTotalItems(await this.makeRequest(`/contracts/${id}/histories?${params.toString()}`));
+  }
+
+  /**
+   * Historico de eventos de aditivo de um grupo de contrato.
+   * GET /contract-groups/{id}/histories
+   *
+   * So transporte (BE-003) — mesmo shape de getContractHistories.
+   *
+   * @param {number|string} id - ID do grupo de contrato
+   * @param {object} [page] - { offset (pagina 1-based), limit (max 200) }
+   */
+  async getContractGroupHistories(id, page = {}) {
+    const params = this._pageParams(page);
+    return this._attachTotalItems(await this.makeRequest(`/contract-groups/${id}/histories?${params.toString()}`));
+  }
+
+  /**
+   * Quadro de reajuste: contratos e grupos cujo aditivo vigente encerra ate o
+   * fim do mes de `date`.
+   * GET /contracts/readjustments
+   *
+   * So transporte (BE-003): validacao de `date`/`client_ids` e formatacao
+   * ficam no slice `list_contract_readjustments`.
+   *
+   * @param {object} filters - { date (YYYY-MM-DD, obrigatorio na API), client_ids (CSV),
+   *   contract_type_id, offset, limit }
+   */
+  async listContractReadjustments(filters = {}) {
+    const params = this._pageParams(filters);
+    if (filters.date != null) params.append('date', filters.date);
+    if (filters.client_ids != null) params.append('client_ids', filters.client_ids);
+    if (filters.contract_type_id != null) params.append('contract_type_id', filters.contract_type_id);
+    return this._attachTotalItems(await this.makeRequest(`/contracts/readjustments?${params.toString()}`));
+  }
+
+  /**
    * Lista os tipos de contrato da organizacao.
    * GET /contract-types
    *

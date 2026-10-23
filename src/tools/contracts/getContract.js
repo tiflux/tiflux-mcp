@@ -31,12 +31,12 @@ const { modalityLabel, periodLabel, billingLabel } = require('../_shared/contrac
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
   requirePositiveIdField, isObjectPayload, unexpectedPayloadResponse,
-  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines
+  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines, contractNotFoundHint
 } = require('../_shared/contractShared');
 
 const schema = {
   name: 'get_contract',
-  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembrete de consumo, observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). O detalhe só traz o ÚLTIMO aditivo — para aditivos anteriores (valor e início de cada um, inclusive os excluídos), use get_contract_history. Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -199,7 +199,7 @@ function formatContract(contract, verbosity) {
     `**Renovação automática:** ${contract.automatic_renewal ? 'Sim' : 'Não'}`,
     `**Permite apontamento pendente de reajuste:** ${contract.permit_appointments_readjustment ? 'Sim' : 'Não'}`,
     `**Faturamento:** ${formatBilling(contract)}`,
-    `**Lembrete de consumo:** ${formatConsumptionReminder(contract.consumption_reminder)}`,
+    `**Lembrete de consumo:** ${formatConsumptionReminder(contract.consumption_reminder, contract.consumption_reminders)}`,
     `**Criado em:** ${dateTime(contract.created_at, v)}`,
     `**Atualizado em:** ${dateTime(contract.updated_at, v)}`,
     '',
@@ -226,10 +226,7 @@ async function execute(args, { api, verbosity }) {
         return contractApiErrorResponse(
           `Contrato #${contract_id} não encontrado`,
           response,
-          `*Isto acontece quando o ID não existe OU quando o contrato #${contract_id} é MEMBRO de um grupo de ` +
-          `contrato (modalidade Compartilhado) — contratos-membro são consultados pelo grupo, não individualmente. ` +
-          `Se for este o caso, use \`get_contract_group\` com o ID do grupo (coluna "· grupo" em \`list_contracts\`). ` +
-          `IDs de contrato e de grupo são independentes e podem colidir.*`
+          contractNotFoundHint(contract_id)
         );
       }
 

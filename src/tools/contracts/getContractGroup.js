@@ -31,7 +31,7 @@ const { footer, currencyBRL, truncate, appendWithinBudget, dateOnly } = require(
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
   requirePositiveIdField, isObjectPayload, unexpectedPayloadResponse,
-  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines
+  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines, GROUP_NOT_FOUND_HINT
 } = require('../_shared/contractShared');
 
 // Teto local da secao de membros (nao e o RESPONSE_ITEM_BUDGET da resposta inteira —
@@ -41,7 +41,7 @@ const MEMBERS_BUDGET = 20000;
 
 const schema = {
   name: 'get_contract_group',
-  description: 'Buscar o detalhe de um grupo de contrato (modalidade Compartilhado) pelo ID: nome, cliente, tipo, situação (Ativo/Inativo/Expirado/Cancelado — derivada da expiração e do cadastro; o endpoint devolve 200 mesmo para grupo inativo ou expirado, que list_contracts esconde), expiração, duração, renovação automática, faturamento (automático com N dias antes do vencimento, ou em lote), lembrete de consumo (percentual e e-mails), último aditivo (número, versão, dia de vencimento, valor mensal, taxa, desconto em R$ ou %, descrição) e os contratos-membro do grupo. O ID precisa vir de uma linha "· grupo" de list_contracts — grupos e contratos têm IDs independentes, o mesmo número pode existir nos dois, e um ID de contrato comum não serve aqui (404). Campos monetários do aditivo (valor, desconto, taxa) vêm "--" sem a permissão "Visualizar valores dos tickets" — mesma regra de list_contracts e get_contract. Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um grupo de contrato (modalidade Compartilhado) pelo ID: nome, cliente, tipo, situação (Ativo/Inativo/Expirado/Cancelado — derivada da expiração e do cadastro; o endpoint devolve 200 mesmo para grupo inativo ou expirado, que list_contracts esconde), expiração, duração, renovação automática, faturamento (automático com N dias antes do vencimento, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), último aditivo (número, versão, dia de vencimento, valor mensal, taxa, desconto em R$ ou %, descrição) e os contratos-membro do grupo. Para aditivos anteriores do grupo, use get_contract_history com contract_group_id. O ID precisa vir de uma linha "· grupo" de list_contracts — grupos e contratos têm IDs independentes, o mesmo número pode existir nos dois, e um ID de contrato comum não serve aqui (404). Campos monetários do aditivo (valor, desconto, taxa) vêm "--" sem a permissão "Visualizar valores dos tickets" — mesma regra de list_contracts e get_contract. Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -128,7 +128,7 @@ function formatContractGroup(group, verbosity) {
     `**Duração:** ${duracaoLine}`,
     `**Renovação automática:** ${group.automatic_renewal ? 'Sim' : 'Não'}`,
     `**Faturamento:** ${formatBilling(group)}`,
-    `**Lembrete de consumo:** ${formatConsumptionReminder(group.consumption_reminder)}`,
+    `**Lembrete de consumo:** ${formatConsumptionReminder(group.consumption_reminder, group.consumption_reminders)}`,
     '',
     formatLastRiderRich(group.last_rider),
     formatMembersRich(group.contracts)
@@ -154,8 +154,7 @@ async function execute(args, { api, verbosity }) {
         return contractApiErrorResponse(
           `Grupo de contrato #${contract_group_id} não encontrado`,
           response,
-          `*O ID precisa vir de uma linha "· grupo" de \`list_contracts\` — grupos e contratos têm IDs ` +
-          `independentes, e um ID de contrato comum não serve aqui.*`
+          GROUP_NOT_FOUND_HINT
         );
       }
 

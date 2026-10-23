@@ -112,11 +112,62 @@ function formatBilling(record) {
   return '—';
 }
 
-function formatConsumptionReminder(reminder) {
+/** Escopo do alerta de consumo (`consumption_reminders[].alert_scope`); desconhecido sai cru. */
+const ALERT_SCOPE_LABELS = {
+  contract_and_shifts: 'Contrato e deslocamentos',
+  contract_only: 'Só contrato',
+  shifts_only: 'Só deslocamentos'
+};
+
+function formatReminderItem(r) {
+  const scope = ALERT_SCOPE_LABELS[r.alert_scope] || r.alert_scope || '—';
+  const percentages = Array.isArray(r.percentages) && r.percentages.length > 0
+    ? r.percentages.map(p => `${p}%`).join(', ')
+    : '—';
+  const emails = Array.isArray(r.emails) && r.emails.length > 0 ? r.emails.join(', ') : '—';
+  return `- ${scope} — alerta em ${percentages} de consumo; e-mails: ${emails}`;
+}
+
+/**
+ * Lembrete(s) de consumo. Prefere o array `consumption_reminders[]` (multiplos
+ * alertas, snapshot 2026-10-22): um alerta por linha com escopo, percentuais e
+ * e-mails. Array ausente ou vazio cai no campo singular `consumption_reminder`
+ * (que so reflete um alerta) — compatibilidade com APIs/mocks antigos.
+ *
+ * @param {object|null} reminder - `consumption_reminder` (singular)
+ * @param {Array} [reminders] - `consumption_reminders[]`
+ */
+function formatConsumptionReminder(reminder, reminders) {
+  if (Array.isArray(reminders) && reminders.length > 0) {
+    const label = reminders.length === 1 ? '1 alerta' : `${reminders.length} alertas`;
+    return `${label}\n${reminders.map(formatReminderItem).join('\n')}`;
+  }
   if (!reminder || !reminder.notification) return 'Desativado';
   const percent = reminder.percent !== null && reminder.percent !== undefined ? `${reminder.percent}%` : '—';
   const emails = reminder.emails || '—';
   return `Ativo — alerta em ${percent} de consumo; e-mails: ${emails}`;
+}
+
+/** Dica de 404 em /contracts/{id}*: ID inexistente OU contrato-membro de grupo. */
+function contractNotFoundHint(id, groupAction = 'use `get_contract_group`') {
+  return `*Isto acontece quando o ID não existe OU quando o contrato #${id} é MEMBRO de um grupo de ` +
+    `contrato (modalidade Compartilhado) — contratos-membro são consultados pelo grupo, não individualmente. ` +
+    `Se for este o caso, ${groupAction} com o ID do grupo (coluna "· grupo" em \`list_contracts\`). ` +
+    `IDs de contrato e de grupo são independentes e podem colidir.*`;
+}
+
+/** Dica de 404 em /contract-groups/{id}*: o ID precisa ser de grupo. */
+const GROUP_NOT_FOUND_HINT =
+  '*O ID precisa vir de uma linha "· grupo" de `list_contracts` — grupos e contratos têm IDs ' +
+  'independentes, e um ID de contrato comum não serve aqui.*';
+
+/**
+ * Pagina pedida veio vazia mas o filtro tem resultados em outras paginas
+ * (C2/H15) — distingue de "nenhum resultado". `total` > 0 e conhecido.
+ */
+function pageBeyondEndMessage(offset, limit, total, unit) {
+  const lastPage = Math.max(1, Math.ceil(total / Math.max(1, limit)));
+  return `*Página ${offset} está além do fim: ${total} ${unit} no total, última página ${lastPage} (limit ${limit}).*`;
 }
 
 /** Cabecalho comum do bloco "Último aditivo" (titulo, numero/versao, vencimento, valor mensal). */
@@ -140,5 +191,8 @@ module.exports = {
   discountCell,
   formatBilling,
   formatConsumptionReminder,
-  lastRiderHeaderLines
+  lastRiderHeaderLines,
+  contractNotFoundHint,
+  GROUP_NOT_FOUND_HINT,
+  pageBeyondEndMessage
 };

@@ -44,7 +44,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse } = require('../_shared/contractShared');
+const { contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse, pageBeyondEndMessage } = require('../_shared/contractShared');
 const { errorResponse, extractApiErrorCode } = require('../_shared/errors');
 const { footer, pagination, currencyBRL, appendWithinBudget, continuationLine, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -168,16 +168,6 @@ function dedupeContracts(contracts) {
     result.push(c);
   }
   return { result, removed };
-}
-
-/**
- * Mensagem quando a pagina pedida veio vazia mas o filtro tem resultados em
- * outras paginas (C2/H15) — distingue de "nenhum contrato encontrado" (sem
- * resultado algum). `total` precisa ser > 0 e conhecido (X-Total-Items).
- */
-function pageBeyondEndMessage(offset, limit, total, unit) {
-  const lastPage = Math.max(1, Math.ceil(total / Math.max(1, limit)));
-  return `*Página ${offset} está além do fim: ${total} ${unit} no total, última página ${lastPage} (limit ${limit}).*`;
 }
 
 function formatContractsList(contracts, offset, limit, verbosity, include_details, total) {
