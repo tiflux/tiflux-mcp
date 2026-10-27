@@ -18,8 +18,10 @@ const schema = {
     'vai para o ticket principal `ticket_number`, que é mantido: respostas, comunicações internas, apontamentos, valores extras, ' +
     'histórico, empréstimos de equipamento e anexos. NÃO migram e ficam no ticket cancelado: custos internos, checklists, campos ' +
     'personalizados, chats vinculados, URLs, assinaturas, tempos de SLA, pesquisa de satisfação e tickets filhos dele. Uma resposta ' +
-    'automática é publicada no principal e pode gerar e-mail ao solicitante; o e-mail do solicitante e os seguidores do agrupado passam ' +
-    'a seguir o principal. A operação é IRREVERSÍVEL (não existe desagrupar). ' +
+    'automática ("Esse ticket foi agrupado com o ticket N") é publicada no principal e pode gerar e-mail ao solicitante; em mesa interna ' +
+    'ela vira comunicação interna. Um e-mail de agrupamento vai ao responsável do agrupado (fora de mesa interna, também ao solicitante e ' +
+    'seguidores dele). O e-mail do solicitante e os seguidores do agrupado passam a seguir o principal. A operação é IRREVERSÍVEL (não ' +
+    'existe desagrupar): reabrir o agrupado com `reopen_ticket` não desfaz nada, ele volta aberto, vazio e ainda vinculado ao principal. ' +
     'ANTES de chamar, confirme com o usuário qual ticket fica e qual é cancelado, mostrando título e cliente dos dois (via `get_ticket`). ' +
     'Exige a permissão "Editar tickets". Bloqueios comuns: clientes diferentes, ticket já fechado/revisado, principal que é filho de ' +
     'outro, pré-apontamento pendente no agrupado.',
@@ -63,10 +65,25 @@ function asList(value) {
   return value ? [String(value)] : [];
 }
 
+// Principal fechado + filho de outro = em geral um ticket ja agrupado (cancelado e vinculado ao principal dele).
+// Reabrir nao desfaz o agrupamento, entao as dicas isoladas (reopen_ticket / usar o pai) viram uma so.
+function mainAlreadyGroupedHint(ticketNumber) {
+  return `O ticket principal #${ticketNumber} está fechado e vinculado a outro ticket — provavelmente já foi agrupado em outro. ` +
+    `Reabri-lo não desfaz o agrupamento: confira com \`get_ticket\` (#${ticketNumber}) em qual ticket ele foi agrupado e use aquele como principal.`;
+}
+
+function translateBlockers(rawBlockers, ticketNumber) {
+  const isMainClosed = m => /main ticket is closed/i.test(m);
+  const isMainChild = m => /main ticket is linked to a parent/i.test(m);
+  if (!rawBlockers.some(isMainClosed) || !rawBlockers.some(isMainChild)) return rawBlockers.map(translateBlocker);
+  const others = rawBlockers.filter(m => !isMainClosed(m) && !isMainChild(m)).map(translateBlocker);
+  return [mainAlreadyGroupedHint(ticketNumber), ...others];
+}
+
 function validationFailureResponse(response, ticketNumber, mergeNumber) {
   const detail = extractApiErrorDetail(response) || {};
   const rawBlockers = asList(detail.ticket);
-  const blockers = rawBlockers.map(translateBlocker);
+  const blockers = translateBlockers(rawBlockers, ticketNumber);
   const alreadyClosed = rawBlockers.some(m => /to be grouped is closed/i.test(m));
 
   if (blockers.length > 0) {
@@ -128,7 +145,7 @@ function successText(ticketNumber, mergeNumber, response, verbosity) {
     return `Ticket #${mergeNumber} agrupado no #${ticketNumber}\n` +
       `Movido: respostas, apontamentos, valores extras, histórico, anexos\n` +
       `Ficou no #${mergeNumber} (cancelado): custos internos, checklists, campos personalizados, chats, filhos\n` +
-      `Resposta automática publicada no #${ticketNumber} (pode gerar e-mail ao solicitante); solicitante e seguidores do #${mergeNumber} passam a seguir o #${ticketNumber}\n` +
+      `Resposta automática publicada no #${ticketNumber} (comunicação interna se a mesa for interna; pode gerar e-mail ao solicitante); solicitante e seguidores do #${mergeNumber} passam a seguir o #${ticketNumber}\n` +
       `Irreversível`;
   }
   return `**✅ Ticket #${mergeNumber} agrupado no #${ticketNumber}**\n\n` +
@@ -136,7 +153,7 @@ function successText(ticketNumber, mergeNumber, response, verbosity) {
     `empréstimos de equipamento e anexos.\n\n` +
     `**Ficou no #${mergeNumber} (agora cancelado):** custos internos, checklists, campos personalizados, chats vinculados, ` +
     `URLs, assinaturas, tempos de SLA, pesquisa de satisfação e tickets filhos.\n\n` +
-    `Uma resposta automática foi publicada no #${ticketNumber} e pode ter gerado e-mail ao solicitante.\n\n` +
+    `Uma resposta automática foi publicada no #${ticketNumber} (em mesa interna, como comunicação interna) e pode ter gerado e-mail ao solicitante.\n\n` +
     `O e-mail do solicitante e os seguidores do #${mergeNumber} foram adicionados aos seguidores do #${ticketNumber}.\n\n` +
     `⚠️ **Esta operação não pode ser desfeita.**` +
     (echo ? `\n\n*API: ${echo}*` : '');
