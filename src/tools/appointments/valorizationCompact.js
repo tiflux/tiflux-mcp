@@ -7,6 +7,7 @@
  */
 
 const { money } = require('../_shared/format');
+const { modalityLabel } = require('../_shared/contractModality');
 
 /**
  * Células compactas da valorização.
@@ -29,6 +30,32 @@ function compactValorizationCells(val) {
 }
 
 /**
+ * Aditivo do contrato em que o apontamento caiu (`valorization.contract_rider`).
+ * `release` 0 e valido (nao e falsy aqui). Ausente/`null` ou sem numero → `''`.
+ *
+ * - rich:    `aditivo nº 1 · versão 0 · Horas (id 241597)` (modalidade e id so se vierem)
+ * - short:   `aditivo nº 1 v0` (linha de topo de `list_appointments_global`)
+ * - compact: `#1.v0`
+ *
+ * @param {object|null|undefined} val - `appointment.valorization`
+ * @param {'rich'|'short'|'compact'} [verbosity='rich']
+ * @returns {string}
+ */
+function riderLabel(val, verbosity = 'rich') {
+  const rider = val?.contract_rider;
+  if (!rider || typeof rider !== 'object' || rider.rider_number == null) return '';
+  const n = rider.rider_number;
+  const hasRelease = rider.release != null;
+  if (verbosity === 'compact') return '#' + n + (hasRelease ? '.v' + rider.release : '');
+  if (verbosity === 'short') return 'aditivo nº ' + n + (hasRelease ? ' v' + rider.release : '');
+  let text = `aditivo nº ${n}`;
+  if (hasRelease) text += ` · versão ${rider.release}`;
+  if (rider.modality) text += ` · ${modalityLabel(rider.modality)}`;
+  if (rider.id != null) text += ` (id ${rider.id})`;
+  return text;
+}
+
+/**
  * Linha de valorização do item de `list_appointments` em `compact`.
  * Ex.: `   valorizacao: atend=External · tipo=Contract:Contrato X · valor=100.00 · desloc=Joinville 50.00 · flags=garantia;manual`
  *
@@ -42,7 +69,9 @@ function compactValorizationLine(val) {
   let line = `   valorizacao: atend=${attendance} · tipo=${kind} · valor=${value}`;
   if (val.shift) line += ` · desloc=${val.shift.name || 'N/A'} ${money(val.shift.value, 'compact')}`;
   if (flags.length) line += ` · flags=${flags.join(';')}`;
+  const rider = riderLabel(val, 'compact');
+  if (rider) line += ` · aditivo=${rider}`;
   return `${line}\n`;
 }
 
-module.exports = { compactValorizationCells, compactValorizationLine };
+module.exports = { compactValorizationCells, compactValorizationLine, riderLabel };

@@ -17,7 +17,7 @@ const { textResponse } = require('../_shared/response');
 const { internalErrorResponse } = require('../_shared/errors');
 const { renderList, renderWithinBudget, currencyBRL, row, pagination, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { durationMinutes } = require('./appointmentMath');
-const { compactValorizationCells } = require('./valorizationCompact');
+const { compactValorizationCells, riderLabel } = require('./valorizationCompact');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const {
@@ -31,7 +31,7 @@ const {
 
 const schema = {
   name: 'list_appointments_global',
-  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico, mesa, cliente e contrato. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Filtro por cliente (client_ids/client_names) e por contrato (contract_ids) disponíveis — note que apontamentos sem contrato somem do resultado quando contract_ids está ativo. Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
+  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico, mesa, cliente e contrato. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, aditivo do contrato (número e versão, ex.: aditivo nº 1 v0), 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Filtro por cliente (client_ids/client_names) e por contrato (contract_ids) disponíveis — note que apontamentos sem contrato somem do resultado quando contract_ids está ativo. Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -53,7 +53,8 @@ function renderAppointmentItem(appt) {
   const ticketNum = appt.ticket?.number || '—';
   const ticketTitle = appt.ticket?.title || '—';
   // item 6: contract e campo de topo do apontamento (view :global); sem exigir include_valorization
-  const contractName = appt.contract?.name || 'sem contrato';
+  const riderShort = riderLabel(appt.valorization, 'short');
+  const contractName = (appt.contract?.name || 'sem contrato') + (riderShort ? ` (${riderShort})` : '');
 
   // Descrição integral (sem GET unitário na API v2); o tamanho fica com renderWithinBudget.
   const desc = appt.description || '';
@@ -103,7 +104,7 @@ function compactAppointmentCells(appt) {
     durationMinutes(appt.init_time, appt.end_time),
     appt.user?.name,
     appt.client?.name,
-    appt.contract?.name || 'sem contrato',
+    (appt.contract?.name || 'sem contrato') + riderLabel(appt.valorization, 'compact'),
     appt.desk?.name,
     appt.ticket?.number,
     attendance,

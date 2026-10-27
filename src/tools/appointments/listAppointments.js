@@ -11,11 +11,11 @@ const { requireField } = require('../_shared/validators');
 const { footer, pagination, currencyBRL, renderWithinBudget, listVerbosity, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { ATTENDANCE_LABELS, ATTENDANCE_KIND_LABELS } = require('./appointmentFilters');
-const { compactValorizationLine } = require('./valorizationCompact');
+const { compactValorizationLine, riderLabel } = require('./valorizationCompact');
 
 const schema = {
   name: 'list_appointments',
-  description: 'Listar apontamentos (registros de horas trabalhadas) de um ticket específico com filtros opcionais. Quando disponível, inclui informações de valorização (tipo de atendimento, contrato ou serviço avulso, deslocamento, valor cobrado) e geolocalização.',
+  description: 'Listar apontamentos (registros de horas trabalhadas) de um ticket específico com filtros opcionais. Quando disponível, inclui informações de valorização (tipo de atendimento, contrato ou serviço avulso, aditivo do contrato com número, versão e modalidade, deslocamento, valor cobrado) e geolocalização.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -55,6 +55,10 @@ function formatValorizationBlock(val) {
   let text = `   💰 **Valorização:**\n`;
   text += `      • Atendimento: ${attendanceLabel}\n`;
   text += `      • Tipo: ${kindDisplay}\n`;
+  const rider = riderLabel(val, 'rich');
+  if (rider) {
+    text += `      • 📑 Aditivo: ${rider.replace(/^aditivo /, '')}\n`;
+  }
 
   if (val.shift) {
     text += `      • 🚗 Deslocamento: ${val.shift.name || 'N/A'} (${currencyBRL(val.shift.value)})\n`;

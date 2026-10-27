@@ -31,12 +31,13 @@ const { modalityLabel, periodLabel, billingLabel } = require('../_shared/contrac
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
   requirePositiveIdField, isObjectPayload, unexpectedPayloadResponse,
-  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines, contractNotFoundHint
+  discountCell, formatBilling, formatConsumptionReminder, lastRiderHeaderLines, contractNotFoundHint,
+  contractExtrasLines, formatContractExtrasCompact
 } = require('../_shared/contractShared');
 
 const schema = {
   name: 'get_contract',
-  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). O detalhe só traz o ÚLTIMO aditivo — para aditivos anteriores (valor e início de cada um, inclusive os excluídos), use get_contract_history. Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). Também traz avisos de vencimento e reajuste (e-mail, dias antes), deslocamentos ativos (valor e quantidade inclusa no período; valor "--" sem a permissão de valores), anexos (nome, tipo, tamanho e link temporário) e a modalidade de faturamento quando difere do tipo atual. O detalhe só traz o ÚLTIMO aditivo — para aditivos anteriores (valor e início de cada um, inclusive os excluídos), use get_contract_history. Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -163,17 +164,35 @@ function formatLastRiderRich(lastRider) {
   return lines.join('\n') + '\n' + itemsBlock;
 }
 
+/**
+ * `billing_modality` (gravada na criacao a partir do tipo): so aparece quando
+ * diverge de `contract_type.modality` ou quando e `null` (contrato legado).
+ * `undefined` (campo ausente — API/mocks antigos) nao mostra nada.
+ */
+function billingModalityLine(contract) {
+  if (contract.billing_modality === undefined) return [];
+  if (contract.billing_modality === null) return ['**Modalidade de faturamento:** não registrada (contrato legado)'];
+  const typeModality = contract.contract_type?.modality;
+  if (contract.billing_modality === typeModality) return [];
+  const current = typeModality ? modalityLabel(typeModality) : '—';
+  return [`**Modalidade de faturamento:** ${modalityLabel(contract.billing_modality)} (difere do tipo atual: ${current})`];
+}
+
+function formatContractCompact(contract, situacao) {
+  const clientLabel = contract.client ? `${contract.client.name} (#${contract.client.id})` : '—';
+  const valorMensal = currencyBRL(contract.last_rider?.value);
+  let text = `**${contract.name || 'N/A'}** (#${contract.id})\n`;
+  text += `Cliente: ${clientLabel} · Situação: ${situacao} · Valor mensal: ${valorMensal}`;
+  const counts = formatContractExtrasCompact(contract);
+  if (counts) text += `\n${counts}`;
+  return text;
+}
+
 function formatContract(contract, verbosity) {
   const v = verbosity || 'rich';
   const situacao = situacaoLabel(contract);
 
-  if (v === 'compact') {
-    const clientLabel = contract.client ? `${contract.client.name} (#${contract.client.id})` : '—';
-    const valorMensal = currencyBRL(contract.last_rider?.value);
-    let text = `**${contract.name || 'N/A'}** (#${contract.id})\n`;
-    text += `Cliente: ${clientLabel} · Situação: ${situacao} · Valor mensal: ${valorMensal}`;
-    return text;
-  }
+  if (v === 'compact') return formatContractCompact(contract, situacao);
 
   const clientLine = contract.client ? `${contract.client.name} (#${contract.client.id})` : '—';
   const typeLine = contract.contract_type
@@ -202,6 +221,8 @@ function formatContract(contract, verbosity) {
     `**Lembrete de consumo:** ${formatConsumptionReminder(contract.consumption_reminder, contract.consumption_reminders)}`,
     `**Criado em:** ${dateTime(contract.created_at, v)}`,
     `**Atualizado em:** ${dateTime(contract.updated_at, v)}`,
+    ...billingModalityLine(contract),
+    ...contractExtrasLines(contract),
     '',
     formatLastRiderRich(contract.last_rider)
   ];

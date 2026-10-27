@@ -12,7 +12,8 @@
  */
 
 const { errorResponse } = require('./errors');
-const { currencyBRL } = require('./format');
+const { currencyBRL, appendWithinBudget } = require('./format');
+const { formatFileSize, escapeCell } = require('./markdown');
 const { requireIntField } = require('./validators');
 
 /** Dica padrao de permissao das mensagens de acesso negado (40301). */
@@ -148,6 +149,108 @@ function formatConsumptionReminder(reminder, reminders) {
   return `Ativo — alerta em ${percent} de consumo; e-mails: ${emails}`;
 }
 
+// Teto local de cada lista longa do cadastro (avisos, deslocamentos, anexos) — evita
+// que 100 anexos com URL assinada (~400 caracteres cada) ou centenas de destinatarios
+// de aviso estourem sozinhos a resposta. As 3 listas somam no maximo 3x este teto.
+const EXTRAS_LIST_BUDGET = 15000;
+
+/** Quando disparam os avisos de um destinatario (`notifications[]`). */
+function notificationTriggers(n) {
+  const triggers = [];
+  if (n.readjust) triggers.push('reajuste');
+  if (n.cancellation) triggers.push('vencimento');
+  return triggers.length > 0 ? triggers.join(' e ') : 'sem aviso ativo';
+}
+
+function formatNotificationItem(n) {
+  const hasPeriod = n.period !== null && n.period !== undefined;
+  const days = hasPeriod ? `${n.period} dias antes` : '—';
+  return `- ${escapeCell(n.email || '—')} · ${days} · ${notificationTriggers(n)}\n`;
+}
+
+/**
+ * Avisos de vencimento e reajuste (`notifications[]`): e-mail avisado `period`
+ * dias antes do fim da vigencia do ultimo aditivo (`readjust`) e/ou da
+ * `expiration_date` (`cancellation`). Nao confundir com o lembrete de consumo.
+ * Ausente (nao array) → `''` (secao omitida); vazio → linha "nenhum".
+ */
+function formatContractNotifications(list) {
+  if (!Array.isArray(list)) return '';
+  if (list.length === 0) return '**Avisos de vencimento e reajuste:** nenhum\n';
+  return boundedList('Avisos de vencimento e reajuste', list.map(formatNotificationItem), 'avisos');
+}
+
+function formatShiftItem(s) {
+  const qtd = s.qtd_per_period;
+  const included = qtd === 0 ? 'nenhum incluso' : `${qtd ?? '—'} inclusos por período`;
+  return `- ${escapeCell(s.name || '—')} (#${s.id ?? '—'}) · ${currencyBRL(s.value)} por deslocamento · ${included}\n`;
+}
+
+/** Lista de itens com teto proprio e aviso "+N <unidade> nao exibidos". */
+function boundedList(title, items, noun) {
+  const fit = appendWithinBudget(items, { maxChars: EXTRAS_LIST_BUDGET });
+  const notice = fit.truncated ? `\n_+${items.length - fit.shown} ${noun} não exibidos._\n` : '';
+  return `**${title} (${items.length})**\n${items.slice(0, fit.shown).join('')}${notice}`;
+}
+
+/**
+ * Deslocamentos ativos (`shifts[]`). `qtd_per_period` e a quantidade inclusa
+ * no periodo (excedente cobrado por `value`); `value` vem "--" sem a permissao
+ * de valores e passa cru. Ausente → `''`; vazio → "nenhum".
+ */
+function formatContractShifts(list) {
+  if (!Array.isArray(list)) return '';
+  if (list.length === 0) return '**Deslocamentos ativos:** nenhum\n';
+  return boundedList('Deslocamentos ativos', list.map(formatShiftItem), 'deslocamentos');
+}
+
+function formatFileItem(f) {
+  const contentType = f.content_type ? escapeCell(f.content_type) : null;
+  const meta = [contentType, typeof f.size === 'number' ? formatFileSize(f.size) : null].filter(Boolean).join(', ');
+  const suffix = meta ? ` (${meta})` : '';
+  // URL nao passa por escapeCell (escapar `|` corromperia o link assinado); so
+  // remove quebras de linha, que uma URL valida nunca contem (RFC 3986).
+  const urlLine = f.url ? `  ${String(f.url).replace(/[\r\n]+/g, '')}\n` : '';
+  return `- ${escapeCell(f.file_name || '—')}${suffix}\n${urlLine}`;
+}
+
+/**
+ * Anexos do contrato (`files[]`). A `url` e assinada e expira — nota unica no
+ * fim da secao. Ausente → `''`; vazio → "nenhum".
+ */
+function formatContractFiles(list) {
+  if (!Array.isArray(list)) return '';
+  if (list.length === 0) return '**Anexos:** nenhum\n';
+  const body = boundedList('Anexos', list.map(formatFileItem), 'anexos');
+  return `${body}_Links temporários — consulte o contrato de novo para obter um link válido._\n`;
+}
+
+/** Secoes extras do cadastro em `rich` (avisos, deslocamentos, anexos), separadas por linha em branco. */
+function formatContractExtrasRich(record) {
+  return [
+    formatContractNotifications(record.notifications),
+    formatContractShifts(record.shifts),
+    formatContractFiles(record.files)
+  ].filter(Boolean).join('\n');
+}
+
+/** Secoes extras (rich) como linhas de `lines.join('\n')`, precedidas de linha em branco; `[]` se nada veio. */
+function contractExtrasLines(record) {
+  const extras = formatContractExtrasRich(record);
+  return extras ? ['', extras] : [];
+}
+
+/** Linha de contagens do `compact`; `''` quando os tres arrays faltam. */
+function formatContractExtrasCompact(record) {
+  const count = (list) => (Array.isArray(list) ? list.length : null);
+  const parts = [
+    ['Deslocamentos', count(record.shifts)],
+    ['Anexos', count(record.files)],
+    ['Avisos', count(record.notifications)]
+  ].filter(([, n]) => n !== null).map(([label, n]) => `${label}: ${n}`);
+  return parts.join(' · ');
+}
+
 /** Dica de 404 em /contracts/{id}*: ID inexistente OU contrato-membro de grupo. */
 function contractNotFoundHint(id, groupAction = 'use `get_contract_group`') {
   return `*Isto acontece quando o ID não existe OU quando o contrato #${id} é MEMBRO de um grupo de ` +
@@ -191,6 +294,11 @@ module.exports = {
   discountCell,
   formatBilling,
   formatConsumptionReminder,
+  formatContractNotifications,
+  formatContractShifts,
+  formatContractFiles,
+  contractExtrasLines,
+  formatContractExtrasCompact,
   lastRiderHeaderLines,
   contractNotFoundHint,
   GROUP_NOT_FOUND_HINT,
