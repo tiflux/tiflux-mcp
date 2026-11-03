@@ -2,53 +2,78 @@
  * Slice: update_ticket — atualiza um ticket existente.
  *
  * Endpoint: PUT /tickets/{ticket_number} (via api.updateTicket).
- * Resolve desk_name, stage_name (requer desk_id ou desk_name),
- * priority_name (requer desk_id ou desk_name, usa listDeskPriorities + fuzzy),
- * responsible_name, catalog_item_name (requer desk).
- * responsible_id=null remove o responsavel.
- * Envia apenas campos informados; se nenhum campo informado, retorna aviso.
+ *
+ * Resolve por nome: desk_name, stage_name, priority_name, catalog_item_name (na mesa
+ * atual do ticket quando nenhuma mesa-destino e informada), responsible_name e
+ * requestor_name. A mesa atual vem de UM `fetchTicket` (so quando necessario).
+ * Mesa informada igual a mesa atual NAO e transferencia: o PUT nao leva desk_id.
+ *
+ * client_id nao vai ao PUT (a API v2 rejeita com 400): serve so de dica para achar
+ * o solicitante por nome. Trocar o cliente so e possivel pela interface do TiFlux.
  *
  * Frente 3: mapeia erros 42202 de transferencia (relacionamento de mesa ausente,
  * catalogo exigido) para mensagens amigaveis orientando o operador.
+ * Resolvers por nome: updateTicketResolvers.js. Resumo de sucesso: updateTicketSummary.js.
  */
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
-const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
+const {
+  resolveStageByName,
+  resolveFirstStage,
+  resolvePriorityByName,
+  resolveCatalogItemByName,
+  resolveRequestorByName
+} = require('./updateTicketResolvers');
+const { buildSuccessText } = require('./updateTicketSummary');
+
+const TRANSFER_ALLOWED_FIELDS = 'desk_id, stage_id, status_id, priority_id, services_catalogs_item_id, responsible_id';
 
 const schema = {
   name: 'update_ticket',
-  description: `Atualiza um ticket existente (ticket_number + ao menos 1 campo). Mesa primeiro: nome sem qualificar = desk_name; client_id só se o usuário disser "cliente"/"empresa"; atendente atribuído = responsible_name/responsible_id.
+  description: `Atualiza um ticket existente (ticket_number + ao menos 1 campo). Mesa primeiro: nome sem qualificar = desk_name; atendente atribuído = responsible_name/responsible_id.
+
+**Cliente:** trocar o cliente do ticket não é possível pela API; use a interface do TiFlux. client_id aqui só ajuda a achar o solicitante por nome.
+
+**Mesa atual × transferência:** sem desk_id/desk_name, stage_name, priority_name e catalog_item_name são resolvidos na mesa ATUAL do ticket (o MCP lê o ticket antes). Informar a mesa em que o ticket já está NÃO é transferência. Só é transferência quando a mesa final difere da atual. Na transferência só valem: ${TRANSFER_ALLOWED_FIELDS}; title, description, followers e requestor (id ou nome) exigem uma 2ª chamada, e remover o responsável (responsible_id null) também.
 
 **Prioridade:**
 - Transferindo de mesa: inclua priority_id ou priority_name (prioridade é escopada por mesa e se perde na transferência; se a mesa-destino exigir prioridade, a transferência falha sem ela). NÃO envie priority_change_reason.
-- Na mesa atual: priority_id + priority_change_reason (OBRIGATÓRIO). priority_name não serve aqui (exige mesa, que a API trata como transferência).`,
+- Na mesa atual: priority_id ou priority_name + priority_change_reason (OBRIGATÓRIO).
+- Na transferência, catálogo, prioridade e status voltam ao padrão da mesa de destino quando não informados.
+
+**SLA e ticket pai:** stopped (true pausa o SLA e exige stop_answer como motivo; false retoma, sem motivo) e ticket_reference_number (define o ticket pai; null desvincula).
+
+O resumo mostra o estado final devolvido pela API e avisa quando um campo enviado não foi aplicado.`,
   inputSchema: {
     type: 'object',
     properties: {
       ticket_number: { type: 'string', description: 'Número do ticket a ser atualizado (ex: "123", "456")' },
       title: { type: 'string', description: 'Novo título do ticket (opcional)' },
       description: { type: 'string', description: 'Nova descrição do ticket (opcional). Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
-      client_id: { type: 'number', description: 'Novo ID do cliente/empresa (opcional). Use apenas quando o usuário disser "cliente"/"empresa".' },
-      desk_id: { type: 'number', description: 'Novo ID da mesa (opcional). Transfere o ticket para outra mesa. Como estágios e prioridades são escopados por mesa, ao transferir sem informar stage_id/stage_name o MCP resolve automaticamente o 1º estágio da mesa-destino.' },
+      client_id: { type: 'number', description: 'ID do cliente do ticket. NÃO troca o cliente (a API não permite; use a interface do TiFlux). Este campo só ajuda a achar o solicitante por nome (requestor_name) no cliente certo; junto com outros campos é ignorado e o resumo avisa.' },
+      desk_id: { type: 'number', description: 'ID da mesa (opcional). Se diferente da mesa atual do ticket, transfere o ticket para outra mesa; se igual, é ignorado (não é transferência). Como estágios e prioridades são escopados por mesa, ao transferir sem informar stage_id/stage_name o MCP resolve automaticamente o 1º estágio da mesa-destino.' },
       desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
       stage_id: { type: 'number', description: 'ID do estágio/fase do ticket (opcional)' },
-      stage_name: { type: 'string', description: 'Nome do estágio para busca automática (alternativa ao stage_id, requer desk_id ou desk_name)' },
+      stage_name: { type: 'string', description: 'Nome do estágio para busca automática (alternativa ao stage_id). Sem mesa, usa a mesa atual do ticket. Nome exato (sem caixa/acento) vence nomes parecidos.' },
       priority_id: { type: 'number', description: 'ID da prioridade do ticket (opcional). Prioridades são escopadas por mesa — use list_desk_priorities para descobrir IDs válidos na mesa-destino.' },
-      priority_name: { type: 'string', description: 'Nome da prioridade para busca automática (requer desk_id ou desk_name). Só funciona ao transferir de mesa (ver regras de prioridade na descrição da tool).' },
-      priority_change_reason: { type: 'string', description: 'Motivo da mudança de prioridade (texto livre). OBRIGATÓRIO com priority_id fora de transferência de mesa (a API rejeita sem ele); em transferência é ignorado automaticamente (a API rejeita).' },
+      priority_name: { type: 'string', description: 'Nome da prioridade para busca automática. Sem mesa, usa a mesa atual do ticket. Fora de transferência exige priority_change_reason (ver regras de prioridade na descrição da tool).' },
+      priority_change_reason: { type: 'string', description: 'Motivo da mudança de prioridade (texto livre). OBRIGATÓRIO ao mudar a prioridade fora de transferência de mesa (a API rejeita sem ele); em transferência é ignorado automaticamente (a API rejeita).' },
       status_id: { type: 'number', description: 'ID do status do ticket (opcional). Não há endpoint de listagem de status por mesa na API v2 — informe o ID diretamente (sem status_name).' },
-      responsible_id: { type: 'number', description: 'ID do responsável (opcional - use null ou omita para remover responsável)' },
+      responsible_id: { type: 'number', description: 'ID do responsável (opcional - use null ou omita para remover responsável). Remover o responsável não funciona junto com transferência de mesa (faça em 2 chamadas).' },
       responsible_name: { type: 'string', description: 'Nome do responsável para busca automática (alternativa ao responsible_id)' },
       requestor_id: { type: 'number', description: 'ID do novo solicitante do ticket (opcional). O solicitante deve pertencer ao mesmo cliente vinculado ao ticket. Conflito com requestor_name: requestor_id tem prioridade.' },
       requestor_name: { type: 'string', description: 'Nome do solicitante para busca automática (alternativa ao requestor_id). Busca em GET /requestors (global) com fallback para GET /clients/{id}/requestors em caso de 403. Multiplos candidatos listam opções para desambiguação; zero → sugerir search_requestor. Conflito com requestor_id: requestor_id vence.' },
       followers: { type: 'string', description: 'E-mails dos seguidores separados por vírgula. ATENÇÃO: o valor enviado SUBSTITUI a lista atual de seguidores — para adicionar sem remover, consulte os seguidores atuais via get_ticket e envie a lista completa (atuais + novos). String vazia "" remove todos os seguidores.' },
       services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo para atualizar mesa com item específico (opcional)' },
-      catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)' }
+      catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id). Sem mesa, usa a mesa atual do ticket.' },
+      stopped: { type: 'boolean', description: 'Pausa (true) ou retoma (false) o SLA do ticket. Pausar exige stop_answer; retomar vai sem motivo (se informado, é descartado). A mesa precisa permitir pausa, o ticket não pode estar no 1º estágio nem com o SLA de solução vencido, e a pausa não vai junto com outros campos (faça em chamada separada).' },
+      stop_answer: { type: 'string', description: 'Motivo da pausa do SLA (texto livre). Obrigatório com stopped: true; na retomada (false) não é enviado, porque a API recusa; não vale sozinho.' },
+      ticket_reference_number: { type: ['number', 'null'], description: 'Número do ticket pai (define o vínculo pai/filho; aceita "#123"). null desvincula do ticket pai.' }
     },
     required: ['ticket_number']
   }
@@ -75,7 +100,7 @@ function mapTransferError422(responseError, deskRef) {
     return (
       `**Erro: ${deskLabel} não está vinculada à mesa atual do ticket.**\n\n` +
       `Para transferir, configure o relacionamento entre as mesas no TiFlux (Configurações → Mesas → Relacionamentos).\n\n` +
-      `*Se você só quer alterar a prioridade na mesa atual (sem transferir), use \`priority_id\` diretamente — sem \`desk_id\`/\`desk_name\`. O \`priority_name\` exige informar a mesa, o que a API interpreta como transferência.*\n\n` +
+      `*Se você só quer alterar o estágio ou a prioridade na mesa atual (sem transferir), omita \`desk_id\`/\`desk_name\` (ou informe a própria mesa atual).*\n\n` +
       `**Detalhe da API:** ${errorText}`
     );
   }
@@ -93,7 +118,142 @@ function mapTransferError422(responseError, deskRef) {
   return null;
 }
 
-async function execute(args, { api }) {
+const isNil = (v) => v === undefined || v === null;
+
+// client_id nunca vai ao PUT, mas e dica de busca do solicitante: validado igual p/ erro local claro.
+const STRICT_ID_FIELDS = [
+  'client_id', 'desk_id', 'stage_id', 'priority_id', 'status_id', 'services_catalogs_item_id', 'responsible_id', 'requestor_id'
+];
+
+/** Erro local de combinacoes que a API rejeita na transferencia de mesa (H20/H21). */
+function transferConflictError(args, ticketNumber) {
+  const unsupported = [];
+  ['title', 'description', 'followers', 'requestor_id', 'requestor_name'].forEach(f => {
+    if (args[f] !== undefined) unsupported.push(f);
+  });
+
+  if (args.responsible_id === null || args.responsible_id === 0) {
+    return errorResponse(
+      `**Erro: remover o responsável não funciona junto com a transferência de mesa**\n\n` +
+      `*Faça em 2 chamadas: primeiro a transferência (sem \`responsible_id: null\`), depois remova o responsável do ticket #${ticketNumber}.*`
+    );
+  }
+
+  if (unsupported.length > 0) {
+    return errorResponse(
+      `**Erro: ${unsupported.join(', ')} não pode(m) ir junto com a transferência de mesa**\n\n` +
+      `Na transferência a API aceita só: ${TRANSFER_ALLOWED_FIELDS}.\n\n` +
+      `*Faça em 2 chamadas: a transferência primeiro, depois ${unsupported.join(', ')} no ticket #${ticketNumber} (agora na mesa nova).*`
+    );
+  }
+  return null;
+}
+
+/** Nomes que exigem conhecer a mesa para serem resolvidos. */
+function nameFieldsNeedingDesk(args) {
+  const fields = [];
+  if (args.stage_name && !args.stage_id) fields.push('stage_name');
+  if (args.priority_name && !args.priority_id) fields.push('priority_name');
+  if (args.catalog_item_name && !args.services_catalogs_item_id) fields.push('catalog_item_name');
+  return fields;
+}
+
+/** Erro de leitura do ticket (necessario p/ resolver mesa atual). */
+function ticketReadError(ticketNumber, ticketResp, fields) {
+  if (ticketResp.status === 404) {
+    return errorResponse(
+      `**Ticket #${ticketNumber} nao encontrado**\n\n` +
+      `*Verifique o numero do ticket.*`
+    );
+  }
+  const what = fields.length > 0 ? `resolver ${fields.join('/')} por nome` : 'comparar a mesa informada com a mesa atual';
+  return errorResponse(
+    `**Erro: nao foi possivel ler o ticket #${ticketNumber} para ${what}; informe o ID**\n\n` +
+    `**Erro:** ${ticketResp.error}\n\n` +
+    `*Use o ID (stage_id, priority_id, services_catalogs_item_id) para evitar a leitura do ticket.*`
+  );
+}
+
+/** Mapeia erro da API no PUT para a resposta MCP. */
+function updateFailureResponse({ response, ticketNumber, deskRef, clientId, stopFieldsSent }) {
+  const friendlyError = mapTransferError422(response.error, deskRef);
+  if (friendlyError) {
+    return errorResponse(`**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n${friendlyError}`);
+  }
+
+  // Requestor not found (422 detail.requestor_id → "requestor not found")
+  if (typeof response.error === 'string' &&
+      response.error.includes('requestor_id') &&
+      response.error.toLowerCase().includes('requestor not found')) {
+    const clientRef = clientId ? `client_id=${clientId}` : 'o client_id do ticket';
+    return errorResponse(
+      `**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n` +
+      `**Erro: solicitante não encontrado ou não pertence ao cliente deste ticket.**\n\n` +
+      `O \`requestor_id\` informado não existe ou não está vinculado ao cliente do ticket.\n\n` +
+      `Use \`search_requestor\` com ${clientRef} para localizar solicitantes válidos.\n\n` +
+      `**Detalhe da API:** ${response.error}`
+    );
+  }
+
+  // 422 em stopped/stop_answer/ticket_reference_number: o detail da API e o que importa
+  if (stopFieldsSent && response.status === 422) {
+    return errorResponse(
+      `**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n` +
+      `**Código:** ${response.status}\n` +
+      `**Mensagem:** ${response.error}`
+    );
+  }
+
+  return errorResponse(
+    `**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n` +
+    `**Código:** ${response.status}\n` +
+    `**Mensagem:** ${response.error}\n\n` +
+    `*Verifique se o ticket existe e se você tem permissão para editá-lo.*`
+  );
+}
+
+/** "#123" (formato que o MCP exibe) → "123". Outros valores passam intactos para a validacao estrita. */
+function stripHash(value) {
+  return typeof value === 'string' ? value.trim().replace(/^#/, '') : value;
+}
+
+/**
+ * Normaliza o input antes da validacao. Clientes MCP com schema antigo em cache mandam
+ * booleanos e null como texto ("false", "null"): sem isso, "false" seria truthy e
+ * "null" seria recusado em vez de desvincular.
+ */
+function normalizeArgs(args) {
+  const out = { ...args };
+  if (out.ticket_number !== undefined) out.ticket_number = stripHash(out.ticket_number);
+  if (out.ticket_reference_number !== undefined) {
+    const ref = stripHash(out.ticket_reference_number);
+    out.ticket_reference_number = ref === 'null' ? null : ref;
+  }
+  if (typeof out.stopped === 'string') {
+    const v = out.stopped.trim().toLowerCase();
+    if (v !== 'true' && v !== 'false') throw new ValidationError('stopped deve ser true (pausar) ou false (retomar)');
+    out.stopped = v === 'true';
+  }
+  return out;
+}
+
+/**
+ * Regras da API (Validate::UpdateTicket): pausar = stopped true + stop_answer; retomar =
+ * stopped false SEM stop_answer (com motivo a API responde "stop_answer without stopped(true)");
+ * stop_answer sozinho e recusado.
+ */
+function validateStopFields(stopped, stopAnswer) {
+  const hasAnswer = typeof stopAnswer === 'string' && stopAnswer.trim() !== '';
+  if (stopped === true && !hasAnswer) {
+    throw new ValidationError('stop_answer (motivo) é obrigatório para pausar o SLA');
+  }
+  if (stopAnswer !== undefined && (stopped === undefined || stopped === null)) {
+    throw new ValidationError('stop_answer só vale junto com stopped: true (pausar o SLA)');
+  }
+}
+
+async function execute(rawArgs, { api }) {
+  const args = normalizeArgs(rawArgs);
   const {
     ticket_number,
     title,
@@ -113,382 +273,142 @@ async function execute(args, { api }) {
     requestor_name,
     followers,
     services_catalogs_item_id,
-    catalog_item_name
+    catalog_item_name,
+    stopped,
+    stop_answer,
+    ticket_reference_number
   } = args;
 
   requireField(args, 'ticket_number');
-
-  // Track resolved names for the summary
-  let resolvedDeskName = desk_name || null;
-  let resolvedStageName = null;
-  let resolvedPriorityName = priority_name || null;
-  let resolvedResponsibleName = responsible_name || null;
-  let resolvedCatalogItemName = catalog_item_name || null;
-  let resolvedRequestorName = requestor_name || null;
+  // ticket_number vai cru ao path do PUT: "1/cancel" ou "../desks/1" mirariam outro endpoint de escrita.
+  parseIntStrict(ticket_number, 'ticket_number');
+  // Estrito: parseInt('#123') = NaN viraria null no JSON e DESVINCULARIA o ticket pai em silencio.
+  if (!isNil(ticket_reference_number)) parseIntStrict(ticket_reference_number, 'ticket_reference_number');
+  validateStopFields(stopped, stop_answer);
+  // Mesmo padrao nos IDs: "abc" viraria NaN → null no PUT (remove responsavel, "transfere" p/ mesa NaN).
+  // null explicito segue o comportamento atual (ex.: responsible_id null remove o responsavel).
+  for (const field of STRICT_ID_FIELDS) {
+    if (!isNil(args[field])) parseIntStrict(args[field], field);
+  }
 
   try {
+    // fetchTicket memoizado: no maximo UMA leitura do ticket por execucao.
+    let ticketPromise = null;
+    const getTicket = () => {
+      if (!ticketPromise) ticketPromise = api.fetchTicket(ticket_number);
+      return ticketPromise;
+    };
+
+    // Plano: valores e nomes resolvidos, usados no PUT e no resumo.
+    const plan = { title, description, followers, stopped, stopAnswer: stop_answer, ticketReference: ticket_reference_number };
+
     let finalDeskId = desk_id;
     let finalStageId = stage_id;
-    let finalResponsibleId = responsible_id;
     let finalPriorityId = priority_id;
+    let finalCatalogItemId = services_catalogs_item_id;
+    let finalResponsibleId = responsible_id;
+    let finalRequestorId = requestor_id !== undefined ? Number.parseInt(requestor_id, 10) : undefined;
 
-    // Se desk_name foi fornecido, buscar o ID da mesa
+    // desk_name → desk_id
     if (desk_name && !desk_id) {
       const resolved = await resolveDeskName(api, desk_name);
       if (resolved.error) return resolved.response;
       finalDeskId = resolved.deskId;
     }
+    if (finalDeskId !== undefined) plan.desk = { id: Number.parseInt(finalDeskId, 10), name: desk_name || null };
 
-    // Resolver estagio: uma única chamada searchStages quando há mesa + (stage_name OU auto-resolve).
-    // Caso 1: stage_name fornecido → encontrar ID por nome (requer desk).
-    // Caso 2: mesa-destino nova sem stage_id/stage_name → auto-selecionar 1º estágio.
-    // Ambos os caminhos reusam a mesma resposta da API (uma única chamada por execução).
-    let autoResolvedStageId = null;
-    let autoResolvedStageName = null;
-
-    const needsStageResolution =
-      (stage_name && !stage_id) ||
-      (finalDeskId && !stage_id && !stage_name);
-
-    if (needsStageResolution) {
-      const deskIdForStage = finalDeskId || desk_id;
-
-      if (!deskIdForStage) {
-        // Só chega aqui se stage_name foi fornecido sem desk
-        return errorResponse(
-          `**Erro: desk_id ou desk_name obrigatorio para buscar estagio por nome**\n\n` +
-          `*Para usar stage_name, informe tambem desk_id ou desk_name.*`
-        );
+    // Mesa atual: 1 fetchTicket quando ha mesa informada OU nomes que dependem da mesa.
+    const nameFields = nameFieldsNeedingDesk(args);
+    let currentDeskId;
+    if (finalDeskId !== undefined || nameFields.length > 0) {
+      const ticketResp = await getTicket();
+      if (ticketResp.error || !ticketResp.data) {
+        return ticketReadError(ticket_number, ticketResp, nameFields);
       }
-
-      const stagesResponse = await api.searchStages(Number.parseInt(deskIdForStage, 10));
-
-      if (stagesResponse.error) {
-        return errorResponse(
-          `**Erro ao buscar estagios da mesa ID ${deskIdForStage}**\n\n` +
-          `**Erro:** ${stagesResponse.error}\n\n` +
-          `*Verifique se a mesa existe e possui estagios.*`
-        );
-      }
-
-      const stages = stagesResponse.data || [];
-
-      if (stage_name && !stage_id) {
-        // Caso 1: resolver stage_name → stage_id
-        const matchingStages = stages.filter(s =>
-          s.name.toLowerCase().includes(stage_name.toLowerCase())
-        );
-
-        if (matchingStages.length === 0) {
-          return errorResponse(
-            `**Estagio "${stage_name}" nao encontrado na mesa ID ${deskIdForStage}**\n\n` +
-            `*Verifique se o nome esta correto ou use stage_id diretamente.*`
-          );
-        }
-
-        if (matchingStages.length > 1) {
-          let stagesList = '**Estagios encontrados:**\n';
-          matchingStages.forEach((stage, index) => {
-            stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name} | **Ordem:** ${stage.index}\n`;
-          });
-
-          return errorResponse(
-            `**Multiplos estagios encontrados para "${stage_name}"**\n\n` +
-            `${stagesList}\n` +
-            `*Use stage_id especifico ou seja mais especifico no stage_name.*`
-          );
-        }
-
-        finalStageId = matchingStages[0].id;
-        resolvedStageName = matchingStages[0].name;
-      } else {
-        // Caso 2: auto-resolver 1º estágio da mesa-destino
-        if (stages.length === 0) {
-          return errorResponse(
-            `**Erro: Mesa-destino ID ${deskIdForStage} não possui estágios configurados**\n\n` +
-            `*Informe stage_name ou stage_id explicitamente.*`
-          );
-        }
-
-        // Preferir o estagio com first_stage truthy (tolera bool/1/"true" da API); fallback: menor index
-        let firstStage = stages.find(s => s.first_stage);
-        if (!firstStage) {
-          firstStage = stages.reduce((min, s) =>
-            (s.index !== undefined && (min === null || s.index < min.index)) ? s : min, null
-          );
-        }
-        if (!firstStage) {
-          firstStage = stages[0];
-        }
-        finalStageId = firstStage.id;
-        autoResolvedStageId = firstStage.id;
-        autoResolvedStageName = firstStage.name || null;
-      }
+      const deskOfTicket = ticketResp.data.desk;
+      currentDeskId = deskOfTicket?.id === undefined ? undefined : Number.parseInt(deskOfTicket.id, 10);
     }
 
-    // Resolver priority_name → priority_id (requer desk)
-    // Se priority_id ja foi fornecido, nao resolver priority_name
+    // Transferencia = mesa final diferente da atual.
+    const isDeskTransfer = finalDeskId !== undefined && Number.parseInt(finalDeskId, 10) !== currentDeskId;
+    plan.isTransfer = isDeskTransfer;
+
+    if (isDeskTransfer) {
+      const conflict = transferConflictError(args, ticket_number);
+      if (conflict) return conflict;
+    }
+
+    // Mesa em que estagio/prioridade/catalogo por nome sao resolvidos.
+    const effectiveDeskId = isDeskTransfer ? Number.parseInt(finalDeskId, 10) : currentDeskId;
+
+    if (effectiveDeskId === undefined && (nameFields.length > 0 || isDeskTransfer)) {
+      return errorResponse(
+        `**Erro: nao foi possivel identificar a mesa do ticket #${ticket_number}**\n\n` +
+        `*Informe desk_id ou desk_name, ou use os IDs (stage_id, priority_id, services_catalogs_item_id).*`
+      );
+    }
+
+    // Estagio: por nome, ou 1o estagio da mesa-destino em transferencia.
+    if (stage_name && !stage_id) {
+      const r = await resolveStageByName(api, effectiveDeskId, stage_name);
+      if (r.error) return r.error;
+      finalStageId = r.stageId;
+      plan.stage = { id: r.stageId, name: r.stageName };
+    } else if (isDeskTransfer && !stage_id) {
+      const r = await resolveFirstStage(api, effectiveDeskId);
+      if (r.error) return r.error;
+      finalStageId = r.stageId;
+      plan.stage = { id: r.stageId, name: r.stageName };
+      plan.autoStage = plan.stage;
+    } else if (stage_id !== undefined) {
+      plan.stage = { id: stage_id, name: null };
+    }
+
+    // Prioridade por nome
     if (priority_name && !priority_id) {
-      const deskIdForPriority = finalDeskId;
-
-      if (!deskIdForPriority) {
-        return errorResponse(
-          `**Erro: desk_id ou desk_name obrigatorio para buscar prioridade por nome**\n\n` +
-          `*Para usar priority_name, informe tambem desk_id ou desk_name (da mesa-destino na transferencia).*`
-        );
-      }
-
-      const priorityResponse = await api.listDeskPriorities(parseInt(deskIdForPriority));
-
-      if (priorityResponse.error) {
-        return errorResponse(
-          `**Erro ao buscar prioridades da mesa ID ${deskIdForPriority}**\n\n` +
-          `**Erro:** ${priorityResponse.error}\n\n` +
-          `*Verifique se a mesa existe e possui prioridades configuradas.*`
-        );
-      }
-
-      const priorities = priorityResponse.data || [];
-
-      if (priorities.length === 0) {
-        return errorResponse(
-          `**Nenhuma prioridade encontrada na mesa ID ${deskIdForPriority}**\n\n` +
-          `*Verifique se a mesa possui prioridades configuradas ou use priority_id diretamente.*`
-        );
-      }
-
-      const { matches } = fuzzyMatchItems(priority_name, priorities, p => p.name);
-
-      if (matches.length === 0) {
-        return errorResponse(
-          `**Prioridade "${priority_name}" nao encontrada na mesa ID ${deskIdForPriority}**\n\n` +
-          `*Verifique se o nome esta correto ou use priority_id diretamente.*`
-        );
-      }
-
-      if (matches.length > 1) {
-        // Verificar se o melhor match e exato — se sim, usar sem ambiguidade
-        const bestScore = matches[0].score;
-        const tied = matches.filter(m => m.score === bestScore);
-        if (tied.length > 1) {
-          let prioritiesList = '**Prioridades encontradas:**\n';
-          matches.forEach((m, index) => {
-            prioritiesList += `${index + 1}. **ID:** ${m.item.id} | **Nome:** ${m.item.name}\n`;
-          });
-
-          return errorResponse(
-            `**Multiplas prioridades encontradas para "${priority_name}"**\n\n` +
-            `${prioritiesList}\n` +
-            `*Use priority_id especifico ou seja mais especifico no priority_name.*`
-          );
-        }
-      }
-
-      finalPriorityId = matches[0].item.id;
-      resolvedPriorityName = matches[0].item.name;
+      const r = await resolvePriorityByName(api, effectiveDeskId, priority_name);
+      if (r.error) return r.error;
+      finalPriorityId = r.priorityId;
+      plan.priority = { id: r.priorityId, name: r.priorityName };
+    } else if (priority_id !== undefined) {
+      plan.priority = { id: priority_id, name: null };
     }
 
-    // Decisao 1b: se ha troca de mesa e nenhuma prioridade informada, verificar se a mesa-destino
-    // exige prioridade (require_service_catalog_open_ticket=false implica priority obrigatorio).
-    // Para isso, verificamos se a mesa nao tem catalogo mas tem prioridades configuradas,
-    // e se a API retornar 422 de prioridade — tratamos via mapTransferError422 no bloco de erro.
-    // Alternativa proativa: se ha troca de mesa, priority ausente, e a mesa nao tem catalogo
-    // (require_service_catalog_open_ticket=false), retornar erro preventivo.
-    // Implementacao: verificar GET /desks/{id} para saber se exige catalogo ou prioridade.
-    // Nota: para manter a implementacao simples e sem GET extra por padrao, optamos por
-    // tratar o erro 422 de forma amigavel (Frente 3) quando ocorrer, e documentar que o usuario
-    // deve informar priority_name/priority_id ao transferir para mesa que exige prioridade.
-    // O erro preventivo (1b) seria muito custoso (GET /desks/{id} sempre que ha troca).
-    // Portanto: tratamento reativo via mapTransferError422 + mensagem do schema.
-
-    // Se responsible_name foi fornecido, buscar o ID do usuario via resolver compartilhado.
-    // Repassa deskId para desambiguacao server-side via GET /technical-users (quando ha mesa).
+    // Responsavel por nome (desambiguacao server-side via mesa quando conhecida)
     if (responsible_name && !responsible_id) {
       const resolved = await resolveResponsibleName(api, responsible_name, {
-        deskId: finalDeskId ? parseInt(finalDeskId) : undefined
+        deskId: effectiveDeskId !== undefined ? Number.parseInt(effectiveDeskId, 10) : undefined
       });
       if (resolved.error) return resolved.response;
       finalResponsibleId = resolved.userId;
-      // Captura nome real resolvido (pode diferir do nome parcial informado)
-      if (resolved.user && resolved.user.name) {
-        resolvedResponsibleName = resolved.user.name;
-      }
+      plan.responsible = { id: resolved.userId, name: (resolved.user && resolved.user.name) || responsible_name };
+    } else if (responsible_id !== undefined) {
+      plan.responsible = responsible_id ? { id: responsible_id, name: null } : null;
     }
 
-    let finalCatalogItemId = services_catalogs_item_id;
-
-    // Se catalog_item_name foi fornecido, buscar o ID do item de catalogo
+    // Item de catalogo por nome
     if (catalog_item_name && !services_catalogs_item_id) {
-      const deskIdForCatalog = finalDeskId || desk_id;
-
-      if (!deskIdForCatalog) {
-        return errorResponse(
-          `**Erro: desk_id ou desk_name obrigatorio para buscar item de catalogo por nome**\n\n` +
-          `*Para usar catalog_item_name, informe tambem desk_id ou desk_name.*`
-        );
-      }
-
-      const catalogSearchResponse = await api.searchCatalogItems(deskIdForCatalog, { limit: 200 });
-
-      if (catalogSearchResponse.error) {
-        return errorResponse(
-          `**Erro ao buscar item de catalogo "${catalog_item_name}"**\n\n` +
-          `**Erro:** ${catalogSearchResponse.error}\n\n` +
-          `*Verifique se o nome do item esta correto ou use services_catalogs_item_id diretamente.*`
-        );
-      }
-
-      const catalogItems = catalogSearchResponse.data || [];
-      if (catalogItems.length === 0) {
-        return errorResponse(
-          `**Nenhum item de catalogo encontrado na mesa ${deskIdForCatalog}**\n\n` +
-          `*Verifique se a mesa possui itens de catalogo configurados.*`
-        );
-      }
-
-      // Filtrar por nome (busca parcial case-insensitive)
-      const searchTerm = catalog_item_name.toLowerCase();
-      const matchingItems = catalogItems.filter(item =>
-        item.name.toLowerCase().includes(searchTerm)
-      );
-
-      if (matchingItems.length === 0) {
-        return errorResponse(
-          `**Item de catalogo "${catalog_item_name}" nao encontrado**\n\n` +
-          `*Verifique se o nome esta correto ou use services_catalogs_item_id diretamente.*`
-        );
-      }
-
-      if (matchingItems.length > 1) {
-        let itemsList = '**Itens de catalogo encontrados:**\n';
-        matchingItems.forEach((item, index) => {
-          itemsList += `${index + 1}. **ID:** ${item.id} | **Nome:** ${item.name} | **Area:** ${item.area.name} | **Catalogo:** ${item.catalog.name}\n`;
-        });
-
-        return errorResponse(
-          `**Multiplos itens de catalogo encontrados para "${catalog_item_name}"**\n\n` +
-          `${itemsList}\n` +
-          `*Use services_catalogs_item_id especifico ou seja mais especifico no catalog_item_name.*`
-        );
-      }
-
-      finalCatalogItemId = matchingItems[0].id;
-      resolvedCatalogItemName = matchingItems[0].name;
+      const r = await resolveCatalogItemByName(api, effectiveDeskId, catalog_item_name);
+      if (r.error) return r.error;
+      finalCatalogItemId = r.itemId;
+      plan.catalog = { id: r.itemId, name: r.itemName };
+    } else if (services_catalogs_item_id !== undefined) {
+      plan.catalog = { id: services_catalogs_item_id, name: null };
     }
 
-    // Resolver requestor_name → ID (apenas quando requestor_name fornecido e requestor_id nao)
-    // requestor_id tem prioridade sobre requestor_name (conflito → requestor_id vence).
-    // Cadeia: GET /requestors (global) → fallback GET /clients/{id}/requestors em 403.
-    // Degradacao graciosa: se ambas as fontes retornam 403, orienta usar requestor_id diretamente.
-    let finalRequestorId = requestor_id !== undefined ? parseInt(requestor_id, 10) : undefined;
-
+    // Solicitante por nome (requestor_id vence). client_id informado serve de dica.
     if (requestor_name && requestor_id === undefined) {
-      // Helper: detecta 403 no response de erro. Sinal primario e o status HTTP;
-      // o texto 'forbidden' e fallback para respostas sem status estruturado.
-      // (Evitamos casar o substring cru '403', que geraria falso-positivo em
-      // mensagens de erro nao relacionadas a permissao que apenas contenham "403".)
-      const isForbidden = (r) => r.status === 403 ||
-        (typeof r.error === 'string' && r.error.toLowerCase().includes('forbidden'));
-
-      // Tentativa 1: busca global GET /requestors
-      const globalResponse = await api.searchRequestors({ name: requestor_name, limit: 20 });
-
-      let candidates = null;
-      let allForbidden = false;
-
-      if (globalResponse.error) {
-        if (isForbidden(globalResponse)) {
-          // Tentativa 2 (fallback): GET /clients/{id}/requestors
-          let resolvedClientId = client_id;
-          let ticketFetchError = null;
-          if (!resolvedClientId) {
-            // Obter client_id do ticket atual (chamada extra somente nesse caminho)
-            const ticketResp = await api.fetchTicket(ticket_number);
-            if (!ticketResp.error && ticketResp.data) {
-              resolvedClientId = ticketResp.data.client && ticketResp.data.client.id;
-            } else {
-              // fetchTicket falhou (rede/404/500): NAO e sinal de permissao. Guardamos o
-              // erro real para nao mascara-lo como um 403 que pode nunca ter ocorrido.
-              ticketFetchError = ticketResp.error || 'ticket sem client_id vinculado';
-            }
-          }
-
-          if (resolvedClientId) {
-            const clientResponse = await api.searchClientRequestors(resolvedClientId, { name: requestor_name, limit: 20 });
-            if (clientResponse.error) {
-              if (isForbidden(clientResponse)) {
-                allForbidden = true;
-              } else {
-                return errorResponse(
-                  `**Erro ao buscar solicitante "${requestor_name}"**\n\n` +
-                  `**Erro:** ${clientResponse.error}\n\n` +
-                  `*Use \`requestor_id\` diretamente ou verifique as permissões.*`
-                );
-              }
-            } else {
-              candidates = clientResponse.data || [];
-            }
-          } else if (ticketFetchError) {
-            // Distingue "nao consegui buscar o ticket p/ tentar o fallback por cliente"
-            // de "sem permissao" — a mensagem antiga afirmava 403 mesmo quando o problema
-            // era outro (rede, ticket inexistente), mascarando a causa real.
-            return errorResponse(
-              `**Erro ao resolver solicitante "${requestor_name}"**\n\n` +
-              `A busca global de solicitantes retornou 403 e não foi possível obter o \`client_id\` do ticket #${ticket_number} para tentar a busca por cliente.\n\n` +
-              `**Detalhe:** ${ticketFetchError}\n\n` +
-              `*Use \`requestor_id\` diretamente, ou informe \`client_id\` para tentar a busca por cliente.*`
-            );
-          } else {
-            // Sem client_id disponivel: nao e possivel tentar fallback
-            allForbidden = true;
-          }
-        } else {
-          // Erro nao-403 na fonte global
-          return errorResponse(
-            `**Erro ao buscar solicitante "${requestor_name}"**\n\n` +
-            `**Erro:** ${globalResponse.error}\n\n` +
-            `*Use \`requestor_id\` diretamente ou verifique as permissões.*`
-          );
-        }
-      } else {
-        candidates = globalResponse.data || [];
-      }
-
-      if (allForbidden) {
-        return errorResponse(
-          `**Erro: sem permissão para buscar solicitantes por nome**\n\n` +
-          `Sua chave de API não tem acesso aos endpoints de solicitantes (HTTP 403).\n\n` +
-          `**Alternativa:** use \`requestor_id\` diretamente — obtenha o ID via \`search_requestor\` com outra conta ou pela interface do TiFlux.`
-        );
-      }
-
-      if (candidates.length === 0) {
-        return errorResponse(
-          `**Solicitante "${requestor_name}" não encontrado**\n\n` +
-          `*Verifique o nome ou use \`search_requestor\` com \`client_id\` para listar solicitantes válidos e copie o ID.*`
-        );
-      }
-
-      if (candidates.length > 1) {
-        let candidatesList = '**Candidatos encontrados:**\n';
-        candidates.forEach((c, i) => {
-          candidatesList += `${i + 1}. **ID:** ${c.id} | **Nome:** ${c.name} | **E-mail:** ${c.email || 'N/A'}\n`;
-        });
-        return errorResponse(
-          `**Múltiplos solicitantes encontrados para "${requestor_name}"**\n\n` +
-          `${candidatesList}\n` +
-          `*Use \`requestor_id\` com o ID específico.*`
-        );
-      }
-
-      finalRequestorId = candidates[0].id;
-      resolvedRequestorName = candidates[0].name;
+      const r = await resolveRequestorByName({
+        api, name: requestor_name, ticketNumber: ticket_number, clientHint: client_id, getTicket
+      });
+      if (r.error) return r.error;
+      finalRequestorId = r.requestorId;
+      plan.requestor = { id: r.requestorId, name: r.requestorName };
+    } else if (finalRequestorId !== undefined) {
+      plan.requestor = { id: finalRequestorId, name: null };
     }
 
-    // isDeskTransfer = mesa foi informada (desk_id/desk_name) — mesmo criterio usado p/ auto-resolver estagio.
-    const isDeskTransfer = finalDeskId !== undefined;
-
-    // priority_change_reason e obrigatorio ao mudar prioridade FORA de transferencia (API 42201).
+    // priority_change_reason: obrigatorio FORA de transferencia (API 42201), proibido nela (42202).
     if (finalPriorityId !== undefined && !isDeskTransfer &&
         (priority_change_reason === undefined || String(priority_change_reason).trim() === '')) {
       return errorResponse(
@@ -497,140 +417,72 @@ async function execute(args, { api }) {
       );
     }
 
-    // Preparar dados de atualizacao (apenas campos fornecidos)
+    // Dados de atualizacao (apenas campos fornecidos). client_id NUNCA vai ao PUT (H9).
     const updateData = {};
-
     if (title !== undefined) updateData.title = title;
     if (description !== undefined) updateData.description = markdownToHtml(description);
-    if (client_id !== undefined) updateData.client_id = parseInt(client_id);
-    if (finalDeskId !== undefined) updateData.desk_id = parseInt(finalDeskId);
-    if (finalStageId !== undefined) updateData.stage_id = parseInt(finalStageId);
-    if (finalPriorityId !== undefined) updateData.priority_id = parseInt(finalPriorityId);
-    // Regras da API v2 para priority_change_reason (validadas via teste em producao 2026-06-18):
-    //  - Mudanca de prioridade SEM transferencia de mesa → priority_change_reason e OBRIGATORIO
-    //    (a API retorna 42201 "Cannot send :priority_id without :priority_change_reason" sem ele).
-    //  - DURANTE transferencia de mesa → priority_change_reason e PROIBIDO
-    //    (a API retorna 42202 "not allowed during desk transfer" se enviado).
-    let priorityReasonDropped = false;
+    if (isDeskTransfer) updateData.desk_id = Number.parseInt(finalDeskId, 10);
+    if (finalStageId !== undefined) updateData.stage_id = Number.parseInt(finalStageId, 10);
+    if (finalPriorityId !== undefined) updateData.priority_id = Number.parseInt(finalPriorityId, 10);
     if (finalPriorityId !== undefined && !isDeskTransfer) {
       updateData.priority_change_reason = priority_change_reason;
+      plan.priorityReason = priority_change_reason;
     } else if (priority_change_reason !== undefined && isDeskTransfer) {
-      // Usuario passou reason numa transferencia — a API rejeitaria; descartamos e avisamos no resumo.
-      priorityReasonDropped = true;
+      // Reason numa transferencia: a API rejeitaria; descartamos e avisamos no resumo.
+      plan.priorityReasonDropped = true;
     }
-    if (status_id !== undefined) updateData.status_id = parseInt(status_id);
+    if (status_id !== undefined) {
+      updateData.status_id = Number.parseInt(status_id, 10);
+      plan.statusId = status_id;
+    }
     if (followers !== undefined) updateData.followers = followers;
-    if (finalCatalogItemId !== undefined) updateData.services_catalogs_item_id = parseInt(finalCatalogItemId);
-
-    // Tratamento especial para responsible_id (pode ser null)
+    if (finalCatalogItemId !== undefined) updateData.services_catalogs_item_id = Number.parseInt(finalCatalogItemId, 10);
     if (finalResponsibleId !== undefined) {
-      updateData.responsible_id = finalResponsibleId ? parseInt(finalResponsibleId) : null;
+      updateData.responsible_id = finalResponsibleId ? Number.parseInt(finalResponsibleId, 10) : null;
+    }
+    if (finalRequestorId !== undefined) updateData.requestor_id = finalRequestorId;
+    if (stopped !== undefined) updateData.stopped = stopped;
+    // Retomada nao leva motivo: a API recusa stop_answer com stopped false.
+    if (stop_answer !== undefined && stopped === false) {
+      plan.stopAnswer = undefined;
+      plan.stopAnswerDropped = true;
+    } else if (stop_answer !== undefined) {
+      updateData.stop_answer = stop_answer;
+    }
+    if (ticket_reference_number !== undefined) {
+      updateData.ticket_reference_number = isNil(ticket_reference_number) ? null : Number.parseInt(ticket_reference_number, 10);
+      plan.ticketReference = updateData.ticket_reference_number;
     }
 
-    // finalRequestorId ja e numerico (parseInt do requestor_id ou candidates[0].id da API);
-    // normalizamos com radix 10 sem reparsear redundantemente.
-    if (finalRequestorId !== undefined) updateData.requestor_id = parseInt(finalRequestorId, 10);
-
-    // Verificar se ha campos para atualizar
     if (Object.keys(updateData).length === 0) {
+      if (client_id !== undefined) {
+        return errorResponse(
+          `**Erro: trocar o cliente do ticket não é possível pela API**\n\n` +
+          `**Ticket ID:** #${ticket_number}\n\n` +
+          `*Use a interface do TiFlux para trocar o cliente. O campo \`client_id\` aqui só ajuda a achar o solicitante por nome.*`
+        );
+      }
       return errorResponse(
         `**⚠️ Nenhum campo informado para atualização**\n\n` +
         `**Ticket ID:** #${ticket_number}\n\n` +
-        `*Informe pelo menos um campo para atualizar: title, description, client_id, desk_id, stage_id, priority_id, priority_name, status_id, responsible_id, requestor_id, requestor_name, followers*`
+        `*Informe pelo menos um campo para atualizar: title, description, desk_id, stage_id, priority_id, priority_name, status_id, responsible_id, requestor_id, requestor_name, followers, stopped, stop_answer, ticket_reference_number*`
       );
     }
 
-    // Atualizar ticket via API
+    // client_id junto com outros campos: nao vai ao PUT; o resumo avisa que foi ignorado.
+    if (client_id !== undefined) plan.clientIdIgnored = true;
+
     const response = await api.updateTicket(ticket_number, updateData);
 
     if (response.error) {
-      // Frente 3: mapear erros 42202 de transferencia para mensagens amigaveis
-      const deskRef = resolvedDeskName || (finalDeskId ? `ID ${finalDeskId}` : null);
-      const friendlyError = mapTransferError422(response.error, deskRef);
-      if (friendlyError) {
-        return errorResponse(`**❌ Erro ao atualizar ticket #${ticket_number}**\n\n${friendlyError}`);
-      }
-
-      // Requestor not found (422 detail.requestor_id → "requestor not found")
-      if (typeof response.error === 'string' &&
-          response.error.includes('requestor_id') &&
-          response.error.toLowerCase().includes('requestor not found')) {
-        const clientRef = client_id ? `client_id=${client_id}` : 'o client_id do ticket';
-        return errorResponse(
-          `**❌ Erro ao atualizar ticket #${ticket_number}**\n\n` +
-          `**Erro: solicitante não encontrado ou não pertence ao cliente deste ticket.**\n\n` +
-          `O \`requestor_id\` informado não existe ou não está vinculado ao cliente do ticket.\n\n` +
-          `Use \`search_requestor\` com ${clientRef} para localizar solicitantes válidos.\n\n` +
-          `**Detalhe da API:** ${response.error}`
-        );
-      }
-
-      return errorResponse(
-        `**❌ Erro ao atualizar ticket #${ticket_number}**\n\n` +
-        `**Código:** ${response.status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique se o ticket existe e se você tem permissão para editá-lo.*`
-      );
+      const deskRef = (plan.desk && plan.desk.name) || (finalDeskId ? `ID ${finalDeskId}` : null);
+      const stopFieldsSent = stopped !== undefined || stop_answer !== undefined || ticket_reference_number !== undefined;
+      return updateFailureResponse({
+        response, ticketNumber: ticket_number, deskRef, clientId: client_id, stopFieldsSent
+      });
     }
 
-    // Preparar resumo das alteracoes — exibir nome + ID quando disponivel; fallback "ID X" para IDs crus
-    let changesText = '**Alterações realizadas:**\n';
-    if (title !== undefined) changesText += `• Título: ${title}\n`;
-    if (description !== undefined) changesText += `• Descrição: ${description.substring(0, 50)}...\n`;
-    if (client_id !== undefined) changesText += `• Cliente ID: ${client_id}\n`;
-    if (finalDeskId !== undefined) {
-      const deskLabel = resolvedDeskName ? `${resolvedDeskName} (ID ${finalDeskId})` : `ID ${finalDeskId}`;
-      changesText += `• Mesa transferida: ${deskLabel}\n`;
-      if (autoResolvedStageId !== null) {
-        const stageLabel = autoResolvedStageName ? `${autoResolvedStageName} (ID ${autoResolvedStageId})` : `ID ${autoResolvedStageId}`;
-        changesText += `• Estágio auto-resolvido: ${stageLabel} (1º estágio da mesa-destino)\n`;
-      }
-    }
-    if (finalStageId !== undefined && autoResolvedStageId === null) {
-      const stageLabel = resolvedStageName ? `${resolvedStageName} (ID ${finalStageId})` : `ID ${finalStageId}`;
-      changesText += `• Estágio: ${stageLabel}\n`;
-    }
-    if (finalPriorityId !== undefined) {
-      const priorityLabel = resolvedPriorityName ? `${resolvedPriorityName} (ID ${finalPriorityId})` : `ID ${finalPriorityId}`;
-      changesText += `• Prioridade: ${priorityLabel}\n`;
-    }
-    if (updateData.priority_change_reason !== undefined) changesText += `• Motivo da mudança de prioridade: ${priority_change_reason}\n`;
-    if (priorityReasonDropped) changesText += `• ⚠️ priority_change_reason ignorado: a API v2 não permite motivo de mudança de prioridade durante transferência de mesa\n`;
-    if (status_id !== undefined) changesText += `• Status ID: ${status_id}\n`;
-    if (finalResponsibleId !== undefined) {
-      if (finalResponsibleId === null || finalResponsibleId === 0) {
-        changesText += `• Responsável: Removido (não atribuído)\n`;
-      } else {
-        const respLabel = resolvedResponsibleName ? `${resolvedResponsibleName} (ID ${finalResponsibleId})` : `ID ${finalResponsibleId}`;
-        changesText += `• Responsável: ${respLabel}\n`;
-      }
-    }
-    if (finalRequestorId !== undefined) {
-      // requestor_name resolvido → mostra nome + ID; requestor_id direto → mostra só ID
-      const resolvedViaName = requestor_name && requestor_id === undefined;
-      const requestorLabel = resolvedViaName && resolvedRequestorName
-        ? `${resolvedRequestorName} (ID ${finalRequestorId})`
-        : `ID ${finalRequestorId}`;
-      changesText += `• Solicitante: ${requestorLabel}\n`;
-    }
-    if (followers !== undefined) {
-      if (followers === '') {
-        changesText += `• Seguidores: todos removidos\n`;
-      } else {
-        changesText += `• Seguidores (lista substituída): ${followers}\n`;
-      }
-    }
-    if (finalCatalogItemId !== undefined) {
-      const catalogLabel = resolvedCatalogItemName ? `${resolvedCatalogItemName} (ID ${finalCatalogItemId})` : `ID ${finalCatalogItemId}`;
-      changesText += `• Item de Catálogo: ${catalogLabel}\n`;
-    }
-
-    return textResponse(
-      `**✅ Ticket #${ticket_number} atualizado com sucesso!**\n\n` +
-      `${changesText}\n` +
-      `**Atualizado em:** ${new Date().toISOString()}\n\n` +
-      `*✅ Ticket atualizado via API TiFlux*`
-    );
+    return textResponse(buildSuccessText(ticket_number, plan, updateData, response.data));
   } catch (error) {
     return errorResponse(
       `**❌ Erro interno ao atualizar ticket #${ticket_number}**\n\n` +

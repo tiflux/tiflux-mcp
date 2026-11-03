@@ -322,30 +322,41 @@ Create a new ticket in Tiflux.
 **Fixed in v2.50.1:** `Criado em` in the success response now shows the creation date/time in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
 
 ### update_ticket
-Update an existing ticket in Tiflux. Supports transferring a ticket to another desk — when `desk_id`/`desk_name` is provided without an explicit `stage_id`/`stage_name`, the MCP automatically resolves the first stage of the destination desk (the stage with `first_stage: true`, or the one with the lowest index as a fallback), preventing invalid-stage errors.
+Update an existing ticket in Tiflux. **Changing the ticket's client is not possible through the API — use the TiFlux interface** (the API v2 rejects `client_id` on update with a 400, which used to fail the whole call). Supports transferring a ticket to another desk — when `desk_id`/`desk_name` is provided without an explicit `stage_id`/`stage_name`, the MCP automatically resolves the first stage of the destination desk (the stage with `first_stage: true`, or the one with the lowest index as a fallback), preventing invalid-stage errors.
 
 **Parameters:**
 - `ticket_number` (string, required): Number of the ticket to update (e.g. "123", "456")
 - `title` (string, optional): New ticket title
 - `description` (string, optional): New ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
-- `client_id` (number, optional): New client ID. Use only when the user says "client" or "company" explicitly.
-- `desk_id` (number, optional): New desk ID. Transfers the ticket to the specified desk. Stages and priorities are scoped per desk — if no stage is provided, the MCP auto-resolves the first stage of the destination desk.
+- `client_id` (number, optional): The ticket's client ID. It does **not** change the client (not possible via the API; use the TiFlux interface) and is never sent in the update. It only helps find the requestor by name (`requestor_name`) in the right client. Sent alone, it returns a local error explaining this; sent with other fields, it is ignored and the summary says so. Numeric IDs (`desk_id`, `stage_id`, `priority_id`, `status_id`, `services_catalogs_item_id`, `responsible_id`, `requestor_id`, `ticket_reference_number`) must be integers (or digit strings): a non-numeric value returns a local validation error and nothing is updated.
+- `desk_id` (number, optional): Desk ID. If it differs from the ticket's **current** desk, transfers the ticket; if it is the same desk, it is ignored (not a transfer). Stages and priorities are scoped per desk — if no stage is provided, the MCP auto-resolves the first stage of the destination desk.
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
 - `stage_id` (number, optional): Stage/phase ID. Always takes precedence over auto-resolution.
-- `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id, requires desk_id or desk_name). Always takes precedence over auto-resolution.
+- `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id). **Without a desk, it uses the ticket's current desk.** An exact name (ignoring case/accents) wins over similar names ("Pendente" vs "Pendente cliente"). Always takes precedence over auto-resolution.
 - `priority_id` (number, optional): Priority ID. Priorities are scoped per desk — use `list_desk_priorities` to discover valid IDs for the destination desk. When transferring desks, provide this field (or `priority_name`) to preserve the ticket's priority (priorities are not automatically preserved across desk transfers).
-- `priority_name` (string, optional): Priority name for automatic search (requires `desk_id` or `desk_name` to resolve). **Because it requires a desk, the API treats it as a transfer — so `priority_name` only works when transferring to another desk.** To change priority on the ticket's **current** desk, use `priority_id` directly (no desk).
+- `priority_name` (string, optional): Priority name for automatic search. Without a desk, it uses the ticket's **current** desk. Outside a transfer it requires `priority_change_reason`, same as `priority_id`.
 - `priority_change_reason` (string, optional): Reason for the priority change (free text). **Required** when changing priority (`priority_id`) **outside** of a desk transfer — the API rejects `priority_id` without it (`42201`). **Not allowed** during a desk transfer — the API rejects it (`42202`); in that case it is dropped automatically and a warning is shown.
 - `status_id` (number, optional): Status ID. There is no status listing endpoint in the API v2 — provide the ID directly (no `status_name`).
-- `responsible_id` (number, optional): Responsible user ID (use null to unassign)
+- `responsible_id` (number, optional): Responsible user ID (use null to unassign). Unassigning does not work together with a desk transfer (do it in 2 calls).
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `requestor_id` (number, optional): New requestor (ticket opener) ID. The requestor must belong to the same client linked to the ticket. When provided together with `requestor_name`, `requestor_id` takes precedence.
 - `requestor_name` (string, optional): Requestor name for automatic resolution (alternative to `requestor_id`). The MCP tries `GET /requestors` (global) and falls back to `GET /clients/{id}/requestors` on 403. Single match → uses the ID; multiple matches → lists candidates to disambiguate; no match → error suggesting `search_requestor`. If both endpoints return 403, returns a clear message suggesting `requestor_id` directly.
 - `followers` (string, optional): Comma-separated follower emails. **⚠️ REPLACES the full followers list** — to add without removing, fetch current followers via `get_ticket` first and send the complete list (existing + new). Empty string `""` removes all followers.
 - `services_catalogs_item_id` (number, optional): Catalog item ID for updating desk with specific item
-- `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
+- `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id). Without a desk, it uses the ticket's current desk.
+- `stopped` (boolean, optional): `true` pauses the ticket's SLA, `false` resumes it. Pausing requires `stop_answer` (local error otherwise); resuming goes without a reason, because the API rejects `stop_answer` with `stopped: false` (if given, it is dropped and the summary says so). The desk must allow pausing, the ticket cannot be in the first stage nor have an overdue resolution SLA, and the pause cannot be combined with other fields (send it in a separate call); these API rules come back as a 422 with the API `detail`. The text values `"true"`/`"false"` are accepted. When the API returns the SLA state, the summary shows it ("SLA: pausado"/"em andamento") and warns if the pause or resume was not applied.
+- `stop_answer` (string, optional): Reason for pausing the SLA. Required with `stopped: true`; not sent on resume (`stopped: false`); sent alone, it returns a local error.
+- `ticket_reference_number` (number or null, optional): Number of the parent ticket (sets the parent/child link). Accepts the `#123` format. `null` unlinks from the parent.
+
+`ticket_number` also accepts the `#123` format. On a desk transfer, the summary shows the destination desk's real name returned by the API.
 
 **Note:** At least one optional field must be provided along with the `ticket_number`.
+
+**Current desk vs. transfer:** when a name depends on the desk (`stage_name`, `priority_name`, `catalog_item_name`) and no desk is given — or when `desk_id`/`desk_name` is given — the MCP reads the ticket once (`GET /tickets/{n}`) to learn its current desk. Informing the desk the ticket is already in is **not** a transfer (the update does not send `desk_id`). It is a transfer only when the final desk differs from the current one. With IDs only and no desk, no extra call is made. If the ticket cannot be read, the tool says so and asks for the ID.
+
+**What the transfer accepts:** only `desk_id`, `stage_id`, `status_id`, `priority_id`, `services_catalogs_item_id` and `responsible_id`. Together with a transfer, `title`, `description`, `followers`, `requestor_id`/`requestor_name` and `responsible_id: null` return a local error (no API call) suggesting 2 calls: the transfer first, then the rest.
+
+**Result summary:** the success message lists what was sent and the ticket's **final state** returned by the API (desk, stage, status, priority, responsible, requestor), with the real `updated_at`. If a sent field came back present and different, it shows `⚠️ a API não aplicou <campo>`. In a transfer, a warning says that catalog, priority and status go back to the destination desk defaults when not informed. This makes the ticket-by-ticket loop ("move tickets 101, 102 and 103 to stage X") reliable.
 
 **Desk Transfer Prerequisites:**
 1. **Desk relationship** — origin and destination desks must be **linked** in Tiflux settings. Without this the API rejects the transfer with a `42202` error.
@@ -353,7 +364,7 @@ Update an existing ticket in Tiflux. Supports transferring a ticket to another d
 3. **Priority is not preserved** — priority is scoped per desk and is **lost** on transfer (becomes `null`). Provide `priority_name`/`priority_id` to preserve it. Status is automatically reallocated by the API.
 
 **Priority change rules** (enforced by the API v2):
-- **Same desk (no transfer):** use `priority_id` directly (no `desk_id`/`desk_name`). `priority_change_reason` is **required** (`42201` otherwise). `priority_name` does **not** work here — it requires a desk, which the API interprets as a transfer.
+- **Same desk (no transfer):** use `priority_id` or `priority_name` (resolved on the current desk). `priority_change_reason` is **required** (`42201` otherwise).
 - **During a desk transfer:** provide `priority_id` or `priority_name` to preserve priority; do **not** send `priority_change_reason` (`42202` otherwise — it is dropped automatically with a warning).
 
 **Error messages:** Common `42202` transfer errors (missing desk relationship, required catalog) are returned as actionable messages instead of raw API text.
@@ -4289,7 +4300,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
-- `PUT /tickets/{id}` - Update existing tickets (supports `requestor_id` to change the ticket's requestor; `followers` replaces the full list)
+- `PUT /tickets/{id}` - Update existing tickets (supports `requestor_id` to change the ticket's requestor; `followers` replaces the full list; `stopped`/`stop_answer` pause or resume the SLA; `ticket_reference_number` sets the parent ticket; `client_id` is never sent — the API rejects it)
 - `PUT /tickets/{id}/entities` - Update ticket custom fields
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
 - `PUT /tickets/{ticket_number}/close` - Close specific ticket

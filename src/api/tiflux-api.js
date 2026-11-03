@@ -337,7 +337,7 @@ class TiFluxAPI {
 
     if (ticketData.title !== undefined) ticketObject.title = ticketData.title;
     if (ticketData.description !== undefined) ticketObject.description = ticketData.description;
-    if (ticketData.client_id !== undefined) ticketObject.client_id = ticketData.client_id;
+    // client_id NAO e copiado: a API v2 rejeita o parametro no PUT (400) e derruba o update inteiro.
     if (ticketData.desk_id !== undefined) ticketObject.desk_id = ticketData.desk_id;
     if (ticketData.priority_id !== undefined) ticketObject.priority_id = ticketData.priority_id;
     if (ticketData.priority_change_reason !== undefined) ticketObject.priority_change_reason = ticketData.priority_change_reason;
@@ -346,6 +346,9 @@ class TiFluxAPI {
     if (ticketData.services_catalogs_item_id !== undefined) ticketObject.services_catalogs_item_id = ticketData.services_catalogs_item_id;
     if (ticketData.followers !== undefined) ticketObject.followers = ticketData.followers;
     if (ticketData.requestor_id !== undefined) ticketObject.requestor_id = ticketData.requestor_id;
+    if (ticketData.stopped !== undefined) ticketObject.stopped = ticketData.stopped;
+    if (ticketData.stop_answer !== undefined) ticketObject.stop_answer = ticketData.stop_answer;
+    if (ticketData.ticket_reference_number !== undefined) ticketObject.ticket_reference_number = ticketData.ticket_reference_number;
 
     if (ticketData.responsible_id !== undefined) {
       ticketObject.responsible_id = ticketData.responsible_id;
