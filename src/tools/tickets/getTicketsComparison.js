@@ -33,6 +33,7 @@ const { capIds, calcDelta, formatDeltaStr } = require('../_shared/reportMath');
 const { zeroFillTemporalBuckets } = require('../_shared/temporalBuckets');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
+const { normalizeRequestorEmails } = require('./ticketListFilters');
 
 // Teto explicito de buckets por chamada. Em modo group_by a API atual ignora
 // `limit` e devolve todos os buckets (validado ao vivo: 66 buckets com limit=20);
@@ -107,7 +108,7 @@ Exemplos: "últimos 6 meses vs os 6 anteriores" → só start/end; "mesa X por m
       },
       requestor_email: {
         type: 'string',
-        description: 'Email do solicitante. Passthrough direto.'
+        description: 'Email do solicitante (aceita varios separados por virgula). Maiusculas/espacos nao importam: o MCP normaliza para minusculas antes de chamar a API.'
       },
       priority_ids: {
         type: 'string',
@@ -288,6 +289,9 @@ async function execute(args, { api, verbosity, logger }) {
   const finalPriorityIds = capIds(priority_ids);
   const finalCatalogIds = capIds(services_catalogs_item_ids);
 
+  // H13: o TiFlux grava requestor_email em minusculas e a API compara exato.
+  const normalizedRequestorEmail = normalizeRequestorEmails(requestor_email);
+
   // Base de filtros comuns às duas chamadas — usa effectiveFilterBy
   const baseFilters = {
     limit: BUCKET_LIMIT,
@@ -297,7 +301,7 @@ async function execute(args, { api, verbosity, logger }) {
     ...(finalDeskIds ? { desk_ids: finalDeskIds } : {}),
     ...(finalClientIds ? { client_ids: finalClientIds } : {}),
     ...(finalResponsibleIds ? { responsible_ids: finalResponsibleIds } : {}),
-    ...(requestor_email ? { requestor_email } : {}),
+    ...(normalizedRequestorEmail ? { requestor_email: normalizedRequestorEmail } : {}),
     ...(finalPriorityIds ? { priority_ids: finalPriorityIds } : {}),
     ...(finalCatalogIds ? { services_catalogs_item_ids: finalCatalogIds } : {})
   };

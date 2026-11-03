@@ -25,6 +25,7 @@ const schema = {
     'Útil para entender quais campos estão pendentes e por que o ticket não fecha — um checklist com ' +
     '`pending: true` significa que há campo obrigatório em branco bloqueando o fechamento. ' +
     'Cada campo exibe `index` (a única forma de referenciá-lo), tipo, obrigatoriedade, estado de preenchimento e valor/opções. ' +
+    'O cabeçalho de cada checklist traz o ID entre parênteses (ex.: "### 1. Checklist 1 (ID: 4539)") — é o `checklist_id` de `update_ticket_checklist_item`. ' +
     'Os ids das opções de campos `checkbox` e `radio` são exibidos na saída para uso direto em `update_ticket_checklist_item`.',
   inputSchema: {
     type: 'object',
@@ -171,7 +172,9 @@ function formatChecklistsList(ticketNumber, checklists, offset, limit, total, ve
     const createdAt = formatTimestamp(cl.created_at, verbosity);
     const updatedAt = formatTimestamp(cl.updated_at, verbosity);
 
-    text += `### ${idx + 1}. ${name}\n`;
+    // H5: o ID e o que update_ticket_checklist_item exige em checklist_id (a ordem nao serve).
+    const idLabel = cl.id != null ? `(ID: ${cl.id})` : '(sem ID — não editável pela API)';
+    text += `### ${idx + 1}. ${name} ${idLabel}\n`;
     if (description) text += `*${description}*\n`;
     text += `• **Status:** ${pending}\n`;
     text += `• **Tipo:** ${required}\n`;

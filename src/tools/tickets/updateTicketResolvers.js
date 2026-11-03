@@ -4,22 +4,12 @@
  * sob controle. Cada resolver devolve `{ error: <resposta MCP> }` ou o valor resolvido.
  *
  * Match por nome: o match EXATO unico (normalizado: caixa e acento) vence a substring
- * ("pendente" resolve "Pendente" mesmo existindo "Pendente cliente"). H48a.
- * Se a Fase 1 ganhar o segundo consumidor (list_tickets), extrair para `_shared/`.
+ * ("pendente" resolve "Pendente" mesmo existindo "Pendente cliente"). H48a — o helper
+ * `matchByName` vive em `_shared/fuzzyMatch.js` (compartilhado com list_tickets).
  */
 
 const { errorResponse } = require('../_shared/errors');
-const { fuzzyMatchItems, normalizeText } = require('../_shared/fuzzyMatch');
-
-/**
- * Filtra `items` por nome: exato unico (normalizado) → [item]; senao substring normalizada.
- */
-function matchByName(items, term, nameOf) {
-  const needle = normalizeText(term);
-  const exact = items.filter(i => normalizeText(nameOf(i)) === needle);
-  if (exact.length === 1) return exact;
-  return items.filter(i => normalizeText(nameOf(i)).includes(needle));
-}
+const { fuzzyMatchItems, normalizeText, matchByName } = require('../_shared/fuzzyMatch');
 
 async function fetchStages(api, deskId) {
   const stagesResponse = await api.searchStages(Number.parseInt(deskId, 10), { limit: 200 });
@@ -311,7 +301,6 @@ async function resolveRequestorByName(opts) {
 }
 
 module.exports = {
-  matchByName,
   resolveStageByName,
   resolveFirstStage,
   resolvePriorityByName,

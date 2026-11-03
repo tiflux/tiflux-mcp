@@ -18,23 +18,14 @@ const { MAX_BASE64_BYTES_25MB, MAX_BASE64_BYTES_40MB } = require('../tools/_shar
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
- * Anexa uma lista CSV de ids a `params`, com cap de 15 itens (contrato da
- * Swagger de GET /tickets: "maximo 15 itens"). Sem dedup — usado pelos filtros
- * que a API aceita repetidos (desk_ids, client_ids, stage_ids, etc).
+ * Anexa uma lista CSV de ids a `params`, com dedup + cap de 15 itens (contrato da
+ * Swagger de GET /tickets: "maximo 15 itens, sem duplicados" — erro 42201). So
+ * salvaguarda de transporte: o dedup/corte com aviso ao usuario acontece no slice
+ * (list_tickets / get_tickets_comparison). Nunca enviar >15 nem repetidos.
  */
 function appendCsvIds(params, key, value) {
   if (!value) return;
-  const ids = value.split(',').slice(0, 15).map(id => id.trim()).filter(id => id);
-  if (ids.length > 0) params.append(key, ids.join(','));
-}
-
-/**
- * Igual a appendCsvIds, mas com dedup antes do cap de 15 — usado por
- * services_catalogs_item_ids/priority_ids (API rejeita duplicados com 42201).
- */
-function appendDedupedCsvIds(params, key, value) {
-  if (!value) return;
-  const ids = [...new Set(value.split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
+  const ids = [...new Set(String(value).split(',').map(id => id.trim()).filter(id => id))].slice(0, 15);
   if (ids.length > 0) params.append(key, ids.join(','));
 }
 
@@ -86,8 +77,8 @@ function buildListTicketsParams(filters) {
   // "maximo 15 itens, sem duplicados" (erro 42201 "cannot have more than 15 items").
   // Aqui fica a rede de seguranca do contrato (dedup + cap 15); o aviso honesto ao
   // usuario sobre o corte e emitido em listTickets. Nunca enviar >15 para nao tomar 422.
-  appendDedupedCsvIds(params, 'services_catalogs_item_ids', filters.services_catalogs_item_ids);
-  appendDedupedCsvIds(params, 'priority_ids', filters.priority_ids);
+  appendCsvIds(params, 'services_catalogs_item_ids', filters.services_catalogs_item_ids);
+  appendCsvIds(params, 'priority_ids', filters.priority_ids);
 
   // created_by_way_of: numero inteiro convertido pelo slice (0..12).
   if (filters.created_by_way_of !== undefined && filters.created_by_way_of !== null) {
@@ -1336,15 +1327,23 @@ class TiFluxAPI {
   }
 
   /**
-   * Busca os arquivos anexados a um ticket especifico
-   * GET /tickets/{ticket_number}/files
+   * Busca os arquivos anexados a um ticket especifico (paginado; padrao da API = 20).
+   * GET /tickets/{ticket_number}/files?offset=&limit=
+   *
+   * So transporte (BE-003): query offset/limit + `total` do header X-Total-Items.
    */
-  async fetchTicketFiles(ticketNumber) {
+  async fetchTicketFiles(ticketNumber, { offset, limit } = {}) {
     if (!ticketNumber) {
       return { error: 'ticket_number é obrigatório', status: 'VALIDATION_ERROR' };
     }
 
-    return await this.makeRequest(`/tickets/${ticketNumber}/files`);
+    const params = new URLSearchParams();
+    if (offset != null) params.append('offset', offset);
+    if (limit != null) params.append('limit', limit);
+    const query = params.toString();
+    const base = `/tickets/${encodeURIComponent(ticketNumber)}/files`;
+    const path = query ? `${base}?${query}` : base;
+    return this._attachTotalItems(await this.makeRequest(path));
   }
 
   /**
@@ -2702,7 +2701,8 @@ class TiFluxAPI {
    * Lógica de negócio (comparação, deltas, formatação) vive no slice.
    *
    * @param {object} filters - { start_date, end_date, tickets_list?, offset?, limit?,
-   *                             responsible_ids?, department_ids?, technical_group_ids? }
+   *                             responsible_ids?, desk_ids?, client_ids? }
+   *   (department_ids/technical_group_ids sao de chats: a API de tickets da 400)
    * @returns {Promise<{data, status}|{error, status}>}
    */
   async getTicketsFeedbackReport(filters = {}) {
@@ -2714,8 +2714,8 @@ class TiFluxAPI {
     if (filters.offset != null) params.append('offset', filters.offset);
     if (filters.limit != null) params.append('limit', Math.min(filters.limit, 200));
     if (filters.responsible_ids != null) params.append('responsible_ids', filters.responsible_ids);
-    if (filters.department_ids != null) params.append('department_ids', filters.department_ids);
-    if (filters.technical_group_ids != null) params.append('technical_group_ids', filters.technical_group_ids);
+    if (filters.desk_ids != null) params.append('desk_ids', filters.desk_ids);
+    if (filters.client_ids != null) params.append('client_ids', filters.client_ids);
 
     return await this.makeRequest(`/reports/feedbacks/tickets?${params.toString()}`);
   }

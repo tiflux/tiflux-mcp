@@ -160,6 +160,16 @@ function renderRichReport(report, cfg) {
   return footerStr ? `${out}\n${footerStr}` : out;
 }
 
+// Dica do erro do período principal. 403 com `desk_ids` no corpo (40302): a chave
+// não tem acesso a uma das mesas filtradas — não é falta de permissão de relatório.
+function mainErrorHint(response, baseFilters) {
+  if (response.status !== 403) return '*Verifique os filtros e o intervalo de datas.*';
+  if (baseFilters.desk_ids && String(response.error).includes('desk_ids')) {
+    return `*Sua API key não tem acesso a uma ou mais mesas de desk_ids (${baseFilters.desk_ids}). Remova a mesa recusada (ver mensagem acima) ou use uma chave com acesso a ela.*`;
+  }
+  return '*Este relatório requer permissão de administrador/relatórios. Verifique as permissões da sua API key.*';
+}
+
 function metricRow(metric, curr, prev) {
   const currDisplay = curr ?? '—';
   const prevDisplay = prev ?? '—';
@@ -181,6 +191,9 @@ function metricRow(metric, curr, prev) {
  *   @param {string} cfg.entityLabel - rótulo capitalizado plural ('Chats' | 'Tickets')
  *   @param {string} cfg.entitySingular - singular minúsculo ('chat' | 'ticket')
  *   @param {(api:object, filters:object)=>Promise} cfg.apiMethod - chamada à API
+ *   @param {string[]} cfg.filterKeys - chaves *_ids repassadas à API (FEEDBACK_FILTER_KEYS da entidade)
+ *   @param {{keys:string[],hint:string}} [cfg.unsupportedFilters] - filtros que a entidade não suporta:
+ *     se vierem preenchidos (ex.: cliente com schema antigo em cache), erro local sem chamar a API
  *   @param {string} cfg.listParamKey - flag de lista enviada à API ('chats_list' | 'tickets_list')
  *   @param {string} cfg.listDataKey - chave da lista no payload ('chats_list' | 'tickets_list')
  *   @param {string} cfg.evaluatedKey - métrica de avaliados ('chats_evaluated' | 'tickets_evaluated')
@@ -208,11 +221,19 @@ async function runFeedbackReport(args, ctx, cfg) {
       compare_end_date,
       include_list = false,
       offset = 1,
-      limit = 20,
-      responsible_ids,
-      department_ids,
-      technical_group_ids
+      limit = 20
     } = args;
+
+    // --- Recusar filtros não suportados pela entidade (sem chamar a API) ---
+    const unsupported = (cfg.unsupportedFilters?.keys || [])
+      .filter(key => args[key] != null && args[key] !== '');
+    if (unsupported.length > 0) {
+      return errorResponse(
+        `**❌ Filtro não suportado: ${unsupported.join(', ')}**\n\n` +
+        `${unsupported.join('/')} não ${unsupported.length > 1 ? 'são suportados' : 'é suportado'} pelo relatório de avaliações de ${labelLower}.\n\n` +
+        `*${cfg.unsupportedFilters.hint}*`
+      );
+    }
 
     // --- Validar período principal ---
     const mainValidation = validateReportPeriod(start_date, end_date);
@@ -254,17 +275,14 @@ async function runFeedbackReport(args, ctx, cfg) {
       compareEnd = prev.end.substring(0, 10);
     }
 
-    // Caps de IDs
-    const finalResponsibleIds = capIds(responsible_ids);
-    const finalDepartmentIds = capIds(department_ids);
-    const finalTechnicalGroupIds = capIds(technical_group_ids);
-
-    // Filtros base (comuns às 2 chamadas)
-    const baseFilters = {
-      ...(finalResponsibleIds ? { responsible_ids: finalResponsibleIds } : {}),
-      ...(finalDepartmentIds ? { department_ids: finalDepartmentIds } : {}),
-      ...(finalTechnicalGroupIds ? { technical_group_ids: finalTechnicalGroupIds } : {})
-    };
+    // Filtros base (comuns às 2 chamadas): só as chaves *_ids da entidade
+    // (cfg.filterKeys), com dedup + cap de 15. Chave de outra entidade (ex.:
+    // department_ids em tickets) não é repassada — a API a rejeita com 400 (H4).
+    const baseFilters = {};
+    for (const key of cfg.filterKeys || ['responsible_ids']) {
+      const ids = capIds(args[key]);
+      if (ids) baseFilters[key] = ids;
+    }
 
     // --- Chamada 1: período principal ---
     const mainFilters = {
@@ -281,12 +299,11 @@ async function runFeedbackReport(args, ctx, cfg) {
     const mainResponse = await cfg.apiMethod(api, mainFilters);
 
     if (mainResponse.error) {
-      const is403 = mainResponse.status === 403;
       return errorResponse(
         `**❌ Erro ao buscar relatório de avaliações de ${labelLower} (período principal)**\n\n` +
         `**Código:** ${mainResponse.status}\n` +
         `**Mensagem:** ${mainResponse.error}\n\n` +
-        `${is403 ? '*Este relatório requer permissão de administrador/relatórios. Verifique as permissões da sua API key.*' : '*Verifique os filtros e o intervalo de datas.*'}`
+        `${mainErrorHint(mainResponse, baseFilters)}`
       );
     }
 

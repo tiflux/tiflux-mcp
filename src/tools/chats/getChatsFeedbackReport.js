@@ -24,7 +24,7 @@
  */
 
 const { runFeedbackReport, withTitle, compactListRenderer } = require('../_shared/feedbackReport');
-const { feedbackReportSchemaProperties } = require('../_shared/schemaProps');
+const { feedbackReportSchemaProperties, FEEDBACK_FILTER_KEYS } = require('../_shared/schemaProps');
 const { row, renderWithinBudget } = require('../_shared/format');
 
 const schema = {
@@ -58,7 +58,8 @@ Exemplos de uso:
   inputSchema: {
     type: 'object',
     properties: feedbackReportSchemaProperties(
-      'Se true, inclui a lista paginada de chats avaliados no período principal. Útil para ver itens individuais e filtrar por nota client-side. Default: false.'
+      'Se true, inclui a lista paginada de chats avaliados no período principal. Útil para ver itens individuais e filtrar por nota client-side. Default: false.',
+      'chats'
     ),
     required: ['start_date', 'end_date']
   }
@@ -121,6 +122,7 @@ async function execute(args, ctx) {
     entityLabel: 'Chats',
     entitySingular: 'chat',
     apiMethod: (api, filters) => api.getChatsFeedbackReport(filters),
+    filterKeys: FEEDBACK_FILTER_KEYS.chats,
     listParamKey: 'chats_list',
     listDataKey: 'chats_list',
     evaluatedKey: 'chats_evaluated',

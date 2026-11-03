@@ -54,4 +54,19 @@ function requireIntField(args, field, message = null) {
   return parseIntStrict(args[field], field);
 }
 
-module.exports = { ValidationError, isValidationError, requireField, parseIntStrict, requireIntField };
+/**
+ * Normaliza o numero de ticket vindo do chamador: aceita "123", 123 e "#123"
+ * (com espacos nas bordas) e devolve a string so-digitos. Qualquer outra coisa
+ * ("6136?offset=2", "12/reopen") → null: o slice responde erro local sem chamar a
+ * API (o valor vira path param na URL). H29.
+ * @param {string|number} value
+ * @returns {string|null}
+ */
+function normalizeTicketNumber(value) {
+  if (typeof value === 'number') return Number.isInteger(value) && value > 0 ? String(value) : null;
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim().replace(/^#/, '');
+  return /^\d+$/.test(cleaned) ? cleaned : null;
+}
+
+module.exports = { ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber };

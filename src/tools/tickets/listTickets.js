@@ -41,10 +41,14 @@ const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
 const { zeroFillTemporalBuckets } = require('../_shared/temporalBuckets');
 const { slugToNumber, validSlugs } = require('./createdByWayOf');
+const {
+  MAX_FILTER_IDS, capFilterIds, capIdFilters, normalizeRequestorEmails, clampListLimit, resolveStageAcrossDesks
+} = require('./ticketListFilters');
 
-// Contrato de GET /tickets (Swagger): services_catalogs_item_ids e priority_ids aceitam
-// no maximo 15 IDs, sem duplicados (erro 42201 "cannot have more than 15 items").
-const MAX_FILTER_IDS = 15;
+// Rotulos do aviso de corte dos filtros *_ids (H11).
+const ID_FILTER_LABELS = {
+  desk_ids: 'mesa', client_ids: 'cliente', stage_ids: 'estágio', responsible_ids: 'responsável', requestor_ids: 'solicitante'
+};
 // Piso de confianca para aceitar um match de priority_name sem pedir desambiguacao.
 // Ver tabela de scores em _shared/fuzzyMatch.js (70 = algum token comeca com o termo).
 const MIN_PRIORITY_SCORE = 70;
@@ -176,12 +180,6 @@ function ticketRichBlock(ticket, index) {
     `   🔴 **Prioridade:** ${priority}\n` +
     `   🗃️ **Catálogo:** ${catalog}\n` +
     `   📅 **Criado em:** ${createdAt}${closedLine}${descriptionSummary}\n\n`;
-}
-
-// Dedup + cap 15 num CSV de IDs. Retorna { ids: string, capped: boolean, total: number }.
-function capFilterIds(csv) {
-  const ids = [...new Set(String(csv).split(',').map(s => s.trim()).filter(Boolean))];
-  return { ids: ids.slice(0, MAX_FILTER_IDS).join(','), capped: ids.length > MAX_FILTER_IDS, total: ids.length };
 }
 
 /**
@@ -321,10 +319,10 @@ const schema = {
   description: `Lista tickets. Já traz data/hora de ABERTURA (rich: "Criado em", com hora em horário de Brasília) e, quando fechado, de FECHAMENTO ("Fechado em" no rich; sufixo "| fechado ..." no compact) — não é preciso chamar get_ticket por ticket só para essas datas. Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` ou \`get_tickets_comparison\` (dois períodos), sem paginar.
 
 **Regras:**
-- Status sozinho (filter_by/is_closed) NÃO basta: exige MESA ou outro recorte forte (cliente, solicitante, responsável, estágio, período, sla_expiring_before, catálogo, prioridade, group_by). Busca ampla sem recorte → PERGUNTE a mesa antes de chamar.
+- Status sozinho (filter_by/is_closed) NÃO basta: exige MESA ou outro recorte forte (cliente, solicitante, responsável, stage_ids, período, sla_expiring_before, catálogo, prioridade, group_by). Busca ampla sem recorte → PERGUNTE a mesa antes de chamar.
 - Nome de MESA/equipe ("tickets do tuitui", "do Suporte") = desk_name. Nome de PESSOA: "tickets do João"/"abertos pelo João" = solicitante (requestor_email/requestor_ids); "atribuídos ao João"/"com o João" = responsible_name. client_name só se o usuário disser "cliente"/"empresa" ou der nome corporativo. Na dúvida entre mesa e pessoa, pergunte.
 - date_type="solved_in_time" (data de fechamento) exige filter_by "closed" (assumido se omitido), "canceled" ou "all"; com "open" é erro.
-- catalog_query e priority_name exigem mesa; services_catalogs_item_ids e priority_ids, não.
+- stage_name, catalog_query e priority_name exigem mesa; stage_ids, services_catalogs_item_ids e priority_ids, não.
 
 **Receitas:**
 - fechados por mês na mesa X → desk_name + date_type="solved_in_time" + filter_by="closed" + group_by="month"
@@ -336,16 +334,16 @@ const schema = {
   inputSchema: {
     type: 'object',
     properties: {
-      desk_ids: { type: 'string', description: 'IDs das mesas separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
+      desk_ids: { type: 'string', description: 'IDs das mesas separados por vírgula (ex: "1,2,3") - máximo 15 IDs; repetidos são removidos e, acima de 15, só os 15 primeiros são aplicados (com aviso). O mesmo vale para client_ids, stage_ids, responsible_ids e requestor_ids.' },
       desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_ids). Aceita nomes parciais ou multi-palavra (ex: "cansados" resolve para "Dev - Cansados", "dev experimentos" resolve para "DEV - Experimentos"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
       client_ids: { type: 'string', description: 'IDs dos clientes (empresas) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar pela empresa contratante, nao pela pessoa que abriu o ticket.' },
       client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_ids). Use apenas quando o usuário disser "cliente"/"empresa" ou der nome corporativo; para pessoa, requestor_email.' },
       stage_ids: { type: 'string', description: 'IDs dos estágios separados por vírgula (ex: "1,2,3") - máximo 15 IDs' },
-      stage_name: { type: 'string', description: 'Nome do estágio para busca automática. Use junto com desk_name ou desk_ids.' },
+      stage_name: { type: 'string', description: 'Nome do estágio para busca automática. EXIGE mesa (desk_name ou desk_ids): estágio é por mesa — sem mesa é erro. Com várias mesas em desk_ids, o estágio é procurado em cada uma e a busca usa todos os encontrados; mesa sem o estágio entra num aviso. Nome exato (sem caixa/acento) vence nomes parecidos.' },
       responsible_ids: { type: 'string', description: 'IDs dos responsáveis (atendentes atribuidos) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use quando ja tiver o ID do responsavel.' },
       responsible_name: { type: 'string', description: 'Nome do responsavel (atendente atribuido) para busca automatica. Resolve o ID via GET /users (admin) ou via grupos de atendimento (nao-admin). Use quando o usuario disser "atribuido a", "responsavel" ou der um nome de atendente.' },
       requestor_ids: { type: 'string', description: 'IDs dos solicitantes (pessoa fisica que abriu o ticket) separados por vírgula (ex: "1,2,3") - máximo 15 IDs. Use para filtrar por **pessoa** (nao empresa). Resolva o ID via search_requestor.' },
-      requestor_email: { type: 'string', description: 'Email do solicitante (pessoa que abriu o ticket). Use quando o usuario referencia uma **pessoa fisica** ou der um email diretamente. Evita round-trip de resolucao de ID.' },
+      requestor_email: { type: 'string', description: 'Email do solicitante (pessoa que abriu o ticket). Use quando o usuario referencia uma **pessoa fisica** ou der um email diretamente. Evita round-trip de resolucao de ID. Aceita varios separados por virgula; maiusculas/espacos nao importam (o MCP normaliza para minusculas).' },
       services_catalogs_item_ids: { type: 'string', description: 'IDs de itens de catálogo de serviço separados por vírgula (ex: "11,12,13"). Passthrough direto para a API — máximo 15 IDs (limite da API /tickets); acima disso, apenas os 15 primeiros são aplicados com aviso. Use quando ja souber os IDs precisos (via search_catalog_item). Para busca por nome/área/catálogo, use catalog_query.' },
       catalog_query: { type: 'string', description: 'Termo de busca livre para filtrar por catálogo de serviço. Faz match parcial server-side contra nome de catálogo, área e item ao mesmo tempo — ex: "infraestrutura" retorna itens de todas as áreas/catálogos que contenham esse termo. Requer mesa (desk_id ou desk_name). Para IDs precisos, use services_catalogs_item_ids.' },
       priority_ids: { type: 'string', description: 'IDs de prioridade separados por vírgula (ex: "17,18"). Passthrough direto para a API — máximo 15 IDs (limite da API /tickets). Use quando ja souber os IDs (via list_desk_priorities). Para busca por nome, use priority_name.' },
@@ -410,7 +408,7 @@ async function renderEmptyGroupBy({ api, filters, filtersBlock, unitLabel, dtSuf
  * Modo agregado (group_by): API retorna { group_by, date_type, total, buckets } em vez de lista.
  * Extraido do execute (complexidade cognitiva); comportamento identico nos 2 modos.
  */
-async function renderGroupByResponse({ api, response, filters, filterEntries, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v }) {
+async function renderGroupByResponse({ api, response, filters, filterEntries, filterWarnings = [], group_by, date_type, start_datetime, end_datetime, filterByAssumed, v }) {
   const payload = response.data || {};
   const buckets = Array.isArray(payload.buckets) ? payload.buckets : [];
   const agg = response.total ?? payload.total ?? buckets.reduce((s, b) => s + (b.count || 0), 0);
@@ -419,7 +417,8 @@ async function renderGroupByResponse({ api, response, filters, filterEntries, gr
   const colLabel = isDesk ? 'Mesa' : 'Período';
   const dtSuffix = isDesk ? '' : ` (data de ${(payload.date_type || date_type) === 'solved_in_time' ? 'fechamento/resolução' : 'criação'})`;
 
-  const filtersBlock = renderAppliedFilters(filterEntries, v);
+  const warningLines = filterWarnings.map(w => `⚠️ ${w}`).join('\n');
+  const filtersBlock = [renderAppliedFilters(filterEntries, v), warningLines].filter(Boolean).join('\n');
 
   if (buckets.length === 0) {
     return renderEmptyGroupBy({ api, filters, filtersBlock, unitLabel, dtSuffix, filterByAssumed, v });
@@ -499,8 +498,18 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
   // a toa. Exigimos a MESA (desk) ou outro recorte forte (cliente, solicitante,
   // responsavel, estagio, periodo, SLA vencendo, catalogo, prioridade ou agrupamento).
   const hasDesk = desk_ids || desk_name;
+  // H1: estagio e por mesa. stage_name sem mesa nao recorta nada (a API recebia so o
+  // status e devolvia os abertos da org inteira) → erro local, antes de qualquer chamada.
+  if (stage_name && !stage_ids && !hasDesk) {
+    return errorResponse(
+      `**❌ stage_name requer mesa**\n\n` +
+      `Estágio é por mesa: o mesmo nome pode existir em várias mesas com IDs diferentes. ` +
+      `Informe **desk_name** ou **desk_ids** junto com \`stage_name\` (com várias mesas, o estágio é procurado em cada uma).\n\n` +
+      `*Para filtrar sem mesa, use stage_ids com os IDs exatos (via search_stage).*`
+    );
+  }
   const hasOtherScope =
-    client_ids || client_name || stage_ids || stage_name ||
+    client_ids || client_name || stage_ids ||
     responsible_ids || responsible_name || requestor_ids || requestor_email ||
     start_datetime || end_datetime || sla_expiring_before || group_by ||
     services_catalogs_item_ids || catalog_query || priority_ids || priority_name ||
@@ -517,7 +526,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       `• **client_name** / **client_ids** - Cliente/empresa (ex: "ACME")\n` +
       `• **requestor_email** / **requestor_ids** - Solicitante (ex: "joao@empresa.com")\n` +
       `• **responsible_name** / **responsible_ids** - Responsavel atribuido (ex: "Joao")\n` +
-      `• **stage_ids** / **stage_name** - Estagio (stage_name junto com desk_name ou desk_ids)\n` +
+      `• **stage_ids** - Estagio por ID (stage_name exige desk_name ou desk_ids)\n` +
       `• **start_datetime** + **end_datetime** - Periodo (ex: "desta semana", "hoje")\n` +
       `• **sla_expiring_before** - SLA vencendo (para "SLA em risco")\n` +
       `• **catalog_query** - Catalogo de servico (requer mesa)\n` +
@@ -553,10 +562,14 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
   const effectiveFilterBy = filterByAssumed ? 'closed' : filter_by;
 
   try {
-    let finalDeskIds = desk_ids;
-    let finalDeskId = desk_ids ? parseInt(desk_ids.split(',')[0]) : undefined;
-    let finalClientIds = client_ids;
-    let finalStageIds = stage_ids;
+    // H11: dedup + corte em 15 dos *_ids informados (antes da resolucao por nome, para
+    // o stage_name ser resolvido so nas mesas que de fato vao para a API).
+    const capped = capIdFilters({ desk_ids, client_ids, stage_ids, responsible_ids, requestor_ids }, ID_FILTER_LABELS);
+    const filterWarnings = [...capped.warnings];
+    let finalDeskIds = capped.values.desk_ids;
+    let finalDeskId = finalDeskIds ? Number.parseInt(finalDeskIds.split(',')[0], 10) : undefined;
+    let finalClientIds = capped.values.client_ids;
+    let finalStageIds = capped.values.stage_ids;
     let resolvedDeskInfo = null; // { id, name, searchTerm } para eco
 
     // Resolver nome da mesa em ID se fornecido
@@ -572,49 +585,18 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       };
     }
 
-    // Resolver stage_name → stage_id usando finalDeskId.
-    // Movido para fora do bloco desk_name para que tambem funcione quando
-    // desk_ids foi fornecido diretamente (antes era ignorado silenciosamente).
-    if (stage_name && !stage_ids && finalDeskId) {
-      const stageSearchResponse = await api.searchStages(finalDeskId);
-
-      if (stageSearchResponse.error) {
-        return errorResponse(
-          `**❌ Erro ao buscar estágios da mesa**\n\n` +
-          `**Erro:** ${stageSearchResponse.error}\n\n` +
-          `*Verifique se a mesa existe e tem estágios configurados.*`
-        );
-      }
-
-      const stages = stageSearchResponse.data || [];
-      const matchingStages = stages.filter(stage =>
-        stage.name.toLowerCase().includes(stage_name.toLowerCase())
-      );
-
-      if (matchingStages.length === 0) {
-        const stagesList = stages.map(stage => `• ${stage.name}`).join('\n');
-        const deskLabel = desk_name || finalDeskIds;
-        return errorResponse(
-          `**❌ Estágio "${stage_name}" não encontrado na mesa "${deskLabel}"**\n\n` +
-          `**Estágios disponíveis:**\n${stagesList}\n\n` +
-          `*Use stage_ids diretamente ou ajuste o stage_name.*`
-        );
-      }
-
-      if (matchingStages.length > 1) {
-        let stagesList = '**Estágios encontrados:**\n';
-        matchingStages.forEach((stage, index) => {
-          stagesList += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name}\n`;
-        });
-        const deskLabel = desk_name || finalDeskIds;
-        return errorResponse(
-          `**⚠️ Múltiplos estágios encontrados para "${stage_name}" na mesa "${deskLabel}"**\n\n` +
-          `${stagesList}\n` +
-          `*Use stage_ids específico ou seja mais específico no stage_name.*`
-        );
-      }
-
-      finalStageIds = matchingStages[0].id.toString();
+    // H2/H48a: stage_name resolvido em CADA mesa (uniao dos stage_ids), exato unico
+    // antes da substring. Sem mesa ja saiu como erro (H1).
+    if (stage_name && !stage_ids && finalDeskIds) {
+      const deskLabelOf = (id) => (resolvedDeskInfo ? resolvedDeskInfo.name : String(id));
+      const stageResolved = await resolveStageAcrossDesks(api, finalDeskIds.split(','), stage_name, deskLabelOf);
+      if (stageResolved.error) return stageResolved.error;
+      finalStageIds = stageResolved.stageIds;
+      filterWarnings.push(...stageResolved.warnings);
+      // A uniao pode passar de 15 com muitas mesas: mesmo contrato da API.
+      const stageCap = capIdFilters({ stage_ids: finalStageIds }, ID_FILTER_LABELS);
+      finalStageIds = stageCap.values.stage_ids;
+      filterWarnings.push(...stageCap.warnings);
     }
 
     // Resolver nome do cliente em ID se fornecido
@@ -626,7 +608,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
 
     // Resolver responsible_name -> responsible_id se fornecido.
     // Repassa deskId quando disponivel para desambiguacao server-side.
-    let finalResponsibleIds = responsible_ids;
+    let finalResponsibleIds = capped.values.responsible_ids;
     if (responsible_name && !responsible_ids) {
       const resolved = await resolveResponsibleName(api, responsible_name, {
         deskId: finalDeskId
@@ -764,12 +746,15 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
     if (finalClientIds) filters.client_ids = finalClientIds;
     if (finalStageIds) filters.stage_ids = finalStageIds;
     if (finalResponsibleIds) filters.responsible_ids = finalResponsibleIds;
-    if (requestor_ids) filters.requestor_ids = requestor_ids;
-    if (requestor_email) filters.requestor_email = requestor_email;
+    const finalRequestorIds = capped.values.requestor_ids;
+    const finalRequestorEmail = normalizeRequestorEmails(requestor_email);
+    const finalLimit = clampListLimit(limit);
+    if (finalRequestorIds) filters.requestor_ids = finalRequestorIds;
+    if (finalRequestorEmail) filters.requestor_email = finalRequestorEmail;
     if (finalCatalogItemIds) filters.services_catalogs_item_ids = finalCatalogItemIds;
     if (finalPriorityIds) filters.priority_ids = finalPriorityIds;
     if (offset) filters.offset = parseInt(offset);
-    if (limit) filters.limit = parseInt(limit);
+    if (finalLimit) filters.limit = finalLimit;
     if (is_closed !== undefined) filters.is_closed = is_closed;
     // effectiveFilterBy pode ser 'closed' (assumido) ou o filter_by original
     if (effectiveFilterBy) filters.filter_by = effectiveFilterBy;
@@ -798,7 +783,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       finalClientIds, client_name,
       finalStageIds, stage_name,
       finalResponsibleIds, responsible_name,
-      requestor_ids, requestor_email,
+      requestor_ids: finalRequestorIds, requestor_email: finalRequestorEmail,
       finalCatalogItemIds, catalog_query,
       finalPriorityIds, priority_name,
       effectiveFilterBy, filterByAssumed, is_closed, filter_by,
@@ -808,7 +793,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
 
     // Modo agregado: API retorna { group_by, date_type, total, buckets } em vez de lista.
     if (group_by) {
-      return await renderGroupByResponse({ api, response, filters, filterEntries, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v });
+      return await renderGroupByResponse({ api, response, filters, filterEntries, filterWarnings, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v });
     }
 
     const tickets = response.data || [];
@@ -825,6 +810,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       if (filtersBlock) out += `${filtersBlock}\n`;
       if (catalogWarning) out += `**⚠️ Aviso:** ${catalogWarning}\n\n`;
       if (priorityWarning) out += `**⚠️ Aviso:** ${priorityWarning}\n\n`;
+      filterWarnings.forEach(w => { out += `**⚠️ Aviso:** ${w}\n\n`; });
       out += `*Tente ajustar os filtros para encontrar tickets.*`;
       if (diagText) out += `\n\n${diagText}`;
       return textResponse(out);
@@ -837,7 +823,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
     const { verbosity: listV, notice: autoCompactNotice } = listVerbosity({ verbosity, verbosityExplicit }, tickets.length);
     return renderTicketList({
       tickets, total, currentOffset, currentLimit, filterEntries,
-      filterByAssumed, catalogWarning, priorityWarning, group_by, autoCompactNotice, v: listV
+      filterByAssumed, catalogWarning, priorityWarning, filterWarnings, group_by, autoCompactNotice, v: listV
     });
   } catch (error) {
     return errorResponse(
@@ -849,7 +835,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
 }
 
 // Caminho com resultados (fora do execute: complexidade cognitiva).
-function renderTicketList({ tickets, total, currentOffset, currentLimit, filterEntries, filterByAssumed, catalogWarning, priorityWarning, group_by, autoCompactNotice, v }) {
+function renderTicketList({ tickets, total, currentOffset, currentLimit, filterEntries, filterByAssumed, catalogWarning, priorityWarning, filterWarnings = [], group_by, autoCompactNotice, v }) {
   const { header, truncatedHeader, parts, compactHint } = ticketListParts(tickets, total, v);
 
   // Bloco de filtros para o caminho com resultados: 1 linha (rich) ou compacto
@@ -864,7 +850,8 @@ function renderTicketList({ tickets, total, currentOffset, currentLimit, filterE
   // Propagar warning de expansao de catalogo na saida
   const warningBlock =
     (catalogWarning ? `\n**⚠️ Aviso de catálogo:** ${catalogWarning}\n` : '') +
-    (priorityWarning ? `\n**⚠️ Aviso de prioridade:** ${priorityWarning}\n` : '');
+    (priorityWarning ? `\n**⚠️ Aviso de prioridade:** ${priorityWarning}\n` : '') +
+    filterWarnings.map(w => `\n**⚠️ Aviso de filtro:** ${w}\n`).join('');
   const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: tickets.length, total, unit: 'tickets' }, v);
   const footerStr = footer(v);
   const sep = footerStr ? '\n' : '';

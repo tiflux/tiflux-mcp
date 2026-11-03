@@ -18,6 +18,10 @@
  *  - `comments`: plural, string vazia "" quando não há comentário
  *  - `desk_id` + `desk_name`: presentes (não constam na Swagger)
  *  - `origin`: não existe em tickets (existe apenas em chats)
+ *  - `id` é o id da AVALIAÇÃO; o número do ticket vem em `ticket_number` (com
+ *    `ticket_title`). A coluna `#` usa `ticket_number` (H3).
+ *  - Filtros aceitos: client_ids, responsible_ids, desk_ids. department_ids dá 400
+ *    e mesa sem acesso dá 403 (40302) — H4.
  *
  * Nome deliberado: o orquestrador do Assistente IA filtra tools por prefixo
  * de leitura (list_, get_, search_) — get_ passa; report_ seria filtrado fora.
@@ -29,7 +33,7 @@
  */
 
 const { runFeedbackReport, withTitle, compactListRenderer } = require('../_shared/feedbackReport');
-const { feedbackReportSchemaProperties } = require('../_shared/schemaProps');
+const { feedbackReportSchemaProperties, FEEDBACK_FILTER_KEYS } = require('../_shared/schemaProps');
 const { row, truncate, renderWithinBudget } = require('../_shared/format');
 
 const schema = {
@@ -53,9 +57,13 @@ const schema = {
 
 **Campo comments:** só existe no relatório de tickets (não em chats). String vazia "" quando o cliente não deixou comentário.
 
+**Filtros:** desk_ids (mesas), client_ids (clientes) e responsible_ids (até 15 cada). Departamento e grupo técnico não existem neste relatório (são de chats): department_ids/technical_group_ids enviados dão erro local, sem chamar a API. Mesa sem acesso para a sua chave → erro 403 da API citando a mesa.
+
+**Coluna #:** é o NÚMERO do ticket (ticket_number), o mesmo usado em get_ticket — não o id interno da avaliação.
+
 **Fluxo de enriquecimento de um ticket avaliado:**
 1. Rode com include_list=true para obter a lista de tickets avaliados do período (com rating, revised_in_time, cliente, responsável, mesa, comentário da avaliação).
-2. Para detalhes completos de um ticket (histórico, respostas, SLA) → use get_ticket com o ticket_number ou list_ticket_answers.
+2. Para detalhes completos de um ticket (histórico, respostas, SLA) → use get_ticket com o número da coluna # ou list_ticket_answers.
 3. Comentário da avaliação (comments) já está disponível na lista — não é necessário enriquecer para obtê-lo.
 
 Exemplos de uso:
@@ -65,7 +73,8 @@ Exemplos de uso:
   inputSchema: {
     type: 'object',
     properties: feedbackReportSchemaProperties(
-      'Se true, inclui a lista paginada de tickets avaliados no período principal (com comments, rating, mesa, responsável). Útil para ver itens individuais e filtrar por nota client-side. Default: false.'
+      'Se true, inclui a lista paginada de tickets avaliados no período principal (com comments, rating, mesa, responsável). Útil para ver itens individuais e filtrar por nota client-side. Default: false.',
+      'tickets'
     ),
     required: ['start_date', 'end_date']
   }
@@ -87,8 +96,9 @@ function richRow(ticket) {
   const rating = ticket.rating ?? '—';
   // comments é plural e pode ser string vazia "" — contrato real verificado
   const comments = ticket.comments?.trim() ? ticket.comments.trim().substring(0, 80) : '—';
-  const ticketNum = ticket.id ? `#${ticket.id}` : '—';
-  return `| ${ticketNum} | ${client} | ${responsible} | ${desk} | ${rating} | ${revisedTime} | ${comments} |\n`;
+  const ticketNum = ticket.ticket_number ? `#${ticket.ticket_number}` : '—';
+  const title = ticket.ticket_title ? truncate(String(ticket.ticket_title).trim(), 60) : '—';
+  return `| ${ticketNum} | ${title} | ${client} | ${responsible} | ${desk} | ${rating} | ${revisedTime} | ${comments} |\n`;
 }
 
 /**
@@ -97,8 +107,8 @@ function richRow(ticket) {
  * substitui o "Há mais itens — offset N+1" (que pularia os itens não mostrados).
  */
 function renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal, maxChars, title = '', truncatedTitle }) {
-  const tableHead = `| # | Cliente | Responsável | Mesa | Nota | Data avaliação | Comentário |\n` +
-    `|---|---------|-------------|------|------|----------------|------------|\n`;
+  const tableHead = `| # | Título | Cliente | Responsável | Mesa | Nota | Data avaliação | Comentário |\n` +
+    `|---|--------|---------|-------------|------|------|----------------|------------|\n`;
   const middle = `\n*Para detalhes completos: use \`get_ticket\` com o número do ticket ou \`list_ticket_answers\` para ver as respostas.*\n` +
     `*Para filtrar por nota: filtre a coluna "Nota" da lista acima client-side (não há filtro por nota na API).*\n`;
 
@@ -115,7 +125,7 @@ function renderList(list, { effectiveLimit, effectiveOffset, evaluatedTotal, max
 
 function compactRow(ticket) {
   return `${row([
-    ticket.id,
+    ticket.ticket_number,
     ticket.client_name,
     ticket.responsible_name,
     ticket.desk_name,
@@ -127,13 +137,20 @@ function compactRow(ticket) {
   ])}\n`;
 }
 
-const renderListCompact = compactListRenderer('id|cliente|responsavel|mesa|nota|data|comentario\n', compactRow);
+const renderListCompact = compactListRenderer('ticket|cliente|responsavel|mesa|nota|data|comentario\n', compactRow);
 
 async function execute(args, ctx) {
   return runFeedbackReport(args, ctx, {
     entityLabel: 'Tickets',
     entitySingular: 'ticket',
     apiMethod: (api, filters) => api.getTicketsFeedbackReport(filters),
+    filterKeys: FEEDBACK_FILTER_KEYS.tickets,
+    // Cliente com schema antigo em cache ainda pode mandar estes filtros: recusa
+    // local em vez de ignorar e devolver a org inteira (H4).
+    unsupportedFilters: {
+      keys: ['department_ids', 'technical_group_ids'],
+      hint: 'Departamento e grupo técnico não existem no relatório de avaliações de tickets (são filtros de get_chats_feedback_report). Para recortar tickets, use desk_ids (mesas), client_ids (clientes) ou responsible_ids.'
+    },
     listParamKey: 'tickets_list',
     listDataKey: 'tickets_list',
     evaluatedKey: 'tickets_evaluated',

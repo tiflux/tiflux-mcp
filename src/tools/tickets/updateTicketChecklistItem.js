@@ -37,7 +37,7 @@ const schema = {
       },
       checklist_id: {
         type: 'number',
-        description: 'ID do checklist, conforme o campo `id` retornado por `get_ticket_checklists`'
+        description: 'ID do checklist: o ID entre parênteses no cabeçalho de `get_ticket_checklists` (ex.: "### 1. Checklist 1 (ID: 4539)" → 4539), não o número da ordem'
       },
       index: {
         type: 'number',

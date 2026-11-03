@@ -372,6 +372,8 @@ Update an existing ticket in Tiflux. **Changing the ticket's client is not possi
 ### update_ticket_entities
 Update custom fields (entities) of a ticket in Tiflux. Supports up to 50 fields per request. For checkbox fields with multiple named options, send one item per option with `entity_field_option_id`. Use `list_entity_field_options` to discover option IDs.
 
+**Partial update:** when the API rejects part of the fields (e.g. an invalid email), it saves the valid ones and answers `207` (`error_code` 20701) with one error per rejected item. The response is then **"⚠️ Atualização parcial"**, listing which fields were saved and which were rejected — each with the API message, mapped from the array index back to the `entity_field_id` you sent. If none was saved, the response is an error (`isError`). Previously a 207 was reported as full success.
+
 > **Tip:** Prefer `entity_field_id` (numeric) when available — it avoids extra API calls. Use the `_name` params only when you don't have the ID yet.
 
 **Parameters:**
@@ -452,22 +454,22 @@ Cancel a specific ticket in Tiflux.
 List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response). The listing already includes both the **opening** date/time (`Criado em`, with time in `rich`) and, when the ticket is closed or cancelled, the **closing** date/time (`Fechado em` in `rich`; `| fechado ...` suffix in `compact`) — there's no need to call `get_ticket` per ticket just to get these dates.
 
 **Parameters:**
-- `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3")
+- `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3") — **max 15**. Duplicates are removed and, above 15, only the first 15 are applied with a warning in the response. The same applies to `client_ids`, `stage_ids`, `responsible_ids` and `requestor_ids`.
 - `desk_name` (string, optional): Desk/team name for automatic ID resolution. Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this field when the user references a name without qualifying the entity.**
 - `client_ids` (string, optional): Comma-separated client (company) IDs (e.g., "1,2,3")
 - `client_name` (string, optional): Client (company) name for automatic search. Use **only** when the user explicitly says "client", "company", or gives a known corporate name. For a person, prefer `requestor_email`.
 - `stage_ids` (string, optional): Comma-separated stage IDs (e.g., "1,2,3")
-- `stage_name` (string, optional): Stage name — use with `desk_name` or `desk_ids` (either works)
+- `stage_name` (string, optional): Stage name. **Requires a desk** (`desk_name` or `desk_ids`): stages belong to a desk, so `stage_name` without a desk returns a local error (it used to return every open ticket of the organization, ignoring the stage). With several desks in `desk_ids`, the stage is resolved in **each** desk and the API receives the union of the stage IDs; a desk without that stage is listed in a warning, and if no desk has it the error lists the available stages per desk. An exact name match (case/accent-insensitive) wins over partial matches (`"pendente"` → `"Pendente"`, even with `"Pendente cliente"` in the desk). Stages are fetched with `limit=200`. For stage filtering without a desk, use `stage_ids`.
 - `responsible_ids` (string, optional): Comma-separated responsible (assigned attendant) user IDs (use when you already have the ID)
 - `responsible_name` (string, optional): Responsible user name for automatic resolution. Works for both admin (via `GET /users`) and non-admin users (via attendant groups fallback). Use when the user says "assigned to" / "responsible" and gives a name.
 - `requestor_ids` (string, optional): Comma-separated requestor (person who opened the ticket) IDs (e.g., "1,2,3"). Use for filtering by **person** (not company). Resolve the ID via `search_requestor`.
-- `requestor_email` (string, optional): Email of the requestor (person who opened the ticket). Use when the user references a **person** or provides an email directly. Avoids a round-trip to resolve the ID.
+- `requestor_email` (string, optional): Email of the requestor (person who opened the ticket). Use when the user references a **person** or provides an email directly. Avoids a round-trip to resolve the ID. Accepts several comma-separated emails; case and surrounding spaces don't matter — the MCP sends them in lowercase (TiFlux stores requestor emails in lowercase and the API compares them exactly).
 - `services_catalogs_item_ids` (string, optional): Comma-separated service catalog item IDs (e.g., "11,12,13"). Passthrough directly to the API — **max 15 IDs** (the `GET /tickets` limit; beyond that only the first 15 are applied, with a warning). Duplicates are removed. Use when you already know the IDs (via `search_catalog_item`). For name/area/catalog text search, use `catalog_query`.
 - `catalog_query` (string, optional): Free-text search term to filter by service catalog. Matches partially against catalog name, area name, and item name server-side — a single term like `"security"` returns items from all areas/catalogs whose name contains that term. **Requires a desk** (`desk_id` or `desk_name`). For precise IDs, use `services_catalogs_item_ids`.
 - `priority_ids` (string, optional): Comma-separated priority IDs (e.g., "17,18"). Passthrough directly to the API — **max 15 IDs** (the `GET /tickets` limit; duplicates removed). Use when you already know the IDs (via `list_desk_priorities`). For name-based search, use `priority_name`.
 - `priority_name` (string, optional): Priority name for automatic fuzzy resolution (e.g., "high", "baixa"). **Requires a desk** (`desk_id` or `desk_name`). For direct IDs, use `priority_ids`.
 - `offset` (number, optional): Page number (default: 1)
-- `limit` (number, optional): Items per page (default: 20, max: 200)
+- `limit` (number, optional): Items per page (default: 20, max: 200). Values above 200 are clamped to 200 (and below 1 to 1) before calling the API, so pagination hints match the page actually returned.
 - `is_closed` (boolean, optional): Legacy status flag. Prefer `filter_by` for more granular control. `is_closed: true` = only closed; `is_closed: false` = only open.
 - `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Under `date_type="solved_in_time"`, "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
 - `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (**closing date** — also recorded on cancellation; cleared again on reopen). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
@@ -477,7 +479,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
 - `created_by_way_of` (string, optional): Filter tickets by creation origin. Accepted values: `"web"` (Tiflux Web), `"agent"` (Agente), `"chat_widget"` (Chat Widget), `"whatsapp"` (WhatsApp), `"email"` (E-mail), `"external_form"` (Formulario Externo), `"mobile"` (Mobile), `"api"` (API), `"chat"` (Chat), `"recurrent_activity"` (Atividade Recorrente), `"trigger"` (Gatilho), `"ticket_group"` (Grupo de Tickets), `"ai_agent"` (Agente de IA). Invalid values are rejected locally without calling the API.
 
-**Note:** At least one filter is required (desk, client, requestor, responsible, stage, date range, SLA, catalog, priority, or `created_by_way_of`).
+**Note:** At least one filter is required (desk, client, requestor, responsible, `stage_ids`, date range, SLA, catalog, priority, or `created_by_way_of`). `stage_name` alone is not a scope — it requires a desk.
 
 **Guard-rails for `date_type="solved_in_time"`:**
 - If `filter_by` is **not** provided, the MCP assumes `filter_by="closed"` and announces it in the response (e.g., "Status: Fechados — assumido; use 'all' para incluir cancelados"). Use `filter_by="all"` to include cancelled tickets too.
@@ -588,7 +590,7 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 - `client_ids` (string, optional): Comma-separated client (company) IDs (max 15).
 - `client_name` (string, optional): Client (company) name for automatic resolution.
 - `responsible_ids` (string, optional): Comma-separated responsible user IDs (max 15). Passthrough.
-- `requestor_email` (string, optional): Requestor email filter. Passthrough.
+- `requestor_email` (string, optional): Requestor email filter (comma-separated for several). Case and surrounding spaces don't matter — the MCP sends the emails in lowercase.
 - `priority_ids` (string, optional): Comma-separated priority IDs (max 15). Passthrough.
 - `services_catalogs_item_ids` (string, optional): Comma-separated catalog item IDs (max 15). Passthrough.
 
@@ -664,9 +666,11 @@ Relatório de avaliações de atendimento (CSAT) de tickets com comparação aut
 **No filter by rating in the API** — to filter by rating, use `include_list=true` and filter the returned list by `rating` client-side.
 
 **Enrichment workflow:**
-1. Run with `include_list=true` to get the list of evaluated tickets (with `rating`, `revised_in_time`, client, responsible, desk, and `comments`).
-2. For full ticket details (history, SLA, replies) → use `get_ticket` or `list_ticket_answers` with the ticket ID.
+1. Run with `include_list=true` to get the list of evaluated tickets (with ticket number and title, `rating`, `revised_in_time`, client, responsible, desk, and `comments`).
+2. For full ticket details (history, SLA, replies) → use `get_ticket` or `list_ticket_answers` with the number from the `#` column.
 3. The `comments` field (evaluation comment) is already in the list — no further enrichment needed for comments.
+
+**`#` column = ticket number:** the list shows `ticket_number` (the number used by `get_ticket`) plus the ticket title (truncated at 60 chars in `rich`); the `compact` line starts with the ticket number (`ticket|cliente|...`). The evaluation's own `id` is not shown (it used to be displayed as if it were the ticket number).
 
 **Note:** The `comments` field is plural and may be an empty string `""` when the client did not leave a comment.
 
@@ -681,14 +685,26 @@ Relatório de avaliações de atendimento (CSAT) de tickets com comparação aut
 - `offset` (integer, optional): Page number for the list (default: 1). Only relevant with `include_list=true`.
 - `limit` (integer, optional): Items per page (default: 20, max: 200). Only relevant with `include_list=true`.
 - `responsible_ids` (string, optional): Comma-separated responsible user IDs (max 15). Applied to both calls (main + comparison).
-- `department_ids` (string, optional): Comma-separated department IDs (max 15). Applied to both calls.
-- `technical_group_ids` (string, optional): Comma-separated technical group IDs (max 15). Applied to both calls.
+- `desk_ids` (string, optional): Comma-separated desk IDs (max 15; duplicates removed). Applied to both calls. A desk your API key can't access returns a 403 from the API naming the desk — the response says so instead of the generic "admin permission" hint.
+- `client_ids` (string, optional): Comma-separated client IDs (max 15; duplicates removed). Applied to both calls.
+
+> Department and technical group filters don't exist in the **tickets** report (the API rejects `department_ids` with 400) — they belong to `get_chats_feedback_report`. If `department_ids` or `technical_group_ids` is sent anyway (e.g. a client with an old cached schema), the MCP returns a local error without calling the API — instead of silently returning the whole organization's report.
 
 **Example — compare this month vs last month:**
 ```json
 {
   "start_date": "2026-07-01",
   "end_date": "2026-07-31"
+}
+```
+
+**Example — evaluations of one desk:**
+```json
+{
+  "start_date": "2026-07-01",
+  "end_date": "2026-07-31",
+  "desk_ids": "42013",
+  "include_list": true
 }
 ```
 
@@ -1497,17 +1513,21 @@ List internal communications for a ticket.
 **Fixed in v2.50.1:** Each communication's date/time now shows in Brasília time (previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC).
 
 ### get_ticket_files
-Get all files attached to a specific ticket.
+Get the files attached to a specific ticket: name, content type, size and download URL. Paginated (default **200 per page**) and with the ticket's total file count (`N de TOTAL` in the header, from `X-Total-Items`).
 
 **Parameters:**
-- `ticket_number` (string, required): Ticket number to retrieve files from
+- `ticket_number` (string, required): Ticket number to retrieve files from (`"123"` or `"#123"`; anything else — e.g. `"123?offset=2"` — is rejected locally without calling the API)
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Files per page (default: 200, max: 200). Signed URLs are long: very long responses are cut at a file boundary with the exact `offset`/`limit` to continue.
 
 **Returns:**
-List of files with details including:
-- File ID, name, content type
+List of files with:
+- File ID, name (`file_name`), content type
 - File size (formatted as KB/MB/GB)
 - URL for download
-- Created date and creator information
+- Pagination block (next page when there are more files)
+
+The API does not return the upload date nor who uploaded the file, so those are not shown.
 
 **Example:**
 ```json
@@ -1638,6 +1658,7 @@ List the checklists (forms) of a ticket, with all fields and their fill state. U
 
 **Returns:**
 Per checklist:
+- Header `### N. <name> (ID: <id>)` — the ID in parentheses is the `checklist_id` expected by `update_ticket_checklist_item` (not the order number `N`). Checklists without an id (not originated from a template) show `(sem ID — não editável pela API)`.
 - Name, description, `required` (informational — whether the checklist is required for the client/catalog item), `pending` (whether a required field is missing — this blocks closure), creation and update dates (**fixed in v2.50.1:** now shown in Brasília time — previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC).
 
 Per field (`fields[]`):
@@ -1712,7 +1733,7 @@ Fill or clear a single checklist field for a ticket. One field per call (1:1 wit
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number (e.g., "98875")
-- `checklist_id` (number, required): Checklist id as returned by `get_ticket_checklists`
+- `checklist_id` (number, required): Checklist ID — the ID in parentheses in the `get_ticket_checklists` header (e.g. `### 1. Checklist 1 (ID: 4539)` → `4539`), not the order number
 - `index` (number, required): Field position within the checklist (from `get_ticket_checklists`)
 - `value` (string | number | null, optional): Value to fill. Use for `text`, `textarea`, `value` fields (any string/number) and `radio` (the option id). Send `null` to clear any field type. Mutually exclusive with `options`.
 - `options` (array, optional): For `checkbox` fields only. Array of `{ id, checked }` — send only the options you want to change; others remain unchanged. Use the ids from `get_ticket_checklists`. Mutually exclusive with `value`.
@@ -4301,7 +4322,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
 - `PUT /tickets/{id}` - Update existing tickets (supports `requestor_id` to change the ticket's requestor; `followers` replaces the full list; `stopped`/`stop_answer` pause or resume the SLA; `ticket_reference_number` sets the parent ticket; `client_id` is never sent — the API rejects it)
-- `PUT /tickets/{id}/entities` - Update ticket custom fields
+- `PUT /tickets/{id}/entities` - Update ticket custom fields (`200`, or `207` with `error_code` 20701 and one error per rejected item — shown as a partial update)
 - `PUT /tickets/{ticket_number}/cancel` - Cancel specific ticket
 - `PUT /tickets/{ticket_number}/close` - Close specific ticket
 - `PUT /tickets/{ticket_number}/reopen` - Reopen closed or canceled ticket (supports optional `disapproval_reason`)
@@ -4312,7 +4333,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /tickets/{ticket_number}/client-answers` - Create an answer on behalf of the client (`create_client_answer`). Multipart: `name`, `author_name`, `files[]` (up to 10, 25MB each). Administrators only.
 - `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
-- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; response includes `services_catalog` and `priority` per ticket). Also supports `group_by` (values: day/week/month/desk) for aggregated counts — returns `{ group_by, date_type, total, buckets: [{period, count}] }` instead of a ticket list. **Note:** `group_by` and the aggregated response shape are not documented in the public Swagger as of 2026-06-30; the feature was added in api_rails ticket #96694 and is live in production. Used internally by `get_tickets_comparison` (2 calls per invocation) and `list_tickets` (with `group_by` param). A documentation request has been registered with the API team.
+- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; every `*_ids` filter accepts at most 15 IDs without duplicates — the MCP dedups and cuts with a warning; `requestor_email` is compared exactly, so the MCP sends it in lowercase; response includes `services_catalog` and `priority` per ticket). Also supports `group_by` (values: day/week/month/desk) for aggregated counts — returns `{ group_by, date_type, total, buckets: [{period, count}] }` instead of a ticket list. **Note:** `group_by` and the aggregated response shape are not documented in the public Swagger as of 2026-06-30; the feature was added in api_rails ticket #96694 and is live in production. Used internally by `get_tickets_comparison` (2 calls per invocation) and `list_tickets` (with `group_by` param). A documentation request has been registered with the API team.
 - `GET /clients` - Search/list clients (`search_client`, `list_clients`, and `client_name` auto-resolve in `list_tickets` and `create_ticket`)
 - `GET /clients/{id}` - Get client details (`get_client`)
 - `POST /clients` - Create a new client (`create_client`)
@@ -4361,14 +4382,14 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /desks` - Create a service desk (`create_desk`). Required: `name`, `display_name`, `description`. 201 has the same shape as `GET /desks/{id}`. Requires "Gerenciar mesas de serviços" + Tickets License. No `DELETE /desks` exists in API v2.
 - `GET /desks/{id}/priorities` - Get desk priorities (`list_desk_priorities`, `update_ticket` priority_name resolution, `list_tickets` priority_name resolution)
 - `GET /desks/{id}/services-catalogs` - Get desk service catalogs (`list_desk_services_catalogs`)
-- `GET /desks/{id}/stages` - Get desk stages
+- `GET /desks/{id}/stages` - Get desk stages (`list_tickets`/`update_ticket` request `limit=200` when resolving `stage_name`)
 - `GET /desks/{id}/services-catalogs-items` - Get service catalog items (supports `?name` for server-side search by catalog/area/item name; used by `search_catalog_item` and `list_tickets` `catalog_query` resolver)
 - `POST /tickets/{ticket_number}/internal_communications` - Create internal communication
 - `GET /tickets/{ticket_number}/internal_communications` - List internal communications
 - `GET /tickets/{ticket_number}/internal_communications/{id}` - Get specific internal communication
 - `PUT /tickets/{ticket_number}/internal_communications/{id}` - Update internal communication text (`update_internal_communication`)
 - `DELETE /tickets/{ticket_number}/internal_communications/{id}` - Remove an internal communication (`delete_internal_communication`)
-- `GET /tickets/{ticket_number}/files` - Get ticket attached files
+- `GET /tickets/{ticket_number}/files` - Get ticket attached files (`file_name`, `content_type`, `size`, `url`; paginated via `offset`/`limit`, API default 20 — the MCP asks for 200; header `X-Total-Items`)
 - `POST /tickets/{ticket_number}/files` - Upload files to an existing ticket (`upload_ticket_files`)
 - `DELETE /tickets/{ticket_number}/files/{id}` - Remove a file attached to a ticket (`delete_ticket_file`)
 - `GET /tickets/{ticket_number}/stages-slas` - Get ticket stages history with SLA outcomes
@@ -4419,7 +4440,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /contracts/readjustments` - Readjustment board: contracts and groups whose current rider ends by the end of the month of `date` (required, `YYYY-MM-DD`), with the rider's values (`list_contract_readjustments`, new 2026-10-22). Filters `client_ids` (CSV) and `contract_type_id`; `offset`/`limit` ≤ 200; `X-Total-Items`. Requires **"Faturar serviços avulsos e contratos"** (role billing, organization-wide) + Tickets License.
 - `GET /contracts/{id}/usage` - Consumption and balance per billing cycle of an individual contract (`get_contract_usage`, new 2026-10-06). Up to 3 cycles, most recent first, up to an optional `base_date`. No group-level equivalent in the API v2. Requires "Visualizar contratos" (atendente) or "Visualizar contrato" (usuário-cliente) permission + Tickets License.
 - `GET /reports/feedbacks/chats` - Chats satisfaction/feedback report (`get_chats_feedback_report`). Returns `summary` (rating_average, chats_evaluated, chats_finished, clients_evaluated, answers_percentage); optional `chats_list` with `chats_list=true`. Requires administrator/reports permission (403 for non-admin).
-- `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`. Requires administrator/reports permission (403 for non-admin).
+- `GET /reports/feedbacks/tickets` - Tickets satisfaction/feedback report (`get_tickets_feedback_report`). Same structure as chats; list items use `tickets_list=true`, `rating` (integer), `revised_in_time` (timestamp), `comments` (plural, may be `""`), `desk_id`/`desk_name`, `ticket_number`/`ticket_title` (the item `id` is the evaluation id, not the ticket number). Filters: `client_ids`, `responsible_ids`, `desk_ids` (`department_ids` → 400; desk without access → 403 `40302`). Requires administrator/reports permission (403 for non-admin).
 - `GET /reports/billings/history` - Billing history report (`get_billings_history`). Returns paginated array of billing records with `billing_id`, `billing_date`, `client_id`, `client_name`, `due_date`, `nfe_number`, `paid`, `real_value`, `reversal`. Filters: `billing_start_date`/`billing_end_date` (pair), `due_start_date`/`due_end_date` (pair), `client_id`, `nfe_number`, `ticket_number`, `_type` (billed|reversed|paid). Header `X-Total-Items` for total count. Requires "Faturar serviços avulsos e contratos" permission + Tickets license (403 code `40301` without permission, `40304` without license).
 - `GET /equipments` - List equipment/resources with optional filters (`list_equipments`). Supports `client_id`, `include_manufacturer`, `include_system`, `include_technical_info` (hardware inventory: processor, memory, disks, antivirus, windows_update, etc. — summarized to one line per resource) flags, pagination. Requires "Visualizar recursos" + Tickets License.
 - `GET /equipments/{id}` - Get full details of a single equipment/resource (`get_equipment`). Returns hardware inventory, OS, manufacturer, network, custom fields (optional). Requires "Visualizar recursos" + Tickets License.

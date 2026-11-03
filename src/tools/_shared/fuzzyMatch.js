@@ -6,6 +6,7 @@
  *   tokenize(text)                 — split por delimitadores, remove tokens vazios
  *   calculateMatchScore(searchTerm, candidateName) — retorna 0-100
  *   fuzzyMatchItems(searchTerm, items, nameExtractor) — retorna { matches, bestMatch }
+ *   matchByName(items, term, nameOf) — exato unico (normalizado) vence a substring
  *
  * Zero dependencias externas. Pode ser reutilizado para qualquer entidade.
  */
@@ -132,4 +133,22 @@ function fuzzyMatchItems(searchTerm, items, nameExtractor) {
   };
 }
 
-module.exports = { normalizeText, tokenize, calculateMatchScore, fuzzyMatchItems };
+/**
+ * Filtra `items` por nome: o match EXATO unico (normalizado: caixa e acento) vence a
+ * substring ("pendente" resolve "Pendente" mesmo existindo "Pendente cliente"). Sem
+ * exato unico, devolve todos cujo nome normalizado contem o termo (0, 1 ou varios —
+ * o chamador decide entre "nao encontrado", resolvido e desambiguacao).
+ * Consumidores: update_ticket (estagio/catalogo) e list_tickets (estagio). H48a.
+ * @param {Array} items
+ * @param {string} term
+ * @param {(item: any) => string} nameOf
+ * @returns {Array}
+ */
+function matchByName(items, term, nameOf) {
+  const needle = normalizeText(term);
+  const exact = items.filter(i => normalizeText(nameOf(i)) === needle);
+  if (exact.length === 1) return exact;
+  return items.filter(i => normalizeText(nameOf(i)).includes(needle));
+}
+
+module.exports = { normalizeText, tokenize, calculateMatchScore, fuzzyMatchItems, matchByName };

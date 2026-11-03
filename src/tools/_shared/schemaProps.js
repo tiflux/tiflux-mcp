@@ -85,16 +85,50 @@ function paginationSchemaProperties() {
   };
 }
 
+// Filtros por entidade dos relatórios de avaliação. A API de tickets aceita
+// client_ids/responsible_ids/desk_ids e rejeita department_ids com 400; a de chats
+// aceita department_ids/technical_group_ids (H4 da spec tickets-correcoes-auditoria).
+const FEEDBACK_ENTITY_FILTERS = {
+  chats: {
+    department_ids: {
+      type: 'string',
+      description: 'IDs dos departamentos separados por vírgula (máximo 15). Aplicado às 2 chamadas.'
+    },
+    technical_group_ids: {
+      type: 'string',
+      description: 'IDs dos grupos técnicos separados por vírgula (máximo 15). Aplicado às 2 chamadas.'
+    }
+  },
+  tickets: {
+    desk_ids: {
+      type: 'string',
+      description: 'IDs das mesas separados por vírgula (máximo 15; repetidos são removidos). Aplicado às 2 chamadas. Mesa sem acesso para a sua chave → erro 403 da API com a mesa recusada.'
+    },
+    client_ids: {
+      type: 'string',
+      description: 'IDs dos clientes separados por vírgula (máximo 15; repetidos são removidos). Aplicado às 2 chamadas.'
+    }
+  }
+};
+
+/** Chaves de filtro (*_ids) repassadas à API por entidade, na ordem do eco. */
+const FEEDBACK_FILTER_KEYS = {
+  chats: ['responsible_ids', 'department_ids', 'technical_group_ids'],
+  tickets: ['responsible_ids', 'desk_ids', 'client_ids']
+};
+
 /**
- * Propriedades de schema comuns aos relatórios de avaliação (feedback) de
- * chats e tickets. Compartilhadas por get_chats_feedback_report e
- * get_tickets_feedback_report — os 2 slices só divergem na descrição de
- * `include_list` (chat vs ticket), que entra como parâmetro. Espalhar com
- * `...feedbackReportSchemaProperties('...')` dentro de `inputSchema.properties`.
+ * Propriedades de schema dos relatórios de avaliação (feedback) de chats e
+ * tickets. O núcleo (período, comparação, lista, paginação, responsible_ids) é
+ * comum; os filtros por entidade divergem (`entity`): chats filtra por
+ * departamento/grupo técnico, tickets por mesa/cliente. Espalhar com
+ * `...feedbackReportSchemaProperties('...', 'tickets')` em `inputSchema.properties`.
  * @param {string} includeListDescription - descrição de `include_list` (varia por entidade)
+ * @param {'chats'|'tickets'} entity - entidade do relatório (define os filtros extras)
  * @returns {object} propriedades prontas para `inputSchema.properties`
  */
-function feedbackReportSchemaProperties(includeListDescription) {
+function feedbackReportSchemaProperties(includeListDescription, entity) {
+  if (!FEEDBACK_ENTITY_FILTERS[entity]) throw new Error(`feedbackReportSchemaProperties: entidade desconhecida "${entity}"`);
   return {
     start_date: {
       type: 'string',
@@ -128,14 +162,7 @@ function feedbackReportSchemaProperties(includeListDescription) {
       type: 'string',
       description: 'IDs dos responsáveis separados por vírgula (máximo 15). Aplicado às 2 chamadas (principal + comparação).'
     },
-    department_ids: {
-      type: 'string',
-      description: 'IDs dos departamentos separados por vírgula (máximo 15). Aplicado às 2 chamadas.'
-    },
-    technical_group_ids: {
-      type: 'string',
-      description: 'IDs dos grupos técnicos separados por vírgula (máximo 15). Aplicado às 2 chamadas.'
-    }
+    ...FEEDBACK_ENTITY_FILTERS[entity]
   };
 }
 
@@ -145,5 +172,6 @@ module.exports = {
   createdAtFilterSchemaProperties,
   finishedAtFilterSchemaProperties,
   paginationSchemaProperties,
-  feedbackReportSchemaProperties
+  feedbackReportSchemaProperties,
+  FEEDBACK_FILTER_KEYS
 };
