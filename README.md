@@ -121,7 +121,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 | Endpoint | Método | Auth | Descrição |
 |----------|--------|------|-----------|
-| `/mcp` | GET | Não | Informações do servidor |
+| `/mcp` | GET | Não | Informações do servidor. Com `Accept: text/event-stream` responde `405` (o servidor não oferece stream SSE; toda a comunicação MCP é via POST). O alias `/` se comporta igual |
 | `/mcp` | POST | Sim | Operações MCP |
 | `/health` | GET | Não | Health check |
 | `/.well-known/oauth-protected-resource` | GET | Não | Protected Resource Metadata (RFC 9728) — `resource` (`https://mcp.tiflux.com/mcp`), `authorization_servers` e `bearer_methods_supported`. A variante `/.well-known/oauth-protected-resource/mcp` devolve o mesmo conteúdo |
