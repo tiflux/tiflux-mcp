@@ -147,7 +147,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), e custos internos da operação (`list_ticket_internal_costs`), somente leitura; agrupar um ticket em outro, com o agrupado cancelado (`merge_ticket`, irreversível)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada); registrar resposta em nome do cliente (`create_client_answer`, só Administrador)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`. O detalhe de valorização mostra o aditivo do contrato (número, versão e modalidade).
-- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
+- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`, incluindo a transcrição já existente dos áudios — exige acesso aos recursos de IA do TiFlux), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador); atualizar o próprio perfil — nome, ramal e telefone (`update_my_profile`; troca de e-mail bloqueada no MCP)
 - **Solicitantes**: buscar, criar, atualizar, excluir (`delete_requestor`) e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
@@ -2311,7 +2311,7 @@ Paginated list of archived chats. Each item includes origin (displayed as `_type
 ```
 
 ### list_chat_messages
-Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply citado e status de entrega quando disponível. Suporta paginação offset/limit.
+Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição escapados com "\" no início da linha. Suporta paginação offset/limit.
 
 **Parameters:**
 - `id` (number, required): Numeric ID of the chat (also accepts numeric string — the handler calls parseInt)
@@ -2323,13 +2323,20 @@ Conversation transcript in Markdown. Each message includes:
 - Author + role in Portuguese (client → Cliente, attendant → Atendente, system → Sistema, ai → IA), including the name when available
 - Timestamp (`created_at`)
 - **Full message text, never truncated** (the only cap is the overall response budget, which cuts at the end of a message with an exact continuation `offset`/`limit`) **or** a media reference when `media ≠ null`:
-  - Image → `[imagem: <url>]`
   - Voice note (`media.is_voice`) → `[áudio de voz: <url>]`
-  - Other audio → `[áudio: <url>]`
-  - Any other file → `[documento <content_type>: <url>]`
-  - Caption (when present) is shown on the next line, in full
+  - Image (`content_type` equal to `image` or starting with `image/`) → `[imagem: <url>]`
+  - Other audio (`content_type` equal to `audio` or starting with `audio/`, or media with no `content_type` carrying `transcription_status`, e.g. `.oga` with `content_type: null`) → `[áudio: <url>]`
+  - Any other file → `[documento <content_type>: <url>]` (never gets a transcription suffix or block)
+  - Caption (when present) is shown on the next line, in full, collapsed into a single line
+  - **Audio transcription** (already existing in TiFlux — "Ler com IA", AI agent, chatbot triage or AI features that read the chat). Read from `media.transcription` / `media.transcription_status`:
+    - `available` → a line `Transcrição: "<full text>"` after the label (and after the caption, when present): whitespace and line breaks collapsed into a single line, wrapped in double quotes, never truncated
+    - `not_transcribed` (or `available` with empty text) → suffix ` · sem transcrição` on the label
+    - `unsupported` (chat origin does not allow it) → suffix ` · transcrição indisponível neste chat`
+    - Fields absent → label only, as before. The API omits them when the API key user has no access to TiFlux AI features (or has not accepted the AI terms of use); unknown statuses are ignored the same way
+    - The MCP does **not** transcribe new audio and consumes no AI credit: an untranscribed audio can be transcribed in TiFlux ("Ler com IA"). Image descriptions are not exposed by the API yet
   - No `url` in the payload → falls back to `[anexo: <content_type>]`
 - `↩ resposta a <author_name>: "<text>"` when `quoted_message` is present (author name included when available; full quoted text, not truncated)
+- **Structural forgery protection (prompt injection):** third-party content (message text, caption, transcription, quoted text) cannot open a line that looks like transcript structure. Any line of that content starting (after leading spaces) with `**`, `#`, `>`, `↩`, `Transcrição:` or consisting of a horizontal rule / setext underline (`---`, `* * *`, `___`, `===`) is prefixed with a Markdown escape `\`; regular lines stay byte-identical and nothing is truncated. Author names, the quoted author name, the caption and the transcription are rendered on a single line
 - Delivery status when relevant (lido / entregue / ⚠ falhou)
 - Shows `Total:` when the API returns the total message count
 
