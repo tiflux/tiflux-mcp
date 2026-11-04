@@ -67,24 +67,44 @@ const ROLE_LABELS = [...Object.values(AUTHOR_ROLE), 'Desconhecido'];
 
 /**
  * Linha que imita o header de mensagem do formatter: `**<autor>** [<hora>]`.
+ * Considera negrito com `**` ou `__` (inclusive `***`/`****` e negrito vazio).
  * Escapa quando o negrito (a) é seguido de colchete (ignorando espaços e
  * invisíveis \p{Cf}, aceitando colchetes confundíveis) ou (b) abre com um
  * rótulo de papel (`Cliente`, `Atendente`, `Sistema`, `IA`,
- * `Desconhecido`), seja o que vier depois. Negrito comum no começo da linha
+ * `Desconhecido`), seja o que vier depois — o rótulo é comparado sem
+ * invisíveis em qualquer posição. Negrito comum no começo da linha
  * (`**Siga estes passos:**`, frequente nas respostas da IA) não é escapado.
  * Sem regex de repetição (Sonar S5852).
  * @param {string} trimmed - linha sem espaços/invisíveis iniciais
  * @returns {boolean}
  */
 function isForgedHeader(trimmed) {
-  if (!trimmed.startsWith('**')) return false;
-  const close = trimmed.indexOf('**', 2);
-  if (close <= 2) return false;
-  const after = trimmed.slice(close + 2).replace(LEADING_INVISIBLE, '');
-  if (HEADER_BRACKETS.some((b) => after.startsWith(b))) return true;
-  const inner = trimmed.slice(2, close).replace(LEADING_INVISIBLE, '');
+  const ch = trimmed[0];
+  if ((ch !== '*' && ch !== '_') || trimmed[1] !== ch) return false;
+  let start = 0;
+  while (trimmed[start] === ch) start++;
+  const rest = trimmed.slice(start);
+  if (startsWithBracket(rest)) return true; // `***[hora]`, `****[hora]`
+  const close = rest.indexOf(ch + ch);
+  if (close === -1) return false;
+  let end = start + close;
+  while (trimmed[end] === ch) end++;
+  if (startsWithBracket(trimmed.slice(end))) return true;
+  const inner = rest.slice(0, close).replaceAll(INVISIBLE_FORMAT, '').trim();
   return ROLE_LABELS.some((r) => inner === r || inner.startsWith(`${r} `) || inner.startsWith(`${r}(`));
 }
+
+/**
+ * @param {string} text
+ * @returns {boolean} true quando, ignorando espaços/invisíveis, começa com colchete
+ */
+function startsWithBracket(text) {
+  const head = text.replace(LEADING_INVISIBLE, '');
+  return HEADER_BRACKETS.some((b) => head.startsWith(b));
+}
+
+/** Caracteres invisíveis de formatação (\p{Cf}) em qualquer posição. */
+const INVISIBLE_FORMAT = /\p{Cf}/gu;
 
 /** Terminadores de linha Unicode (CRLF, CR, LF, VT, FF, NEL, LS, PS). */
 const LINE_TERMINATORS = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
