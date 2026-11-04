@@ -2311,7 +2311,7 @@ Paginated list of archived chats. Each item includes origin (displayed as `_type
 ```
 
 ### list_chat_messages
-Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição escapados com "\" no início da linha. Suporta paginação offset/limit.
+Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição (header de mensagem, separador, heading, citação) escapados com "\" no início da linha; negrito comum fica intacto. Suporta paginação offset/limit.
 
 **Parameters:**
 - `id` (number, required): Numeric ID of the chat (also accepts numeric string — the handler calls parseInt)

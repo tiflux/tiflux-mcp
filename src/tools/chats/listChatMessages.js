@@ -25,7 +25,7 @@ const AUTHOR_ROLE = {
 
 const schema = {
   name: 'list_chat_messages',
-  description: 'Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição escapados com "\\" no início da linha. Suporta paginação offset/limit.',
+  description: 'Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição (header de mensagem, separador, heading, citação) escapados com "\" no início da linha; negrito comum fica intacto. Suporta paginação offset/limit.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -50,10 +50,41 @@ function truncate(str, max) {
 }
 
 /**
- * Marcadores que abrem uma linha estrutural da transcrição (header de mensagem
- * `**autor**`, heading, reply `↩`, citação `>`, bloco `Transcrição:`).
+ * Marcadores que abrem uma linha estrutural da transcrição (heading, reply
+ * `↩`, citação `>`, bloco `Transcrição:`). O header de mensagem
+ * (`**autor** [hora]`) é tratado à parte em `isForgedHeader`.
  */
-const STRUCTURAL_PREFIXES = ['**', '#', '↩', '>', 'Transcrição:'];
+const STRUCTURAL_PREFIXES = ['#', '↩', '>', 'Transcrição:'];
+
+/**
+ * Colchetes de abertura aceitos como "[" do header (inclui confundíveis:
+ * U+FF3B fullwidth, U+27E6, U+3014, U+3010, U+2045).
+ */
+const HEADER_BRACKETS = ['[', '\uFF3B', '\u27E6', '\u3014', '\u3010', '\u2045'];
+
+/** Rótulos de papel que o formatter usa no header (`**<papel> (<nome>)**`). */
+const ROLE_LABELS = [...Object.values(AUTHOR_ROLE), 'Desconhecido'];
+
+/**
+ * Linha que imita o header de mensagem do formatter: `**<autor>** [<hora>]`.
+ * Escapa quando o negrito (a) é seguido de colchete (ignorando espaços e
+ * invisíveis \p{Cf}, aceitando colchetes confundíveis) ou (b) abre com um
+ * rótulo de papel (`Cliente`, `Atendente`, `Sistema`, `IA`,
+ * `Desconhecido`), seja o que vier depois. Negrito comum no começo da linha
+ * (`**Siga estes passos:**`, frequente nas respostas da IA) não é escapado.
+ * Sem regex de repetição (Sonar S5852).
+ * @param {string} trimmed - linha sem espaços/invisíveis iniciais
+ * @returns {boolean}
+ */
+function isForgedHeader(trimmed) {
+  if (!trimmed.startsWith('**')) return false;
+  const close = trimmed.indexOf('**', 2);
+  if (close <= 2) return false;
+  const after = trimmed.slice(close + 2).replace(LEADING_INVISIBLE, '');
+  if (HEADER_BRACKETS.some((b) => after.startsWith(b))) return true;
+  const inner = trimmed.slice(2, close).replace(LEADING_INVISIBLE, '');
+  return ROLE_LABELS.some((r) => inner === r || inner.startsWith(`${r} `) || inner.startsWith(`${r}(`));
+}
 
 /** Terminadores de linha Unicode (CRLF, CR, LF, VT, FF, NEL, LS, PS). */
 const LINE_TERMINATORS = /\r\n|[\n\r\v\f\u0085\u2028\u2029]/;
@@ -96,7 +127,7 @@ function neutralizeStructure(text) {
       // Ignora espaços e caracteres invisíveis de formatação (\p{Cf}: U+200B,
       // U+2060, U+FEFF…) antes do teste: `​**Atendente**` também forja.
       const trimmed = line.replace(LEADING_INVISIBLE, '');
-      const structural = STRUCTURAL_PREFIXES.some((p) => trimmed.startsWith(p)) || isRuleLine(trimmed);
+      const structural = STRUCTURAL_PREFIXES.some((p) => trimmed.startsWith(p)) || isForgedHeader(trimmed) || isRuleLine(trimmed);
       return structural ? `${line.slice(0, line.length - trimmed.length)}\\${trimmed}` : line;
     })
     .join('\n');
