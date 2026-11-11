@@ -42,7 +42,7 @@ const MEMBERS_BUDGET = 20000;
 
 const schema = {
   name: 'get_contract_group',
-  description: 'Buscar o detalhe de um grupo de contrato (modalidade Compartilhado) pelo ID: nome, cliente, tipo, situação (Ativo/Inativo/Expirado/Cancelado — derivada da expiração e do cadastro; o endpoint devolve 200 mesmo para grupo inativo ou expirado, que list_contracts esconde), expiração, duração, renovação automática, faturamento (automático com N dias antes do vencimento, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), último aditivo (número, versão, dia de vencimento, valor mensal, taxa, desconto em R$ ou %, descrição), avisos de vencimento e reajuste (e-mail, dias antes), deslocamentos ativos (valor e quantidade inclusa no período; valor "--" sem a permissão de valores), anexos (nome, tipo, tamanho e link temporário) e os contratos-membro do grupo. Para aditivos anteriores do grupo, use get_contract_history com contract_group_id. O ID precisa vir de uma linha "· grupo" de list_contracts — grupos e contratos têm IDs independentes, o mesmo número pode existir nos dois, e um ID de contrato comum não serve aqui (404). Campos monetários do aditivo (valor, desconto, taxa) vêm "--" sem a permissão "Visualizar valores dos tickets" — mesma regra de list_contracts e get_contract. Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um grupo de contrato (modalidade Compartilhado) pelo ID: nome, cliente, tipo, situação (Ativo/Inativo/Expirado/Cancelado — derivada da expiração e do cadastro; o endpoint devolve 200 mesmo para grupo inativo ou expirado, que list_contracts esconde), expiração, duração, renovação automática, faturamento (automático com N dias antes do vencimento, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), último aditivo (número, versão, dia de vencimento, valor mensal, taxa, desconto em R$ ou %, descrição), avisos de vencimento e reajuste (e-mail, dias antes), deslocamentos ativos (valor e quantidade inclusa no período; valor "--" sem a permissão de valores), anexos (nome, tipo, tamanho e link temporário) e os contratos-membro do grupo (membro que não aceita apontamento vem marcado "(não permite apontar)"; a flag "Permitir apontar" é por contrato-membro, o grupo não tem uma própria). Para aditivos anteriores do grupo, use get_contract_history com contract_group_id. O ID precisa vir de uma linha "· grupo" de list_contracts — grupos e contratos têm IDs independentes, o mesmo número pode existir nos dois, e um ID de contrato comum não serve aqui (404). Campos monetários do aditivo (valor, desconto, taxa) vêm "--" sem a permissão "Visualizar valores dos tickets" — mesma regra de list_contracts e get_contract. Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -84,11 +84,16 @@ function formatLastRiderRich(lastRider) {
   return lines.join('\n') + '\n';
 }
 
+/** "Permitir apontar" e por contrato-membro (o grupo nao tem flag propria): sufixo so com `false`. */
+function memberAllowSuffix(c) {
+  return c.allow_appointment === false ? ' (não permite apontar)' : '';
+}
+
 function formatMembersRich(contracts) {
   const list = contracts || [];
   if (list.length === 0) return '**Contratos do grupo (0)**\n_Nenhum contrato-membro encontrado._\n';
 
-  const items = list.map(c => `- #${c.id} ${c.name}\n`);
+  const items = list.map(c => `- #${c.id} ${c.name}${memberAllowSuffix(c)}\n`);
   const fit = appendWithinBudget(items, { maxChars: MEMBERS_BUDGET });
   const shownText = items.slice(0, fit.shown).join('');
   const notice = fit.truncated ? `\n_+${list.length - fit.shown} membros não exibidos._\n` : '';
@@ -98,7 +103,7 @@ function formatMembersRich(contracts) {
 function formatMembersCompact(contracts) {
   const list = contracts || [];
   if (list.length === 0) return '—';
-  return list.map(c => `#${c.id} ${c.name}`).join('; ');
+  return list.map(c => `#${c.id} ${c.name}${memberAllowSuffix(c)}`).join('; ');
 }
 
 function formatContractGroup(group, verbosity) {

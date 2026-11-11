@@ -5,8 +5,11 @@
  * Filtros opcionais (todos CSV): client_ids, contract_type_ids, status
  * (actives|readjust|expired) + paginacao offset/limit.
  *
- * Read-only: PUT /contracts/{id} segue fora de escopo (ver get_contract para
- * detalhe de contrato individual). include_details continua util por expor
+ * Edicao de contrato fica em update_contract (PUT /contracts/{id}, escopo
+ * restrito). Detalhe de contrato individual: get_contract. include_details
+ * expoe "Permitir apontar" (`allow_appointment`) por linha — em linha de
+ * grupo a API devolve sempre `null` (a flag e por contrato-membro), entao o
+ * detalhe aponta para get_contract_group. include_details continua util por expor
  * client.id e contract_type.id junto da linha do contrato, sem round-trip
  * extra — mas o jeito recomendado de descobrir contract_type_ids e
  * list_contract_types.
@@ -50,6 +53,7 @@ const { footer, pagination, currencyBRL, appendWithinBudget, continuationLine, R
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { parseIntStrict } = require('../_shared/validators');
 const { modalityLabel } = require('../_shared/contractModality');
+const { escapeCell } = require('../_shared/markdown');
 
 // Bounds (mesmo padrao de listContractTypes.js): `offset` e NUMERO DA PAGINA
 // (default 1, minimo 1); `limit` sao itens por pagina (default 20, min 1, max 200).
@@ -65,13 +69,13 @@ const STATUS_LABELS = {
 
 const schema = {
   name: 'list_contracts',
-  description: 'Listar contratos da organizacao (somente leitura). Retorna tabela com 9 colunas: ID, Nome, Cliente, Tipo, Modalidade, Situacao (Ativo/Pendente de reajuste/Expirado/Cancelado, com sufixo "(cancelamento agendado)" quando o contrato ainda esta ativo mas ja tem cancelamento marcado), Expiracao, Reajuste e Valor total. Filtros opcionais por cliente (client_ids CSV), tipo de contrato (contract_type_ids CSV) e situacao (status CSV: actives, readjust, expired — por padrao a API lista apenas actives). Registros inativos (active:false) nunca aparecem, seja qual for o status pedido. Linhas de grupo de contrato (modalidade Compartilhado) mostram a coluna ID como "<id> · grupo" — grupos e contratos tem IDs independentes, o mesmo numero pode aparecer duas vezes; os contratos-membro de um grupo nao aparecem como linha propria, use get_contract_group para ver o detalhe e os membros. Quando a API devolve um grupo duplicado (bug conhecido, numeros de aditivo colidentes), a tool remove a duplicata dentro da pagina e avisa na resposta. Para o detalhe de um contrato individual, use get_contract (um ID de contrato que seja membro de um grupo responde 404 la — use get_contract_group nesse caso). Para descobrir os IDs de contract_type_ids, use list_contract_types (jeito recomendado); com include_details:true esta tool tambem exibe bloco extra por contrato com IDs de cliente e tipo, e campos monetarios detalhados, sem round-trip extra. Os valores monetarios so sao exibidos para usuarios com a permissao "Visualizar valores dos tickets". limit/offset sao validados estritamente (inteiros; limit fora de 1..200 e corrigido, nao-inteiro vira erro); pagina alem do fim (sem resultados mas com paginas anteriores) avisa qual e a ultima pagina.',
+  description: 'Listar contratos da organizacao (para editar um contrato, use update_contract). Retorna tabela com 9 colunas: ID, Nome, Cliente, Tipo, Modalidade, Situacao (Ativo/Pendente de reajuste/Expirado/Cancelado, com sufixo "(cancelamento agendado)" quando o contrato ainda esta ativo mas ja tem cancelamento marcado), Expiracao, Reajuste e Valor total. Filtros opcionais por cliente (client_ids CSV), tipo de contrato (contract_type_ids CSV) e situacao (status CSV: actives, readjust, expired — por padrao a API lista apenas actives). Registros inativos (active:false) nunca aparecem, seja qual for o status pedido. Linhas de grupo de contrato (modalidade Compartilhado) mostram a coluna ID como "<id> · grupo" — grupos e contratos tem IDs independentes, o mesmo numero pode aparecer duas vezes; os contratos-membro de um grupo nao aparecem como linha propria, use get_contract_group para ver o detalhe e os membros. Quando a API devolve um grupo duplicado (bug conhecido, numeros de aditivo colidentes), a tool remove a duplicata dentro da pagina e avisa na resposta. Para o detalhe de um contrato individual, use get_contract (um ID de contrato que seja membro de um grupo responde 404 la — use get_contract_group nesse caso). Para descobrir os IDs de contract_type_ids, use list_contract_types (jeito recomendado); com include_details:true esta tool tambem exibe bloco extra por contrato com IDs de cliente e tipo, campos monetarios detalhados e se o contrato permite apontar ("apontamento: Sim/Não"; em grupo, "por membro", ver get_contract_group), sem round-trip extra. Os valores monetarios so sao exibidos para usuarios com a permissao "Visualizar valores dos tickets". limit/offset sao validados estritamente (inteiros; limit fora de 1..200 e corrigido, nao-inteiro vira erro); pagina alem do fim (sem resultados mas com paginas anteriores) avisa qual e a ultima pagina.',
   inputSchema: {
     type: 'object',
     properties: {
       include_details: {
         type: 'boolean',
-        description: 'Quando true, exibe um bloco de detalhe apos a tabela com: client.id (para usar em client_ids), contract_type.id (para usar em contract_type_ids — alternativa a list_contract_types, sem round-trip extra), duration, readjust_duration e valores rider_value/rider_tax. NAO e enviado a API — e rendering-only. Default false.'
+        description: 'Quando true, exibe um bloco de detalhe apos a tabela com: client.id (para usar em client_ids), contract_type.id (para usar em contract_type_ids — alternativa a list_contract_types, sem round-trip extra), duration, readjust_duration, valores rider_value/rider_tax e "apontamento: Sim/Não" (Permitir apontar; em linha de grupo, "por membro" — use get_contract_group). NAO e enviado a API — e rendering-only. Default false.'
       },
       client_ids: {
         type: 'string',
@@ -117,12 +121,23 @@ function statusCell(c) {
 function renderContractRow(c) {
   const modality = modalityLabel(c.modality);
   const statusLabel = statusCell(c);
-  const clientName = c.client?.name || '—';
-  const typeName = c.contract_type?.name || '—';
+  const clientName = escapeCell(c.client?.name || '—');
+  const typeName = escapeCell(c.contract_type?.name || '—');
   const expiration = c.expiration_date || '—';
   const readjustment = c.readjustment_date || '—';
   const totalValue = currencyBRL(c.total_value);
-  return `| ${idCell(c)} | ${c.name || '—'} | ${clientName} | ${typeName} | ${modality} | ${statusLabel} | ${expiration} | ${readjustment} | ${totalValue} |\n`;
+  return `| ${idCell(c)} | ${escapeCell(c.name || '—')} | ${clientName} | ${typeName} | ${modality} | ${statusLabel} | ${expiration} | ${readjustment} | ${totalValue} |\n`;
+}
+
+/**
+ * "Permitir apontar" na linha de detalhe. Linha de grupo: a API devolve sempre
+ * `null` (a flag e por contrato-membro) → aponta para get_contract_group.
+ */
+function allowAppointmentDetail(c) {
+  if (c.kind === 'contract_group') return 'por membro (use get_contract_group)';
+  if (c.allow_appointment === true) return 'Sim';
+  if (c.allow_appointment === false) return 'Não';
+  return '—';
 }
 
 function renderContractDetail(c) {
@@ -132,7 +147,7 @@ function renderContractDetail(c) {
   const readjustDuration = c.readjust_duration != null ? `${c.readjust_duration} meses` : '—';
   const riderValue = currencyBRL(c.rider_value);
   const riderTax = currencyBRL(c.rider_tax);
-  return `- **#${idCell(c)}** · cliente ID ${clientId} · tipo ID ${typeId} · duracao: ${duration} · reajuste a cada ${readjustDuration} · adicional: ${riderValue} (taxa ${riderTax})\n`;
+  return `- **#${idCell(c)}** · cliente ID ${clientId} · tipo ID ${typeId} · duracao: ${duration} · reajuste a cada ${readjustDuration} · adicional: ${riderValue} (taxa ${riderTax}) · apontamento: ${allowAppointmentDetail(c)}\n`;
 }
 
 /**

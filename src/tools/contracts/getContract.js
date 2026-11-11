@@ -37,7 +37,7 @@ const {
 
 const schema = {
   name: 'get_contract',
-  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). Também traz avisos de vencimento e reajuste (e-mail, dias antes), deslocamentos ativos (valor e quantidade inclusa no período; valor "--" sem a permissão de valores), anexos (nome, tipo, tamanho e link temporário) e a modalidade de faturamento quando difere do tipo atual. O detalhe só traz o ÚLTIMO aditivo — para aditivos anteriores (valor e início de cada um, inclusive os excluídos), use get_contract_history. Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
+  description: 'Buscar o detalhe de um contrato individual (nao-Compartilhado) pelo ID: nome, cliente, tipo de contrato (nome + modalidade), situação (ativo/inativo/expirado/cancelado/cancelamento agendado, faturado, com apontamentos), expiração, duração, renovação automática, permite apontar (se o contrato aceita apontamento: com "Não", os aditivos dele somem de get_ticket_service_types e create_appointment é recusado), permite apontamento pendente de reajuste, faturamento (automático com N dias, ou em lote), lembretes de consumo (um alerta por linha: escopo contrato e/ou deslocamentos, percentuais e e-mails), observações técnicas, datas de criação/atualização e o último aditivo (número, versão, vencimento, valor, desconto, descrição, período de fechamento, periodicidade, cobrança, e campos específicos por modalidade quando presentes no payload — franquia de horas e valor da hora excedente em Horas/Horas cumulativas, franquia de atendimentos em Por atendimento, valores externo/interno/remoto em Crédito, limite de equipamentos em Livre — e itens, quando aplicável). Também traz avisos de vencimento e reajuste (e-mail, dias antes), deslocamentos ativos (valor e quantidade inclusa no período; valor "--" sem a permissão de valores), anexos (nome, tipo, tamanho e link temporário) e a modalidade de faturamento quando difere do tipo atual. O detalhe só traz o ÚLTIMO aditivo — para aditivos anteriores (valor e início de cada um, inclusive os excluídos), use get_contract_history. Para saber quanto do contrato já foi consumido e o saldo por ciclo de faturamento, use get_contract_usage. Atenção: um contrato que é MEMBRO de um grupo de contrato (modalidade Compartilhado) responde 404 aqui mesmo que o ID exista — use get_contract_group nesse caso (o campo `kind` de list_contracts indica qual rota usar: "contract" → get_contract, "contract_group" → get_contract_group). Campos monetários do aditivo vêm "--" sem a permissão "Visualizar valores dos tickets". Requer permissão "Visualizar contratos" + Licença Tickets.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -57,6 +57,13 @@ function situacaoLabel(contract) {
   if (contract.expired) return 'Expirado';
   if (contract.inactive) return 'Inativo';
   if (contract.active) return 'Ativo';
+  return '—';
+}
+
+/** `allow_appointment` ("Permitir apontar"): ausente/null → "—" (payload antigo). */
+function allowAppointmentLabel(value) {
+  if (value === true) return 'Sim';
+  if (value === false) return 'Não';
   return '—';
 }
 
@@ -183,6 +190,7 @@ function formatContractCompact(contract, situacao) {
   const valorMensal = currencyBRL(contract.last_rider?.value);
   let text = `**${contract.name || 'N/A'}** (#${contract.id})\n`;
   text += `Cliente: ${clientLabel} · Situação: ${situacao} · Valor mensal: ${valorMensal}`;
+  if (contract.allow_appointment === false) text += ' · não permite apontar';
   const counts = formatContractExtrasCompact(contract);
   if (counts) text += `\n${counts}`;
   return text;
@@ -216,6 +224,7 @@ function formatContract(contract, verbosity) {
     `**Expiração:** ${contract.expiration_date || '—'}`,
     `**Duração:** ${duracaoLine}`,
     `**Renovação automática:** ${contract.automatic_renewal ? 'Sim' : 'Não'}`,
+    `**Permite apontar:** ${allowAppointmentLabel(contract.allow_appointment)}`,
     `**Permite apontamento pendente de reajuste:** ${contract.permit_appointments_readjustment ? 'Sim' : 'Não'}`,
     `**Faturamento:** ${formatBilling(contract)}`,
     `**Lembrete de consumo:** ${formatConsumptionReminder(contract.consumption_reminder, contract.consumption_reminders)}`,

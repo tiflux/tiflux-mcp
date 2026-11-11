@@ -19,6 +19,7 @@ const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { parseIntStrict } = require('../_shared/validators');
 const { modalityLabel } = require('../_shared/contractModality');
+const { escapeCell } = require('../_shared/markdown');
 
 // Bounds do endpoint (Swagger GET /contract-types): `offset` e NUMERO DA PAGINA
 // (default 1, minimo 1); `limit` sao itens por pagina (default 20, min 1, max 200).
@@ -40,7 +41,7 @@ const schema = {
 
 function renderContractTypeRow(type) {
   const modality = type.modality || '—';
-  return `| ${type.id} | ${type.name || '—'} | ${modality} |\n`;
+  return `| ${type.id} | ${escapeCell(type.name || '—')} | ${escapeCell(modality)} |\n`;
 }
 
 /**

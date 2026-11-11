@@ -33,7 +33,7 @@ const { resolveShiftName, resolveLooseServiceName, resolveContractName } = requi
 
 const schema = {
   name: 'create_appointment',
-  description: 'Criar um novo apontamento (registro de horas trabalhadas) em um ticket específico. Suporta apontamentos sem valorização (mesas sem contrato) e com valorização (atendimento externo/remoto/interno, contrato ou serviço avulso, deslocamento, garantia, valor manual e executor externo).',
+  description: 'Criar um novo apontamento (registro de horas trabalhadas) em um ticket específico. Suporta apontamentos sem valorização (mesas sem contrato) e com valorização (atendimento externo/remoto/interno, contrato ou serviço avulso, deslocamento, garantia, valor manual e executor externo). Se o contrato do aditivo estiver com "Permitir apontar" desligado, a API recusa e a tool devolve "Contrato não permite apontamento" (escolha outro aditivo via get_ticket_service_types ou libere com update_contract allow_appointment:true).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -267,6 +267,48 @@ function formatCreatedAppointment(appointment, ticketNumber, hadLooseService, re
 }
 
 /**
+ * True quando a resposta e 422 e `detail.contract_rider_id` (string ou array)
+ * contem o trecho informado. Base dos detectores de erro de aditivo abaixo.
+ *
+ * @param {object} response - resposta de erro da API
+ * @param {string} fragment - trecho fixo (em ingles) da mensagem da API
+ * @returns {boolean}
+ */
+function contractRiderErrorIncludes(response, fragment) {
+  if (response.status !== 422) return false;
+  const detail = extractApiErrorDetail(response);
+  if (!detail) return false;
+  return [detail.contract_rider_id].flat().some(
+    msg => typeof msg === 'string' && msg.includes(fragment)
+  );
+}
+
+/**
+ * Detecta o 422 de contrato com "Permitir apontar" desligado
+ * (`allow_appointment:false`): `detail.contract_rider_id` contendo
+ * "does not allow appointments" (texto fixo em ingles da API). O aditivo desse
+ * contrato tambem some de get_ticket_service_types. Null quando o 422 tem outra
+ * causa — nunca engolir 422 desconhecido.
+ *
+ * @param {object} response - resposta de erro da API
+ * @param {string|number} ticketNumber
+ * @returns {object|null}
+ */
+function contractAppointmentNotAllowedResponse(response, ticketNumber) {
+  if (!contractRiderErrorIncludes(response, 'does not allow appointments')) return null;
+
+  return errorResponse(
+    `**❌ Contrato não permite apontamento**\n\n` +
+    `O aditivo informado em \`contract_rider_id\` pertence a um contrato com "Permitir apontar" desligado, ` +
+    `então o apontamento no ticket #${ticketNumber} foi recusado.\n\n` +
+    `**Como resolver:**\n` +
+    `• Escolha outro aditivo (os que aceitam apontamento aparecem em \`get_ticket_service_types\`).\n` +
+    `• Ou libere o apontamento no contrato com \`update_contract\` (\`allow_appointment: true\`), ` +
+    `o que exige a permissão "Gerenciar contratos".`
+  );
+}
+
+/**
  * Detecta o 422 de aditivo cancelado ou fora de vigencia (item 5).
  * Casa: status 422 + detail.contract_rider_id contendo "is cancelled or no longer valid".
  * Null quando o 422 tem outra causa — nunca engolir 422 desconhecido.
@@ -280,16 +322,7 @@ function formatCreatedAppointment(appointment, ticketNumber, hadLooseService, re
  * @returns {object|null}
  */
 function contractRiderPeriodResponse(response, ticketNumber) {
-  if (response.status !== 422) return null;
-
-  const detail = extractApiErrorDetail(response);
-  if (!detail) return null;
-
-  const msgs = [detail.contract_rider_id].flat();
-  const hasVigencia = msgs.some(
-    msg => typeof msg === 'string' && msg.includes('is cancelled or no longer valid')
-  );
-  if (!hasVigencia) return null;
+  if (!contractRiderErrorIncludes(response, 'is cancelled or no longer valid')) return null;
 
   return errorResponse(
     `**❌ Aditivo de contrato cancelado ou fora de vigência**\n\n` +
@@ -348,6 +381,9 @@ function appointmentApiErrorResponse(response, ticketNumber) {
       `*Entre em contato com o suporte TiFlux para verificar o licenciamento.*`
     );
   }
+
+  const notAllowedError = contractAppointmentNotAllowedResponse(response, ticketNumber);
+  if (notAllowedError) return notAllowedError;
 
   const periodError = contractRiderPeriodResponse(response, ticketNumber);
   if (periodError) return periodError;

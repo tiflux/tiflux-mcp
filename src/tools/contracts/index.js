@@ -11,7 +11,11 @@ const slices = [
   require('./listContractTypes'),
   require('./getContractUsage'),
   require('./getContractHistory'),
-  require('./listContractReadjustments')
+  require('./listContractReadjustments'),
+  require('./updateContract'),
+  require('./listConsumptionReminders'),
+  require('./createConsumptionReminder'),
+  require('./updateConsumptionReminder')
 ];
 
 class ContractTools {

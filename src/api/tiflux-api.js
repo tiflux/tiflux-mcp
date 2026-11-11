@@ -651,6 +651,88 @@ class TiFluxAPI {
   }
 
   /**
+   * Atualiza um contrato individual (atualizacao parcial — so envia os campos informados).
+   * PUT /contracts/{id}
+   *
+   * So transporte (BE-003): allow-list de campos, guardas locais e mapeamento
+   * dos 422 por `detail` ficam no slice `update_contract`.
+   *
+   * @param {number|string} contractId - ID do contrato
+   * @param {object} body - campos a atualizar (flat)
+   */
+  async updateContract(contractId, body) {
+    const jsonData = JSON.stringify(body);
+    return await this.makeRequest(`/contracts/${encodeURIComponent(contractId)}`, 'PUT', jsonData, this._jsonHeaders(jsonData));
+  }
+
+  /** Headers de escrita JSON (Content-Type + Content-Length). So transporte. */
+  _jsonHeaders(jsonData) {
+    return {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(jsonData)
+    };
+  }
+
+  /**
+   * Lista os lembretes de consumo de um contrato ou grupo de contrato (array puro, sem paginacao).
+   * GET /contracts/{contract_id}/consumption-reminders
+   * GET /contract-groups/{contract_group_id}/consumption-reminders
+   *
+   * So transporte (BE-003): escolha do dono, validacao e formatacao ficam nos slices.
+   * Paths literais por dono (o `swagger_analyze.py coverage` le o template do makeRequest).
+   *
+   * @param {'contracts'|'contract-groups'} ownerType
+   * @param {number|string} ownerId
+   */
+  async listConsumptionReminders(ownerType, ownerId) {
+    const id = encodeURIComponent(ownerId);
+    if (ownerType === 'contract-groups') {
+      return await this.makeRequest(`/contract-groups/${id}/consumption-reminders`);
+    }
+    return await this.makeRequest(`/contracts/${id}/consumption-reminders`);
+  }
+
+  /**
+   * Cria um lembrete de consumo.
+   * POST /contracts/{contract_id}/consumption-reminders
+   * POST /contract-groups/{contract_group_id}/consumption-reminders
+   *
+   * @param {'contracts'|'contract-groups'} ownerType
+   * @param {number|string} ownerId
+   * @param {object} body - { percentages, emails, alert_scope } (flat)
+   */
+  async createConsumptionReminder(ownerType, ownerId, body) {
+    const id = encodeURIComponent(ownerId);
+    const jsonData = JSON.stringify(body);
+    const headers = this._jsonHeaders(jsonData);
+    if (ownerType === 'contract-groups') {
+      return await this.makeRequest(`/contract-groups/${id}/consumption-reminders`, 'POST', jsonData, headers);
+    }
+    return await this.makeRequest(`/contracts/${id}/consumption-reminders`, 'POST', jsonData, headers);
+  }
+
+  /**
+   * Atualiza um lembrete de consumo (parcial; listas enviadas substituem as atuais).
+   * PUT /contracts/{contract_id}/consumption-reminders/{id}
+   * PUT /contract-groups/{contract_group_id}/consumption-reminders/{id}
+   *
+   * @param {'contracts'|'contract-groups'} ownerType
+   * @param {number|string} ownerId
+   * @param {number|string} reminderId
+   * @param {object} body - { percentages?, emails?, alert_scope? } (flat)
+   */
+  async updateConsumptionReminder(ownerType, ownerId, reminderId, body) {
+    const id = encodeURIComponent(ownerId);
+    const rid = encodeURIComponent(reminderId);
+    const jsonData = JSON.stringify(body);
+    const headers = this._jsonHeaders(jsonData);
+    if (ownerType === 'contract-groups') {
+      return await this.makeRequest(`/contract-groups/${id}/consumption-reminders/${rid}`, 'PUT', jsonData, headers);
+    }
+    return await this.makeRequest(`/contracts/${id}/consumption-reminders/${rid}`, 'PUT', jsonData, headers);
+  }
+
+  /**
    * Copia o header X-Total-Items para `response.total` (inteiro), quando
    * presente. Node minuscula os headers; o fallback capitalizado blinda contra
    * transporte que preserve a caixa. So transporte.

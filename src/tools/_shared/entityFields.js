@@ -14,7 +14,9 @@
  * e separa marcadas das nao-marcadas no shape LIST.
  *
  * O null-guard de options cobre o shape LIST em campos sem opcoes (ex.: text_area),
- * onde a API retorna options: null em vez de options: [].
+ * onde a API retorna options: null em vez de options: [], e tambem o shape GET
+ * (`GET /tickets/{n}`, Swagger de 2026-11-03), onde options pode vir null mesmo em
+ * single_select/checkbox sem opcao marcada.
  */
 
 const FIELD_TYPES_WITH_OPTIONS = new Set(['single_select', 'checkbox']);
@@ -32,7 +34,7 @@ function formatEntityField(field) {
   text += `    - entity_field_id: ${field.entity_field_id}\n`;
 
   if (FIELD_TYPES_WITH_OPTIONS.has(field.field_type)) {
-    // Null-guard: options pode ser null no shape LIST (ex.: text_area sem opcoes)
+    // Null-guard: options pode ser null no shape LIST (ex.: text_area sem opcoes) e no shape GET
     const options = field.options || [];
     // Filtro de opcao marcada: no shape GET todas as opcoes retornadas sao marcadas
     // (filtro transparente); no shape LIST opcoes nao-marcadas tem id: null e value: null
