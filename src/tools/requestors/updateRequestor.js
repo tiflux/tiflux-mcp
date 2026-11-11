@@ -8,13 +8,14 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { countryError, normalizeCountry } = require('./requestorCountry');
 
 // Campos atualizaveis do solicitante.
-const UPDATABLE_FIELDS = ['name', 'telephone', 'email', 'can_open_ticket', 'extension'];
+const UPDATABLE_FIELDS = ['name', 'telephone', 'email', 'can_open_ticket', 'extension', 'country'];
 
 const schema = {
   name: 'update_requestor',
-  description: 'Atualizar um solicitante (requestor) existente no TiFlux. Os campos de dados são opcionais — só os campos informados são enviados (atualização parcial). Use get_requestor para ver o estado atual antes de atualizar.',
+  description: 'Atualizar um solicitante (requestor) existente no TiFlux. Os campos de dados são opcionais — só os campos informados são enviados (atualização parcial). Para telefone de outro país, envie telephone + country (ISO de 2 letras, ex.: US). Use get_requestor para ver o estado atual antes de atualizar.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -45,6 +46,10 @@ const schema = {
       extension: {
         type: 'string',
         description: 'Ramal do solicitante'
+      },
+      country: {
+        type: 'string',
+        description: 'País do telefone em ISO de 2 letras (ex.: BR, US). Usado pela API para validar e normalizar o número (o telefone volta como +<DDI><número>); não é gravado no solicitante. Só vale junto com telephone — sozinho é recusado localmente. Sem ele, a API assume BR.'
       }
     },
     required: ['client_id', 'requestor_id']
@@ -57,11 +62,15 @@ async function execute(args, { api }) {
 
   const { client_id, requestor_id } = args;
 
+  const invalidCountry = countryError(args);
+  if (invalidCountry) return invalidCountry;
+
   // Montar body apenas com campos informados (exceto ids)
   const body = {};
   for (const field of UPDATABLE_FIELDS) {
     if (args[field] !== undefined) body[field] = args[field];
   }
+  if (body.country !== undefined) body.country = normalizeCountry(body.country);
 
   if (Object.keys(body).length === 0) {
     return errorResponse(
@@ -89,6 +98,8 @@ async function execute(args, { api }) {
       `**✅ Solicitante #${requestor_id} atualizado com sucesso!**\n\n` +
       `**ID:** ${requestor.id || requestor_id}\n` +
       `**Nome:** ${requestor.name || args.name || 'N/A'}\n` +
+      (body.telephone !== undefined ? `**Telefone:** ${requestor.telephone || body.telephone}\n` : '') +
+      (body.country !== undefined ? `**País do telefone:** ${body.country}\n` : '') +
       `**Campos atualizados:** ${updatedFields}\n\n` +
       `*✅ Solicitante atualizado via API TiFlux*`
     );

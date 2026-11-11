@@ -25,7 +25,7 @@ const AUTHOR_ROLE = {
 
 const schema = {
   name: 'list_chat_messages',
-  description: 'Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição (header de mensagem, separador, heading, citação) escapados com "\" no início da linha; negrito comum fica intacto. Suporta paginação offset/limit.',
+  description: 'Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Citação de mensagem de outro chat do mesmo contato (resposta a um atendimento anterior, no WhatsApp) vem marcada "(de atendimento anterior, chat #N)". Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição (header de mensagem, separador, heading, citação) escapados com "\" no início da linha; negrito comum fica intacto. Suporta paginação offset/limit.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -321,9 +321,10 @@ function formatDeliveryStatus(status) {
 /**
  * Formata uma mensagem individual como linha de transcrição.
  * @param {object} msg - item da API
+ * @param {number} [currentChatId] - chat listado (para marcar citação de atendimento anterior)
  * @returns {string}
  */
-function formatMessage(msg) {
+function formatMessage(msg, currentChatId) {
   const authorLabel = formatAuthorLabel(msg.author);
   const time = msg.created_at || 'sem horário';
 
@@ -348,7 +349,13 @@ function formatMessage(msg) {
       ? neutralizeStructure(renderInteractivePayload(quoted.text) || quoted.text)
       : `[${quoted.type || 'mensagem'}]`;
     const quotedAuthor = quoted.author_name ? ` ${singleLine(quoted.author_name)}` : '';
-    line += `\n↩ resposta a${quotedAuthor}: "${quotedText}"`;
+    // WhatsApp: a citação pode ser de OUTRO chat do mesmo contato (cliente respondendo
+    // mensagem de atendimento anterior). chat_id null (chats antigos) ou igual → render de hoje.
+    // chat_id vem da API: so entra no texto como inteiro (valor nao numerico e descartado).
+    const quotedChatId = /^\d+$/.test(String(quoted.chat_id ?? '')) ? Number(quoted.chat_id) : null;
+    const fromOtherChat = quotedChatId !== null && String(quotedChatId) !== String(currentChatId);
+    const origin = fromOtherChat ? ` (de atendimento anterior, chat #${quotedChatId})` : '';
+    line += `\n↩ resposta a${quotedAuthor}${origin}: "${quotedText}"`;
   }
 
   return line + '\n';
@@ -371,7 +378,7 @@ function formatTranscript(messages, offset, limit, chatId, verbosity, total) {
   const plural = messages.length === 1 ? 'mensagem' : 'mensagens';
   const head = `**Mensagens do Chat #${chatId}** (${messages.length} ${plural})\n\n`;
   const truncatedHead = (shown) => `**Mensagens do Chat #${chatId}** (${cutCountLabel(shown, total, messages.length, 'mensagens')})\n\n`;
-  const parts = messages.map((msg, idx) => (idx > 0 ? '\n---\n\n' : '') + formatMessage(msg));
+  const parts = messages.map((msg, idx) => (idx > 0 ? '\n---\n\n' : '') + formatMessage(msg, chatId));
 
   const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: messages.length, total, unit: 'mensagens' }, v);
   const footerStr = footer(v);

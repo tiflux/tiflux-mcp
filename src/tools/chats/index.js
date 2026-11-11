@@ -1,7 +1,7 @@
 /**
  * ChatTools — agregador do módulo chats.
  *
- * Expõe as 10 tools de consulta e operação de chats via HandlerRegistry.
+ * Expõe as 11 tools de consulta e operação de chats via HandlerRegistry.
  * Seguindo o padrão de src/tools/appointments/index.js.
  */
 
@@ -17,6 +17,7 @@ const slices = [
   require('./updateChat'),
   require('./sendMessage'),
   require('./archiveChat'),
+  require('./cancelChat'),
   require('./getChatsFeedbackReport')
 ];
 

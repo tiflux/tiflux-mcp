@@ -13,6 +13,7 @@
 const { textResponse } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
+const { countryError, normalizeCountry } = require('./requestorCountry');
 
 // Campos opcionais do solicitante (alem de name/email obrigatorios).
 const OPTIONAL_FIELDS = ['telephone', 'can_open_ticket', 'extension', 'country'];
@@ -49,7 +50,7 @@ const schema = {
       },
       country: {
         type: 'string',
-        description: 'País do solicitante (opcional)'
+        description: 'País do telefone em ISO de 2 letras (opcional, ex.: BR, US). Usado pela API para validar e normalizar o número (o telefone volta como +<DDI><número>); não é gravado no solicitante. Só vale junto com telephone — sozinho é recusado localmente. Default na API: BR.'
       }
     },
     required: ['client_id', 'name', 'email']
@@ -63,6 +64,14 @@ async function execute(args, { api }) {
 
   const { client_id } = args;
 
+  // country vazio segue o guard de string vazia (omitido); preenchido, passa pela
+  // mesma guarda do update_requestor (ISO 2 letras + exige telephone).
+  const hasCountry = args.country !== undefined && args.country !== null && String(args.country).trim() !== '';
+  if (hasCountry) {
+    const invalidCountry = countryError(args);
+    if (invalidCountry) return invalidCountry;
+  }
+
   try {
     // Montar body apenas com campos informados
     const body = {
@@ -74,6 +83,7 @@ async function execute(args, { api }) {
       const val = args[field];
       if (val !== undefined && val !== null && String(val).trim() !== '') body[field] = val;
     }
+    if (body.country !== undefined) body.country = normalizeCountry(body.country);
 
     const response = await api.createRequestor(client_id, body);
 

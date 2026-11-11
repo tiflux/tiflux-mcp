@@ -11,7 +11,8 @@
  * Permissao: role billing ("Faturar servicos avulsos e contratos") — a MESMA
  * de get_billings_history, nao a de contratos. Varre a organizacao inteira.
  *
- * Particularidades do payload: `contract_type` vem sem `id` e `modality` vem
+ * Particularidades do payload: `contract_type` traz `id` (inclusive em grupo;
+ * exibido como `Nome (#id)`, ou so o nome se faltar) e `modality` vem
  * como texto traduzido ("Hours", "Saas/Product") — exibido como veio, sem
  * passar por modalityLabel. `expiration_date` costuma vir null: a coluna so
  * aparece quando alguma linha da pagina tem valor.
@@ -31,6 +32,16 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { parseIntStrict } = require('../_shared/validators');
 const { escapeCell } = require('../_shared/markdown');
 const { contractsLicenseErrorResponse, contractApiErrorResponse, pageBeyondEndMessage } = require('../_shared/contractShared');
+
+/**
+ * Coluna Tipo: `Nome (#id)` para seguir direto para list_contract_types ou para o
+ * filtro contract_type_id; sem `id` (payload antigo), so o nome.
+ */
+function contractTypeLabel(contractType) {
+  const name = contractType?.name || '—';
+  const id = contractType?.id;
+  return id !== undefined && id !== null ? `${name} (#${id})` : name;
+}
 
 const OFFSET_MIN = 1;
 const LIMIT_MIN = 1;
@@ -58,7 +69,7 @@ const RIDER_FIELDS = [
 
 const schema = {
   name: 'list_contract_readjustments',
-  description: 'Quadro de reajuste de contratos (somente leitura): lista contratos e grupos de contrato cujo aditivo vigente encerra até o fim do mês de `date`, com os valores desse aditivo — a base do cálculo do reajuste. Use para perguntas como "quais contratos entram em reajuste até novembro e com que valor base?". Retorna tabela com ID ("<id> · grupo" para grupo de contrato — IDs de grupo e de contrato são independentes), Nome, Cliente, Tipo, Modalidade (texto como a API devolve), Fim do aditivo, Valor e Taxa (e Expiração, só quando alguma linha tiver); depois, um bloco por linha só com os campos da modalidade diferentes de zero (hora excedente, atendimento excedente, hora externa/interna/remota, equipamento adicional), os itens do aditivo (SaaS/Produto) e, nos grupos, os contratos-membro. `date` é obrigatório no formato YYYY-MM-DD (ex: "2026-11-30"). Filtros opcionais: client_ids (IDs separados por vírgula) e contract_type_id. limit/offset: 1-200 (padrão 20); página além do fim avisa qual é a última. Valores vêm "--" sem a permissão "Visualizar valores dos tickets". Requer a permissão "Faturar serviços avulsos e contratos" (a mesma de get_billings_history, não a de contratos) + Licença Tickets; varre a organização inteira.',
+  description: 'Quadro de reajuste de contratos (somente leitura): lista contratos e grupos de contrato cujo aditivo vigente encerra até o fim do mês de `date`, com os valores desse aditivo — a base do cálculo do reajuste. Use para perguntas como "quais contratos entram em reajuste até novembro e com que valor base?". Retorna tabela com ID ("<id> · grupo" para grupo de contrato — IDs de grupo e de contrato são independentes), Nome, Cliente, Tipo ("Nome (#id)" — o ID do tipo serve para list_contract_types e para o filtro contract_type_id), Modalidade (texto como a API devolve), Fim do aditivo, Valor e Taxa (e Expiração, só quando alguma linha tiver); depois, um bloco por linha só com os campos da modalidade diferentes de zero (hora excedente, atendimento excedente, hora externa/interna/remota, equipamento adicional), os itens do aditivo (SaaS/Produto) e, nos grupos, os contratos-membro. `date` é obrigatório no formato YYYY-MM-DD (ex: "2026-11-30"). Filtros opcionais: client_ids (IDs separados por vírgula) e contract_type_id. limit/offset: 1-200 (padrão 20); página além do fim avisa qual é a última. Valores vêm "--" sem a permissão "Visualizar valores dos tickets". Requer a permissão "Faturar serviços avulsos e contratos" (a mesma de get_billings_history, não a de contratos) + Licença Tickets; varre a organização inteira.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -138,7 +149,7 @@ function renderRow(r, showExpiration) {
     idCell(r),
     escapeCell(r.name || '—'),
     escapeCell(r.client?.name || '—'),
-    escapeCell(r.contract_type?.name || '—'),
+    escapeCell(contractTypeLabel(r.contract_type)),
     escapeCell(r.contract_type?.modality || '—'),
     escapeCell(r.rider?.cancel_date || '—'),
     currencyBRL(r.rider?.value),

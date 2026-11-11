@@ -2012,6 +2012,20 @@ class TiFluxAPI {
   }
 
   /**
+   * Cancela um chat (descarta o atendimento, sem ticket nem item de catálogo)
+   * PUT /chats/{id}/cancel
+   *
+   * Sem body. Sucesso: 202 `{ status: "enqueued", job_id }` (processado de forma assíncrona).
+   */
+  async cancelChat(id) {
+    if (!id) {
+      return { error: 'id é obrigatório', status: 'VALIDATION_ERROR' };
+    }
+
+    return await this.makeRequest(`/chats/${id}/cancel`, 'PUT');
+  }
+
+  /**
    * Lista as mensagens de um chat em ordem cronológica.
    * GET /chats/{id}/messages
    *
@@ -3066,7 +3080,7 @@ class TiFluxAPI {
    * Guardrail BE-003: só transporte — querystring → makeRequest.
    * Lógica de negócio (agregação, resolução de nomes) fica no slice.
    *
-   * @param {object} filters - { user_ids, desk_ids, start_date, end_date, include_valorization, offset, limit }
+   * @param {object} filters - { user_ids, desk_ids, client_ids, contract_ids, contract_group_ids, start_date, end_date, include_valorization, offset, limit }
    *   user_ids: CSV de IDs (máx 15, clampado pelo slice via capIds)
    *   desk_ids: CSV de IDs (máx 15, clampado pelo slice via capIds)
    *   start_date: YYYY-MM-DD (obrigatório)
@@ -3087,6 +3101,7 @@ class TiFluxAPI {
     if (filters.desk_ids) params.append('desk_ids', filters.desk_ids);
     if (filters.client_ids) params.append('client_ids', filters.client_ids);
     if (filters.contract_ids) params.append('contract_ids', filters.contract_ids);
+    if (filters.contract_group_ids) params.append('contract_group_ids', filters.contract_group_ids);
     if (filters.include_valorization === true) params.append('include_valorization', 'true');
 
     const response = await this.makeRequest(`/appointments?${params.toString()}`);

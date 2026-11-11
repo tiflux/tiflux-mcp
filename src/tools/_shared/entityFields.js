@@ -6,12 +6,16 @@
  * Shapes suportados:
  * - Shape GET (ticket e requestor individual): entity_fields[].options[] contem APENAS
  *   as opcoes marcadas; value do single_select e o titulo da opcao.
- * - Shape LIST (listagem de requestors): entity_fields[] no root; options[] e catalogo
- *   completo (marcada tem id/value preenchidos, nao-marcada vem id: null, value: null);
- *   value do single_select e o ID da opcao como string.
+ * - Shape LIST (listagem de requestors, include_entity_fields=true): entity_fields[] no
+ *   root; options[] traz SO a(s) opcao(oes) marcada(s) (FILTER no SQL), nao o catalogo
+ *   completo; value do single_select e o ID da opcao como string. Em ambos os shapes,
+ *   options[].title e o texto e options[].entity_field_option_id e o ID da opcao.
  *
- * O filtro de opcao marcada (id != null || value != null) e transparente no shape GET
- * e separa marcadas das nao-marcadas no shape LIST.
+ * field_type e um enum da API: checkbox|currency|date|email|link|phone|single_select|
+ * text|text_area — so single_select e checkbox tem options.
+ *
+ * O filtro de opcao marcada (id != null || value != null) e transparente nos dois shapes
+ * (defensivo, caso a API volte a mandar opcoes nao-marcadas com id/value null).
  *
  * O null-guard de options cobre o shape LIST em campos sem opcoes (ex.: text_area),
  * onde a API retorna options: null em vez de options: [], e tambem o shape GET
@@ -36,8 +40,8 @@ function formatEntityField(field) {
   if (FIELD_TYPES_WITH_OPTIONS.has(field.field_type)) {
     // Null-guard: options pode ser null no shape LIST (ex.: text_area sem opcoes) e no shape GET
     const options = field.options || [];
-    // Filtro de opcao marcada: no shape GET todas as opcoes retornadas sao marcadas
-    // (filtro transparente); no shape LIST opcoes nao-marcadas tem id: null e value: null
+    // Filtro de opcao marcada: transparente nos dois shapes (a API ja manda so as
+    // marcadas); defensivo contra opcoes nao-marcadas com id/value null
     const markedOptions = options.filter(opt => opt.id != null || opt.value != null);
 
     if (markedOptions.length > 0) {

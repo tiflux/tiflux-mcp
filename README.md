@@ -147,7 +147,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 - **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), e custos internos da operação (`list_ticket_internal_costs`), somente leitura; agrupar um ticket em outro, com o agrupado cancelado (`merge_ticket`, irreversível)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada); registrar resposta em nome do cliente (`create_client_answer`, só Administrador)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`. O detalhe de valorização mostra o aditivo do contrato (número, versão e modalidade).
-- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`, incluindo a transcrição já existente dos áudios — exige acesso aos recursos de IA do TiFlux), transferir e vincular chats, enviar mensagens e finalizar atendimentos; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
+- **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`, incluindo a transcrição já existente dos áudios — exige acesso aos recursos de IA do TiFlux), transferir e vincular chats, enviar mensagens, finalizar e cancelar atendimentos (`cancel_chat` — sem ticket nem item de catálogo); relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
 - **Clientes**: CRUD completo — dados cadastrais, mesas e grupos técnicos vinculados, usuários do portal e permissões de e-mail
 - **Usuários/Agentes** (admin): criar, consultar e atualizar agentes/atendentes — incluindo licenças, grupo técnico por nome e ativar/inativar (requer chave de administrador); atualizar o próprio perfil — nome, ramal e telefone (`update_my_profile`; troca de e-mail bloqueada no MCP)
 - **Solicitantes**: buscar, criar, atualizar, excluir (`delete_requestor`) e gerenciar solicitantes, com resolução automática de nome/e-mail ao abrir tickets
@@ -1348,7 +1348,7 @@ Create a new requestor in a client (`POST /clients/{id}/requestors`). Required f
 - `telephone` (string, optional): Requestor phone. If provided, must be a valid number — do not send an empty string (causes 422)
 - `can_open_ticket` (boolean, optional): Whether the requestor can open tickets by email
 - `extension` (string, optional): Requestor extension
-- `country` (string, optional): Requestor country
+- `country` (string, optional): Country of the **phone number**, ISO 3166-1 alpha-2 (e.g. `BR`, `US`; lowercase is uppercased). Used by the API only to validate and normalize the number; not stored (default `BR`). Only valid together with `telephone`: `country` alone, or a value that is not 2 letters, is rejected locally.
 
 **Returns:** The created requestor's id, name, email, and telephone (if provided).
 
@@ -1372,8 +1372,9 @@ Update an existing requestor (`PUT /clients/{id}/requestors/{requestor_id}`). Pa
 - `email` (string, optional): Requestor email
 - `can_open_ticket` (boolean, optional): Whether the requestor can open tickets by email
 - `extension` (string, optional): Requestor extension
+- `country` (string, optional): Country of the **phone number**, ISO 3166-1 alpha-2 (e.g. `BR`, `US`; lowercase is uppercased). The API uses it only to validate and normalize the number — the phone comes back as `+<DDI><number>` — and does not store it (default `BR`). Only valid together with `telephone`: `country` alone is rejected locally (the API would silently ignore it), and a value that is not 2 letters is rejected locally too.
 
-If no updatable field is provided, returns a friendly error.
+If no updatable field is provided, returns a friendly error. The response shows the normalized phone and the phone country when they were sent.
 
 **Example:**
 ```json
@@ -1381,6 +1382,16 @@ If no updatable field is provided, returns a friendly error.
   "client_id": 123,
   "requestor_id": 555,
   "can_open_ticket": true
+}
+```
+
+US phone number:
+```json
+{
+  "client_id": 123,
+  "requestor_id": 555,
+  "telephone": "+1 202 555 0101",
+  "country": "US"
 }
 ```
 
@@ -2079,13 +2090,14 @@ List all appointments across all tickets for a date range with optional filters 
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (alternative to `desk_ids`).
 - `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. **Note (A2):** when this filter is active, appointments without a contract are excluded from results. **Note (A1 — Shared contracts):** in Shared contract mode, the `contract.id` returned may differ from the id you filtered on — the API expands the group to its member, which is expected behavior; do NOT filter client-side by `contract.id` equality.
 - `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated, same rule as `client_ids`). `client_ids` takes precedence when both are provided.
-- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Also accepts a contract **group** ID (see `get_contract_group`) — the API only treats the ID as a group when **no contract** shares that same number; on collision, the API filters by the contract, so use the group's **member contract IDs** (from `get_contract_group`) instead of the group ID itself. **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error; do NOT re-filter results client-side by `contract.id`.
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Also accepts a contract **group** ID (see `get_contract_group`) — the API only treats the ID as a group when **no contract** shares that same number; on collision, the API filters by the contract, so to filter by a group use `contract_group_ids`. **Note (A2):** appointments without a contract are excluded when this filter is active. **Note (A1):** in Shared contracts, `contract.id` on returned items may differ from the filtered id (API expands group→member) — this is NOT an error; do NOT re-filter results client-side by `contract.id`.
+- `contract_group_ids` (string, optional): Comma-separated contract **group** IDs (max 15, see `get_contract_group`). The API expands each group (only Shared groups have members) into its member contracts; a group that does not exist or belongs to another organization yields nothing. Combined with `contract_ids`, the result is the **union** of both filters. Validated locally: positive integers only, no duplicates, max 15 (rejected, not truncated). Same notes A2 (appointments without a contract are excluded) and A1 (`contract.id` is the member's, not the group's) apply.
 - `include_valorization` (boolean, optional): Include valorization data (attendance type, value). Default: `false`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 
 **Returns:**
-Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, contract name (or "sem contrato" when none), desk, ticket number and title, full description (never truncated, in both `rich` and `compact` — the API has no single-appointment endpoint, so a cut description could not be recovered). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), the contract rider (`📋 <contract> (aditivo nº 1 v0)` in `rich`; `#1.v0` suffix on the `contrato` cell in `compact`, no new column) and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis. When `contract_ids` is active, a footer warns that appointments without a contract are not shown.
+Paginated list of appointments. Each item shows: appointment ID, date, time range, technician name, client, contract name (or "sem contrato" when none), desk, ticket number and title, full description (never truncated, in both `rich` and `compact` — the API has no single-appointment endpoint, so a cut description could not be recovered). When present, `external_user_name` is shown as a separate line. Valorization summary appears when `include_valorization=true`: attendance type, monetary value, `🛡️ Garantia` (when `guarantee=true`), `✋ Valor manual` (when `manual_value=true`), the contract rider (`📋 <contract> (aditivo nº 1 v0)` in `rich`; `#1.v0` suffix on the `contrato` cell in `compact`, no new column) and `shift_owner_ticket` when set. The `✋ Valor manual` flag indicates the value was entered manually by the user (bypassing the contract rate), as opposed to being calculated from the contract tariff — critical signal for billing analysis. When `contract_ids` or `contract_group_ids` is active, a footer warns that appointments without a contract are not shown.
 
 **Example:**
 ```json
@@ -2112,7 +2124,8 @@ Generate an aggregated N2 support report: count and total hours per technician f
 - `desk_names` (string, optional): Comma-separated desk names for automatic resolution (enables desk sub-breakdown).
 - `client_ids` (string, optional): Comma-separated client IDs (max 15). Use `client_names` for name-based resolution. See caveats A1/A2 in `list_appointments_global`.
 - `client_names` (string, optional): Comma-separated client names for automatic resolution (alternative to `client_ids`). Max 15 resolved clients — more than that is rejected with an explicit error (never silently truncated).
-- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Also accepts a contract group ID — see the note in `list_appointments_global` about the ID collision caveat (group vs. contract) and `get_contract_group`. Appointments without a contract are excluded when active. See caveat A1 in `list_appointments_global`.
+- `contract_ids` (string, optional): Comma-separated contract IDs (max 15). Also accepts a contract group ID — see the note in `list_appointments_global` about the ID collision caveat (group vs. contract): on collision, use `contract_group_ids`. Appointments without a contract are excluded when active. See caveat A1 in `list_appointments_global`.
+- `contract_group_ids` (string, optional): Comma-separated contract group IDs (max 15), expanded by the API into the member contracts; union with `contract_ids`. Same validation and caveats as in `list_appointments_global`.
 - `include_valorization` (boolean, optional): Include total value per technician (and per desk when breakdown enabled). Default: `false`.
 
 **Returns:**
@@ -2120,7 +2133,7 @@ Markdown report with:
 - Global totals: total appointments count, total hours, total value with manual sub-total in parentheses when applicable (e.g. `**Valor total:** R$ 1.200,00 (R$ 400,00 em valor manual)`)
 - Per-technician section (sorted by appointment count desc): appointment count, total hours, total value — with `(R$ X manual)` suffix when any manual-value appointment exists for that technician
 - Desk sub-breakdown per technician (shown only when `desk_ids`/`desk_names` provided): count + hours + value per desk, with manual suffix when applicable
-- Warning footer when `contract_ids` is active: appointments without a contract are excluded from the aggregation (same notice as `list_appointments_global` — relevant for billing audits, since totals may be under-reported)
+- Warning footer when `contract_ids` or `contract_group_ids` is active: appointments without a contract are excluded from the aggregation (same notice as `list_appointments_global` — relevant for billing audits, since totals may be under-reported)
 - Footer with real-time data notice
 
 The `manual_value` breakdown (when `include_valorization=true`) makes it immediately clear how much of the billed total came from manually-entered values vs. contract-calculated rates — important for billing audits.
@@ -2313,7 +2326,7 @@ Paginated list of archived chats. Each item includes origin (displayed as `_type
 ```
 
 ### list_chat_messages
-Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição (header de mensagem, separador, heading, citação) escapados com "\" no início da linha; negrito comum fica intacto. Suporta paginação offset/limit.
+Listar as mensagens de um chat em ordem cronológica (transcrição da conversa). Retorna autor, horário, texto ou referência de anexo, reply e status de entrega quando disponível. Citação de mensagem de outro chat do mesmo contato (resposta a um atendimento anterior, no WhatsApp) vem marcada "(de atendimento anterior, chat #N)". Áudios trazem a transcrição que já existe no TiFlux (linha Transcrição: "<texto>", em uma linha entre aspas; ou "sem transcrição" / "transcrição indisponível neste chat"): não transcreve áudio novo nem consome crédito, e exige acesso aos recursos de IA do TiFlux (sem acesso, o áudio aparece só como link). Conteúdo de terceiros (texto, legenda, transcrição, citação) tem marcadores estruturais da transcrição (header de mensagem, separador, heading, citação) escapados com "\" no início da linha; negrito comum fica intacto. Suporta paginação offset/limit.
 
 **Parameters:**
 - `id` (number, required): Numeric ID of the chat (also accepts numeric string — the handler calls parseInt)
@@ -2338,6 +2351,7 @@ Conversation transcript in Markdown. Each message includes:
     - The MCP does **not** transcribe new audio and consumes no AI credit: an untranscribed audio can be transcribed in TiFlux ("Ler com IA"). Image descriptions are not exposed by the API yet
   - No `url` in the payload → falls back to `[anexo: <content_type>]`
 - `↩ resposta a <author_name>: "<text>"` when `quoted_message` is present (author name included when available; full quoted text, not truncated)
+- `↩ resposta a <author_name> (de atendimento anterior, chat #N): "<text>"` when `quoted_message.chat_id` points to **another chat** of the same contact (WhatsApp: the client replied to a message from a previous attendance) — open chat #N with `get_chat`/`list_chat_messages` for context. `chat_id` equal to the listed chat, or `null` (older chats), keeps the plain line
 - **Structural forgery protection (prompt injection):** third-party content (message text, caption, transcription, quoted text) cannot open a line that looks like transcript structure. Any line of that content starting (after leading spaces) with `**`, `#`, `>`, `↩`, `Transcrição:` or consisting of a horizontal rule / setext underline (`---`, `* * *`, `___`, `===`) is prefixed with a Markdown escape `\`; regular lines stay byte-identical and nothing is truncated. Author names, the quoted author name, the caption and the transcription are rendered on a single line
 - Delivery status when relevant (lido / entregue / ⚠ falhou)
 - Shows `Total:` when the API returns the total message count
@@ -2436,6 +2450,33 @@ Finalizar (encerrar) um chat. A API responde **202 (Accepted)** — o encerramen
 ```
 
 **Returns:** Markdown confirmation that the chat was finished (202 Accepted, processed asynchronously).
+
+### cancel_chat
+Cancelar (descartar) um chat (`PUT /chats/{id}/cancel`, sem body). A API responde **202 (Accepted)** com `{"status":"enqueued","job_id":"..."}` — o cancelamento é processado de forma assíncrona; a API não devolve o status final, que aparece depois em `get_chat`.
+
+**Cancel vs. finish (`archive_chat`):** canceling discards the attendance and does **not** require a linked ticket, a service catalog item, or the attendant being online. Finishing (`archive_chat`) closes the attendance following the organization's rules. The AI should only cancel when the user explicitly asks — **canceling cannot be undone through the API**.
+
+**Parameters:**
+- `id` (number, required): Chat ID to cancel (accepts numeric string; must be a positive integer — validated locally, no request is sent otherwise)
+
+**Accepted states:** any chat not yet canceled nor finished (queue, inbox, in attendance).
+
+**Permissions:** the user needs the **"Acessar o chat"** and **"Cancelar chat"** permissions in their permission group (no admin bypass), and their attendant group must be linked to the chat's department. A chat from another organization also returns 403 (not 404).
+
+**Errors:**
+- 422 `42202` (`This conversation has already been canceled`) → "Chat já cancelado"
+- 422 `42203` (`This conversation is no longer active`) → "Chat já encerrado"
+- 403 → "Sem permissão para cancelar chat", with the permissions/department hint above
+- 404 → "Chat não encontrado" (only when the ID does not exist)
+
+**Example:**
+```json
+{
+  "id": 75
+}
+```
+
+**Returns:** Markdown confirmation `Cancelamento do chat #75 enfileirado`, with the `job_id` and a note that processing is asynchronous (check the result with `get_chat`).
 
 ### get_chats_feedback_report
 Relatório de avaliações de atendimento (CSAT) de chats com comparação automática de período. Retorna métricas de satisfação (média, avaliados, finalizados, taxa de resposta) com deltas entre dois períodos, e opcionalmente a lista de chats avaliados.
@@ -3327,7 +3368,7 @@ Contract readjustment board (read-only): lists contracts **and** contract groups
 - `contract_type_id` (number, optional): one contract type ID (from `list_contract_types`).
 - `offset` / `limit` (number, optional): page (1-based) and page size, 1–200 (default 20; above 200 clamped).
 
-**Returns (rich):** table with ID (`<id> · grupo` when `kind: "contract_group"`, same convention as `list_contracts`), Nome, Cliente, Tipo, Modalidade (raw text as the API returns it, e.g. `Hours`, `Saas/Product` — this endpoint returns a translated label, not the numeric enum of `list_contracts`), Fim do aditivo (`rider.cancel_date`), Valor and Taxa — plus an Expiração column **only when** some row on the page has `expiration_date`. Then a **"Detalhes do aditivo"** block per row with only the modality fields that are **non-zero** (hora excedente, atendimento excedente, hora externa/interna/remota, equipamento adicional), the rider's items (`items[]`, SaaS/Produto) and, for groups, the member contracts (`contracts[]`); long item/member lists are cut with a `+N não exibidos` notice. Table and detail block are cut **at the same row** when the response exceeds ~40k chars, with an exact `offset`/`limit` continuation line. Pagination uses `X-Total-Items`; a page past the end says which page is the last.
+**Returns (rich):** table with ID (`<id> · grupo` when `kind: "contract_group"`, same convention as `list_contracts`), Nome, Cliente, Tipo (`Nome (#id)` — the contract type ID, also present on group rows, leads to `list_contract_types` and to the `contract_type_id` filter; only the name when the payload has no `id`), Modalidade (raw text as the API returns it, e.g. `Hours`, `Saas/Product` — this endpoint returns a translated label, not the numeric enum of `list_contracts`), Fim do aditivo (`rider.cancel_date`), Valor and Taxa — plus an Expiração column **only when** some row on the page has `expiration_date`. Then a **"Detalhes do aditivo"** block per row with only the modality fields that are **non-zero** (hora excedente, atendimento excedente, hora externa/interna/remota, equipamento adicional), the rider's items (`items[]`, SaaS/Produto) and, for groups, the member contracts (`contracts[]`); long item/member lists are cut with a `+N não exibidos` notice. Table and detail block are cut **at the same row** when the response exceeds ~40k chars, with an exact `offset`/`limit` continuation line. Pagination uses `X-Total-Items`; a page past the end says which page is the last.
 
 **Returns (compact):** only the table.
 
@@ -4491,7 +4532,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /tickets/{ticket_number}/merge` - Merge a ticket into another; the merged ticket is cancelled, irreversible (`merge_ticket`)
 - `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
-- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, client_ids, contract_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name`, `valorization.shift_owner_ticket`, and `contract` at the item top level (view :global). Used by `list_appointments_global` and `list_appointments_report`.
+- `GET /appointments` - List global appointments across all tickets with server-side filters (user_ids, desk_ids, client_ids, contract_ids, contract_group_ids, start_date, end_date, include_valorization); returns X-Total-Items header. Response includes `external_user_name`, `valorization.shift_owner_ticket`, and `contract` at the item top level (view :global). Used by `list_appointments_global` and `list_appointments_report`.
 - `GET /tickets/{ticket_number}/appointments` - List ticket appointments with filters; returns X-Total-Items header. Response includes `external_user_name` and `valorization.shift_owner_ticket`. Used by `list_appointments`.
 - `GET /tickets/{ticket_number}/pre-appointments` - List open (in-progress) time records for a ticket; returns X-Total-Items header. Requires "Criar e editar apontamentos" permission and Tickets license. Used by `list_pre_appointments`.
 - `GET /chats/{id}` - Retrieve chat details. `origin` is an object `{ integration_id, _type, fields }`; displayed as `_type`. `assumed_at` synthesized for legacy chats (may differ from listing)
@@ -4503,6 +4544,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `PUT /chats/{id}` - Update a chat (transfer attendant/department, link ticket)
 - `POST /chats/send_message` - Send a WhatsApp message (free text or HSM template), creating the chat
 - `PUT /chats/{id}/archive` - Finish (archive) a chat
+- `PUT /chats/{id}/cancel` - Cancel (discard) a chat, no body; 202 with `job_id`, processed asynchronously (`cancel_chat`)
 - `GET /entities` - List custom field groups (`list_entities`)
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)

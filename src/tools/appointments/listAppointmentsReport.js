@@ -20,6 +20,7 @@ const { currencyBRL, footer, money, row } = require('../_shared/format');
 const { durationMinutes, formatMinutes } = require('./appointmentMath');
 const {
   CONTRACT_FILTER_NOTICE,
+  contractFilterLabel,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,
@@ -28,7 +29,7 @@ const {
 
 const schema = {
   name: 'list_appointments_report',
-  description: 'Relatório agregado de apontamentos por técnico N2 e mesa para um período. Agrupa por técnico (user) com contagem de apontamentos e soma de horas; sub-quebra opcional por mesa quando desk_ids/desk_names informados. Com include_valorization=true, inclui soma de valor por técnico e mesa, com montante de valor manual apartado nos totalizadores quando houver apontamentos com manual_value=true — essencial para auditorias de faturamento. Filtros por cliente (client_ids/client_names) e contrato (contract_ids) disponíveis. Ideal para relatórios de apoio N2. Requer permissão de acesso ao endpoint de apontamentos.',
+  description: 'Relatório agregado de apontamentos por técnico N2 e mesa para um período. Agrupa por técnico (user) com contagem de apontamentos e soma de horas; sub-quebra opcional por mesa quando desk_ids/desk_names informados. Com include_valorization=true, inclui soma de valor por técnico e mesa, com montante de valor manual apartado nos totalizadores quando houver apontamentos com manual_value=true — essencial para auditorias de faturamento. Filtros por cliente (client_ids/client_names), contrato (contract_ids) e grupo de contrato (contract_group_ids, expandido para os contratos-membro; combinado com contract_ids traz a união) disponíveis — apontamentos sem contrato ficam fora quando um dos filtros de contrato está ativo. Ideal para relatórios de apoio N2. Requer permissão de acesso ao endpoint de apontamentos.',
   inputSchema: {
     type: 'object',
     properties: appointmentFilterSchemaProperties({
@@ -266,6 +267,7 @@ async function execute(args, { api, verbosity }) {
     client_ids,
     client_names,
     contract_ids,
+    contract_group_ids,
     include_valorization
   } = args;
 
@@ -274,9 +276,9 @@ async function execute(args, { api, verbosity }) {
 
   const hasDeskFilter = !!(desk_ids || desk_names);
 
-  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids });
+  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids, contract_group_ids });
   if (resolvedIds.error) return resolvedIds.response;
-  const { userIds: finalUserIds, deskIds: finalDeskIds, clientIds: finalClientIds, contractIds: finalContractIds } = resolvedIds;
+  const { userIds: finalUserIds, deskIds: finalDeskIds, clientIds: finalClientIds, contractIds: finalContractIds, contractGroupIds: finalContractGroupIds } = resolvedIds;
 
   const includeValorization = include_valorization === true;
 
@@ -288,6 +290,7 @@ async function execute(args, { api, verbosity }) {
       desk_ids: finalDeskIds,
       client_ids: finalClientIds,
       contract_ids: finalContractIds,
+      contract_group_ids: finalContractGroupIds,
       include_valorization: includeValorization
     });
 
@@ -297,13 +300,13 @@ async function execute(args, { api, verbosity }) {
 
     const allAppointments = paged.appointments;
 
-    // A2/A1: com contract_ids ativo a API exclui apontamentos sem contrato — em
+    // A2/A1: com contract_ids/contract_group_ids ativo a API exclui apontamentos sem contrato — em
     // auditoria de faturamento essa omissao nao pode ser silenciosa (paridade
     // com o rodape de list_appointments_global).
     let contractNotice = '';
-    if (finalContractIds) {
+    if (finalContractIds || finalContractGroupIds) {
       contractNotice = v === 'compact'
-        ? '[aviso: contract_ids ativo — apontamentos sem contrato excluídos]\n'
+        ? `[aviso: ${contractFilterLabel(finalContractIds, finalContractGroupIds)} ativo — apontamentos sem contrato excluídos]\n`
         : `${CONTRACT_FILTER_NOTICE}\n\n`;
     }
 

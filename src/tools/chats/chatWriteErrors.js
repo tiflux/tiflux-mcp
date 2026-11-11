@@ -1,5 +1,5 @@
 /**
- * Helper de erros das operações de ESCRITA em chat (update/send_message/archive).
+ * Helper de erros das operações de ESCRITA em chat (update/send_message/archive/cancel).
  *
  * Centraliza os blocos 403/404/422/genérico que antes eram copiados nos 3 slices
  * (duplicação flagrada pelo SonarQube). NÃO é um slice — não é registrado como tool;
@@ -7,7 +7,9 @@
  *
  * `label` é o verbo da ação ("atualizar chat", "enviar mensagem", "finalizar chat");
  * `id` aparece quando presente; `notFoundHint`/`validationHint` dão a dica específica
- * de cada slice. O ramo 404 só é exercido por slices que operam sobre um chat existente.
+ * de cada slice; `forbiddenHint` (opcional) troca a dica do 403 — sem ele, vale o texto
+ * genérico de permissão. O ramo 404 só é exercido por slices que operam sobre um chat existente.
+ * `alreadyCanceledHint` (opcional) troca a dica do 422 "já cancelado" (usado pelo cancel_chat).
  */
 
 const { errorResponse, extractApiErrorCode } = require('../_shared/errors');
@@ -18,8 +20,14 @@ const { errorResponse, extractApiErrorCode } = require('../_shared/errors');
 const CHAT_INACTIVE_ERROR_CODE = 42203;
 const CHAT_INACTIVE_TEXT = 'no longer active';
 const USER_OFFLINE_TEXT = 'User is offline';
+// 42202 do PUT /chats/{id}/cancel: detail.archived = ["This conversation has already been canceled"].
+// Casa a chave `"archived"` do JSON bruto + o texto (e nao a substring solta no corpo
+// inteiro): um 422 de send/update que ecoe conteudo do usuario com "already been
+// canceled" nao vira "Chat já cancelado" — no eco, as aspas chegam escapadas (\").
+const CHAT_ALREADY_CANCELED_PATTERN = /"archived"\s*:\s*\[[^\]]*already been canceled/;
+const DEFAULT_FORBIDDEN_HINT = 'Verifique se sua conta tem permissão ou licença para gerenciar chats.';
 
-function chatWriteApiError(response, { label, id, notFoundHint, validationHint } = {}) {
+function chatWriteApiError(response, { label, id, notFoundHint, validationHint, forbiddenHint, alreadyCanceledHint } = {}) {
   const code = response.status;
   const idLine = id !== undefined ? `**ID:** ${id}\n` : '';
 
@@ -35,12 +43,22 @@ function chatWriteApiError(response, { label, id, notFoundHint, validationHint }
       `**Sem permissão para ${label}**\n\n` +
       `**Código:** 403\n` +
       `**Mensagem:** ${response.error}\n\n` +
-      `*Verifique se sua conta tem permissão ou licença para gerenciar chats.*`
+      `*${forbiddenHint || DEFAULT_FORBIDDEN_HINT}*`
     );
   }
   if (code === 422) {
     const errorText = typeof response.error === 'string' ? response.error : '';
     const errorCode = extractApiErrorCode(response);
+
+    if (CHAT_ALREADY_CANCELED_PATTERN.test(errorText)) {
+      const canceledHint = alreadyCanceledHint || `Este chat foi cancelado — não é possível ${label} nele.`;
+      return errorResponse(
+        `**Chat já cancelado**\n\n` +
+        `${idLine}**Código:** 422\n` +
+        `**Mensagem:** ${response.error}\n\n` +
+        `*${canceledHint}*`
+      );
+    }
 
     if (errorCode === CHAT_INACTIVE_ERROR_CODE || errorText.includes(CHAT_INACTIVE_TEXT)) {
       return errorResponse(

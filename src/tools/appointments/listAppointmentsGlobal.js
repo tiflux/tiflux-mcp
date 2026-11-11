@@ -23,6 +23,7 @@ const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const {
   ATTENDANCE_LABELS,
   CONTRACT_FILTER_NOTICE,
+  contractFilterLabel,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
   resolveAppointmentFilterIds,
@@ -31,7 +32,7 @@ const {
 
 const schema = {
   name: 'list_appointments_global',
-  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico, mesa, cliente e contrato. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, aditivo do contrato (número e versão, ex.: aditivo nº 1 v0), 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Filtro por cliente (client_ids/client_names) e por contrato (contract_ids) disponíveis — note que apontamentos sem contrato somem do resultado quando contract_ids está ativo. Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
+  description: 'Listar apontamentos globais por período, com filtros opcionais por técnico, mesa, cliente e contrato. Requer permissão de acesso ao endpoint de apontamentos. Quando user_ids/user_names é informado, inclui nota se o filtro pode estar sendo ignorado por falta de permissão "Visualizar relatórios dos técnicos". Com include_valorization=true, exibe tipo de atendimento, valor, aditivo do contrato (número e versão, ex.: aditivo nº 1 v0), 🛡️ Garantia (quando guarantee=true) e ✋ Valor manual (quando manual_value=true — valor digitado manualmente, contornando a tarifa do contrato). Filtro por cliente (client_ids/client_names), por contrato (contract_ids) e por grupo de contrato (contract_group_ids, expandido para os contratos-membro; combinado com contract_ids traz a união) disponíveis — note que apontamentos sem contrato somem do resultado quando contract_ids ou contract_group_ids está ativo. Use list_appointments_report para obter o relatório agregado por N2 com totalizadores.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -162,6 +163,25 @@ function formatAppointmentsGlobalList(appointments, opts = {}) {
 }
 
 /**
+ * Rodapé quando contract_ids/contract_group_ids está ativo: avisa sobre A2 (apontamento
+ * sem contrato some) e A1 (Shared expande grupo→membro). Vazio quando nenhum dos dois.
+ */
+function buildContractNotice(verbosity, { finalContractIds, finalContractGroupIds }) {
+  if (!finalContractIds && !finalContractGroupIds) return '';
+
+  const applied = [];
+  if (finalContractIds) applied.push({ label: 'contract_ids', value: finalContractIds, origin: 'informado' });
+  if (finalContractGroupIds) applied.push({ label: 'contract_group_ids', value: finalContractGroupIds, origin: 'informado' });
+  const contractFooter = renderAppliedFilters(applied, verbosity);
+
+  if (verbosity === 'compact') {
+    return (contractFooter ? `\n${contractFooter}` : '') +
+      `\n[aviso: ${contractFilterLabel(finalContractIds, finalContractGroupIds)} ativo — apontamentos sem contrato excluídos; em contratos Shared, contract.id retornado pode diferir do filtrado (grupo→membro) — NÃO refiltrar por contract.id]`;
+  }
+  return (contractFooter ? `\n\n${contractFooter}` : '') + `\n\n${CONTRACT_FILTER_NOTICE}`;
+}
+
+/**
  * Monta as notas/avisos de rodapé anexadas após a lista (nota de permissão de
  * user_names + aviso de contract_ids). Extraído do `execute()` para reduzir a
  * complexidade cognitiva (Sonar: `execute` estava em 18, acima do limite de 15).
@@ -171,9 +191,10 @@ function formatAppointmentsGlobalList(appointments, opts = {}) {
  * @param {boolean} opts.userNamesRequested - user_ids/user_names foi informado
  * @param {number} opts.appointmentsLength - itens retornados (a nota de permissão só faz sentido com >0)
  * @param {string|null} opts.finalContractIds - contract_ids resolvido (null = filtro inativo)
+ * @param {string|null} opts.finalContractGroupIds - contract_group_ids resolvido (null = filtro inativo)
  * @returns {string} texto a concatenar ao resultado (pode ser vazio)
  */
-function buildNotices(verbosity, { userNamesRequested, appointmentsLength, finalContractIds }) {
+function buildNotices(verbosity, { userNamesRequested, appointmentsLength, finalContractIds, finalContractGroupIds }) {
   const isCompact = verbosity === 'compact';
   let notices = '';
 
@@ -184,20 +205,7 @@ function buildNotices(verbosity, { userNamesRequested, appointmentsLength, final
       : '\n\n> ⚠️ **Nota:** se este usuário não tem a permissão "Visualizar relatórios dos técnicos", o filtro por técnico pode ter sido ignorado pela API — os resultados podem incluir apontamentos de outros técnicos.';
   }
 
-  // Rodape quando contract_ids ativo: avisa sobre A2 (sem contrato some) e A1 (Shared expande id)
-  if (finalContractIds) {
-    const contractFooter = renderAppliedFilters([
-      { label: 'contract_ids', value: finalContractIds, origin: 'informado' }
-    ], verbosity);
-
-    if (isCompact) {
-      if (contractFooter) notices += `\n${contractFooter}`;
-      notices += '\n[aviso: contract_ids ativo — apontamentos sem contrato excluídos; em contratos Shared, contract.id retornado pode diferir do filtrado (grupo→membro) — NÃO refiltrar por contract.id]';
-    } else {
-      if (contractFooter) notices += `\n\n${contractFooter}`;
-      notices += `\n\n${CONTRACT_FILTER_NOTICE}`;
-    }
-  }
+  notices += buildContractNotice(verbosity, { finalContractIds, finalContractGroupIds });
 
   return notices;
 }
@@ -213,6 +221,7 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
     client_ids,
     client_names,
     contract_ids,
+    contract_group_ids,
     include_valorization,
     offset = 1,
     limit = 20
@@ -223,9 +232,9 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
 
   const userNamesRequested = !!(user_names || user_ids);
 
-  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids });
+  const resolvedIds = await resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids, contract_group_ids });
   if (resolvedIds.error) return resolvedIds.response;
-  const { userIds: finalUserIds, deskIds: finalDeskIds, clientIds: finalClientIds, contractIds: finalContractIds } = resolvedIds;
+  const { userIds: finalUserIds, deskIds: finalDeskIds, clientIds: finalClientIds, contractIds: finalContractIds, contractGroupIds: finalContractGroupIds } = resolvedIds;
 
   const effectiveOffset = Math.max(1, Number.parseInt(offset) || 1);
   const effectiveLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
@@ -238,6 +247,7 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
       desk_ids: finalDeskIds,
       client_ids: finalClientIds,
       contract_ids: finalContractIds,
+      contract_group_ids: finalContractGroupIds,
       include_valorization: include_valorization === true,
       offset: effectiveOffset,
       limit: effectiveLimit
@@ -255,7 +265,8 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
     const notices = buildNotices(verbosity, {
       userNamesRequested,
       appointmentsLength: appointments.length,
-      finalContractIds
+      finalContractIds,
+      finalContractGroupIds
     }) + autoCompactNotice;
 
     // Teto por item (F3): a lista desconta o tamanho dos avisos anexados depois dela.

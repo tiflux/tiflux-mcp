@@ -24,12 +24,20 @@ const MAX_IDS = 15;
 const PARAM_HINT = '*Verifique os parâmetros (start_date/end_date obrigatórios, desk_ids deve ser numérico).*';
 
 /**
- * Aviso exibido quando contract_ids esta ativo (A2 + A1).
+ * Aviso exibido quando contract_ids ou contract_group_ids esta ativo (A2 + A1).
  * Compartilhado entre list_appointments_global e list_appointments_report — a
  * exclusao de apontamentos sem contrato precisa ser visivel nos dois (o report
  * e usado em auditoria de faturamento; omissao silenciosa subnotifica horas).
  */
 const CONTRACT_FILTER_NOTICE = '> ⚠️ **Filtro por contrato ativo:** apontamentos sem contrato são excluídos do resultado. Em contratos Shared, o `contract.id` retornado pode diferir do id filtrado (comportamento esperado da API — expande grupo→membro).';
+
+/**
+ * Rotulo curto (modo compact) dos filtros de contrato ativos: "contract_ids",
+ * "contract_group_ids" ou "contract_ids/contract_group_ids".
+ */
+function contractFilterLabel(contractIds, contractGroupIds) {
+  return [contractIds && 'contract_ids', contractGroupIds && 'contract_group_ids'].filter(Boolean).join('/');
+}
 
 /**
  * Mapeamento de tipo de atendimento (string da API → label PT-BR).
@@ -101,9 +109,57 @@ function appointmentFilterSchemaProperties(descriptions = {}) {
     },
     contract_ids: {
       type: 'string',
-      description: desc('contract_ids', 'IDs dos contratos separados por vírgula (máximo 15). Aceita também ID de grupo de contrato (ver get_contract_group) — a API só trata o ID como grupo quando NÃO existe contrato com o mesmo número; na colisão, a API filtra pelo contrato, então use os IDs dos contratos-membro do grupo (obtidos via get_contract_group) em vez do ID do grupo. Atenção (A2): apontamentos sem contrato somem do resultado quando este filtro está ativo. Atenção (A1): em contratos Shared, o contract.id retornado pode ser diferente do id filtrado — isso é comportamento da API (expande grupo → membro) e NÃO indica erro nem filtragem incorreta.')
+      description: desc('contract_ids', 'IDs dos contratos separados por vírgula (máximo 15). Aceita também ID de grupo de contrato (ver get_contract_group) — a API só trata o ID como grupo quando NÃO existe contrato com o mesmo número; na colisão, a API filtra pelo contrato, então para filtrar por grupo use contract_group_ids. Atenção (A2): apontamentos sem contrato somem do resultado quando este filtro está ativo. Atenção (A1): em contratos Shared, o contract.id retornado pode ser diferente do id filtrado — isso é comportamento da API (expande grupo → membro) e NÃO indica erro nem filtragem incorreta.')
+    },
+    contract_group_ids: {
+      type: 'string',
+      description: desc('contract_group_ids', 'IDs dos grupos de contrato separados por vírgula (máximo 15, ver get_contract_group). A API expande cada grupo (só grupos Compartilhados têm membros) para os contratos-membro; grupo inexistente ou de outra organização não traz nada. Combinado com contract_ids, o resultado é a união dos dois filtros. Atenção (A2): apontamentos sem contrato somem do resultado quando este filtro está ativo; o contract.id retornado é o do contrato-membro, não o do grupo.')
     }
   };
+}
+
+/**
+ * Validacao estrita de uma lista de IDs (formato inteiro positivo + sem duplicata).
+ * @param {string[]} rawIds
+ * @param {string} fieldName
+ * @returns {{ error: true, response: object }|null}
+ */
+function strictIdsError(rawIds, fieldName) {
+  // Campo informado mas sem nenhum ID (ex: "," ou " , "): sem esta guarda o filtro
+  // some e a consulta volta a organizacao inteira, sem aviso.
+  if (rawIds.length === 0) {
+    return {
+      error: true,
+      response: errorResponse(
+        `**❌ \`${fieldName}\` sem IDs**\n\n` +
+        `O campo foi informado, mas não contém nenhum ID.\n\n` +
+        `*Informe IDs inteiros positivos separados por vírgula (ex: "12,45") ou omita o campo.*`
+      )
+    };
+  }
+  const invalid = rawIds.filter(id => !/^[1-9]\d*$/.test(id));
+  if (invalid.length > 0) {
+    return {
+      error: true,
+      response: errorResponse(
+        `**❌ Formato inválido em \`${fieldName}\`**\n\n` +
+        `Valores não numéricos: ${invalid.map(v => JSON.stringify(v)).join(', ')}.\n\n` +
+        `*Informe IDs inteiros positivos separados por vírgula (ex: "12,45").*`
+      )
+    };
+  }
+  const duplicates = [...new Set(rawIds.filter((id, i) => rawIds.indexOf(id) !== i))];
+  if (duplicates.length > 0) {
+    return {
+      error: true,
+      response: errorResponse(
+        `**❌ ID duplicado em \`${fieldName}\`**\n\n` +
+        `Repetidos: ${duplicates.join(', ')}.\n\n` +
+        `*Informe cada ID uma única vez.*`
+      )
+    };
+  }
+  return null;
 }
 
 /**
@@ -112,17 +168,27 @@ function appointmentFilterSchemaProperties(descriptions = {}) {
  * localmente quando o usuario passa mais que MAX_IDS ids, evitando relatorio
  * sobre amostra parcial sem aviso.
  *
- * Aplica-se a client_ids, contract_ids e aos ids resolvidos de client_names.
- * user_ids/desk_ids continuam truncando via capIds() por compatibilidade
+ * Aplica-se a client_ids, contract_ids, contract_group_ids e aos ids resolvidos de
+ * client_names. user_ids/desk_ids continuam truncando via capIds() por compatibilidade
  * retroativa (comportamento legado).
+ *
+ * `strict` (usado por contract_group_ids, filtro novo sem legado): rejeita localmente
+ * item nao numerico e ID duplicado — espelha a validacao da API (lista de inteiros,
+ * uniqueItems) em vez de deduplicar em silencio. Os campos legados mantem o dedup.
  *
  * @param {string} csv - CSV de IDs
  * @param {string} fieldName - nome do campo (para mensagem de erro)
+ * @param {{ strict?: boolean }} [options]
  * @returns {{ error: boolean, ids?: string, response?: object }}
  */
-function validateAndNormalizeIds(csv, fieldName) {
+function validateAndNormalizeIds(csv, fieldName, { strict = false } = {}) {
   if (!csv) return { error: false, ids: null };
-  const ids = [...new Set(String(csv).split(',').map(s => s.trim()).filter(Boolean))];
+  const rawIds = String(csv).split(',').map(s => s.trim()).filter(Boolean);
+  if (strict) {
+    const strictError = strictIdsError(rawIds, fieldName);
+    if (strictError) return strictError;
+  }
+  const ids = [...new Set(rawIds)];
   if (ids.length > MAX_IDS) {
     return {
       error: true,
@@ -185,7 +251,7 @@ async function resolveCsvNamesToIds(csvNames, resolveOne, { cap = true } = {}) {
 }
 
 /**
- * Normaliza user_ids/desk_ids/client_ids/contract_ids, resolvendo nomes quando os IDs
+ * Normaliza user_ids/desk_ids/client_ids/contract_ids/contract_group_ids, resolvendo nomes quando os IDs
  * nao forem informados diretamente (IDs tem precedencia sobre nomes).
  *
  * D6: client_ids, client_names (apos resolucao) e contract_ids sao validados com
@@ -196,10 +262,10 @@ async function resolveCsvNamesToIds(csvNames, resolveOne, { cap = true } = {}) {
  *     resultados de contratos Shared silenciosamente. Nao "consertar" este comportamento.
  *
  * @param {object} api - instancia de TiFluxAPI
- * @param {object} args - { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids }
- * @returns {Promise<{error: boolean, userIds?: string|null, deskIds?: string|null, clientIds?: string|null, contractIds?: string|null, response?: object}>}
+ * @param {object} args - { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids, contract_group_ids }
+ * @returns {Promise<{error: boolean, userIds?: string|null, deskIds?: string|null, clientIds?: string|null, contractIds?: string|null, contractGroupIds?: string|null, response?: object}>}
  */
-async function resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids }) {
+async function resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids, desk_names, client_ids, client_names, contract_ids, contract_group_ids }) {
   let userIds = user_ids ? capIds(user_ids) : null;
   let deskIds = desk_ids ? capIds(desk_ids) : null;
 
@@ -250,7 +316,16 @@ async function resolveAppointmentFilterIds(api, { user_ids, user_names, desk_ids
     contractIds = v.ids;
   }
 
-  return { error: false, userIds, deskIds, clientIds, contractIds };
+  // contract_group_ids: D6 (<=15, sem truncar) + modo estrito (inteiros, sem duplicata,
+  // como a API valida). A API expande o grupo para os membros e une com contract_ids.
+  let contractGroupIds = null;
+  if (contract_group_ids) {
+    const v = validateAndNormalizeIds(contract_group_ids, 'contract_group_ids', { strict: true });
+    if (v.error) return v;
+    contractGroupIds = v.ids;
+  }
+
+  return { error: false, userIds, deskIds, clientIds, contractIds, contractGroupIds };
 }
 
 /**
@@ -287,6 +362,7 @@ function appointmentsApiErrorResponse(response, failureTitle) {
 module.exports = {
   ATTENDANCE_LABELS,
   CONTRACT_FILTER_NOTICE,
+  contractFilterLabel,
   ATTENDANCE_KIND_LABELS,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
