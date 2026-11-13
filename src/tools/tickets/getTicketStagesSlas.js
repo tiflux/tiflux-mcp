@@ -74,7 +74,7 @@ async function execute(args, { api, verbosity }) {
       const parsed = durations.map(d => (d === null || d === undefined || d === '' ? null : durationMin(d)));
       const allParsable = durations.every((d, i) => d === null || d === undefined || d === '' || parsed[i] !== null);
 
-      let text = `Estágios/SLA #${ticket_number} (${items.length}) · ${allParsable ? 'dur em min' : 'dur bruta'} · datas ISO UTC\n`;
+      let text = `Estágios/SLA #${ticket_number} (${items.length}) · ${allParsable ? 'dur em min' : 'dur bruta'} · datas ISO -03:00 (Brasília)\n`;
       text += `estagio|mesa|${allParsable ? 'min' : 'dur'}|sla|expira|entrou|entrou_por|atendido|atendido_por\n`;
 
       items.forEach((item, index) => {

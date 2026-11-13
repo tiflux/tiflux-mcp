@@ -173,19 +173,28 @@ O servidor suporta dois modos de verbosidade para controlar o consumo de tokens:
 | Modo | Descrição |
 |------|-----------|
 | `rich` | Saída completa em Markdown com emojis, rodapés e blocos de paginação detalhados (padrão) |
-| `compact` | Saída enxuta, pensada para consumo por modelo: sem rodapé decorativo, sem emoji, sem negrito nem separadores de tabela; paginação em uma linha. Nas ferramentas de análise, os itens saem como linhas delimitadas por `\|` precedidas de uma linha-cabeçalho com os nomes das colunas. `get_ticket` omite SLA sub-fields, equipamento, feedback, tempo de resolução e flags de baixo valor — hierarquia vira `Pai: #N \| Filhos: #A, #B` (só números), solicitante vira `Solicitante: <nome> <email>`, checklists apenas quando bloqueiam; descrições longas são truncadas |
+| `compact` | Saída enxuta, pensada para consumo por modelo: sem rodapé decorativo, sem emoji, sem negrito nem separadores de tabela; paginação em uma linha. Nas ferramentas de análise, os itens saem como linhas delimitadas por `\|` precedidas de uma linha-cabeçalho com os nomes das colunas. `get_ticket` mostra os prazos de SLA rotulados (`Resolução vence`, `Atendimento vence`, `Prazo do estágio`, `SLA pausado`) e omite equipamento, feedback, tempo de resolução e flags de baixo valor — hierarquia vira `Pai: #N \| Filhos: #A, #B` (só números), solicitante vira `Solicitante: <nome> <email>`, checklists apenas quando bloqueiam; descrições longas são truncadas |
 
 > **`compact` remove formatação, nunca dado.** Itens pedidos explicitamente por parâmetro
 > (`include_list`, `include_valorization`) são sempre renderizados, nos dois modos.
 
 #### Formato dos valores em `compact`
 
+> **⚠️ Mudança na v2.64.0 — atenção se você faz parse do texto `compact`.** Todas as datas do
+> modo `compact` (em todas as ferramentas) trocaram o sufixo `Z` (UTC) por `-03:00` (horário de
+> Brasília): `2026-11-13T01:10Z` passou a sair `2026-11-12T22:10-03:00` — mesmo instante, ainda
+> ISO 8601, mas o dia e a hora no texto mudam. Os rótulos de SLA também mudaram: em `get_ticket`,
+> `SLA expira: <data>` virou `Resolução vence` / `Atendimento vence` (com `no prazo`/`estourado`) /
+> `Prazo do estágio` / `SLA pausado`; em `list_tickets`, cada linha ganhou `| resolução vence <data>`,
+> `| atendimento vence <data>` (com ` (estourado)` quando o prazo já passou e estourou) e `| pausado`.
+> Regex que esperam `Z` ou `SLA expira` precisam ser ajustados. O modo `rich` não mudou de formato.
+
 Nas ferramentas de análise, os valores saem em forma canônica — o objetivo é que o modelo leia e
 agregue sem precisar converter string antes de calcular:
 
 | Tipo | `rich` | `compact` |
 |------|--------|-----------|
-| Data/hora | `16/04/2026, 10:00:00` (horário de Brasília) | `2026-04-16T13:00Z` (ISO em UTC, sufixo `Z`, precisão de minuto — o mesmo instante em qualquer fuso) |
+| Data/hora | `16/04/2026, 10:00:00` (horário de Brasília) | `2026-04-16T10:00-03:00` (ISO na hora de Brasília com o offset explícito, precisão de minuto — continua o mesmo instante e parseável, e o dia bate com o de Brasília). Até a v2.63 saía em UTC com `Z` (`2026-04-16T13:00Z`), o que jogava um evento das 22h de Brasília no dia seguinte |
 | Duração | `2:15` | `135` (minutos inteiros; a unidade é declarada no cabeçalho) |
 | Valor monetário | `R$ 28.963,20` | `28963.20` (decimal, sem símbolo nem separador de milhar) |
 | Booleano | `✅ Sim` / `❌ Não` | `true` / `false` |
@@ -198,7 +207,13 @@ Ferramentas com saída tabular dedicada em `compact`: `get_ticket`, `list_ticket
 
 Em `list_tickets`, a linha `compact` de cada ticket traz cliente, mesa, status, estágio,
 responsável, prioridade, catálogo e o dia de criação (`criado YYYY-MM-DD`, dia em horário
-de Brasília); a descrição fica fora (use `get_ticket`).
+de Brasília); em ticket aberto, também o vencimento do SLA (`| resolução vence …`,
+`| atendimento vence …`, `| pausado`; ` (estourado)` depois da data quando o prazo já passou e o
+SLA estourou). A descrição fica fora (use `get_ticket`).
+
+> **Contrato de saída:** rótulos de SLA, marcador de corte, cabeçalhos de página e formato de
+> data são estáveis — há consumidores que parseiam o texto. Mudar um deles pede bump minor e
+> nota de versão.
 
 Em `compact`, a paginação é uma linha só: `[Pág N · K <unidade>/pág · X nesta pág · total: T · → offset: N+1 p/ mais]`
 (ex.: `[Pág 1 · 200 tickets/pág · 200 nesta pág · total: 1305 · → offset: 2 p/ mais]`). `total` aparece
@@ -281,9 +296,19 @@ Comprehensive ticket information including:
 - Hierarchy: single line `Pai: #N | Filhos: #A, #B` (numbers only, no titles)
 - Requestor: `Solicitante: <name> <email>`
 - Checklists: shown only when `blocks_close` or `required_pending > 0`
-- `Criado:` (created date/time) in UTC with `Z` suffix
-- When the ticket is closed/canceled, an extra line `Fechado: <UTC 'Z'> · no prazo: sim|não · resolução: <closed_ticket_total_spent_solving>` — a missing sub-field (e.g. no `attend_sla_solution`) is simply omitted, never breaks the line
-- Equipment, feedback, resolution time, SLA sub-fields, and low-value flags are omitted in compact
+- `Criado:` (created date/time) in Brasília time with explicit offset (e.g. `2026-10-28T15:31-03:00`)
+- When the ticket is closed/canceled, an extra line `Fechado: <date -03:00> · no prazo: sim|não · resolução: <closed_ticket_total_spent_solving>` — a missing sub-field (e.g. no `attend_sla_solution`) is simply omitted, never breaks the line
+- **SLA deadlines, labelled** (each line only when the data is present):
+  ```
+  Resolução vence: 2026-11-12T08:14-03:00 (estourado)
+  Atendimento vence: 2026-10-28T16:31-03:00 (no prazo)
+  Prazo do estágio: 2026-11-13T13:13-03:00
+  SLA pausado: sim — Devido sua entrada no estágio 2 - Aguardando Cliente
+  ```
+  The verdict comes from `attend_sla_solution` / `attend_sla` (computed live by the API on open tickets). `SLA pausado` appears only when `sla_info.stopped` is true. This replaces the old `SLA expira: <raw>` line, which showed the **stage** deadline (in raw UTC) as if it were the resolution deadline. The `rich` output is unchanged.
+- Equipment, feedback, resolution time, and low-value flags are omitted in compact
+
+**New in v2.64.0:** the `compact` output replaces `SLA expira: <raw>` (which was the **stage** deadline, in raw UTC) with labelled deadlines — `Resolução vence`, `Atendimento vence` (with `no prazo`/`estourado`), `Prazo do estágio` and `SLA pausado: sim — <reason>`. All `compact` dates (every tool) now come in Brasília time with explicit offset (`2026-11-12T22:10-03:00`) instead of UTC `Z` (`2026-11-13T01:10Z`) — same instant, still ISO 8601, but the day matches Brasília. The `rich` output is unchanged.
 
 **New in v2.48.1:** `get_ticket` now correctly surfaces the ticket's **closing date/time** (`sla_info.solved_in_time`, previously misread as a boolean) as `Fechado em` (rich) / `Fechado:` (compact), and the real "resolved in time" boolean (`sla_info.attend_sla_solution`) as `Resolvido no prazo: Sim/Não`. `Criado em`/`Atualizado em` and SLA expirations now render with date **and** time in Brasília time in `rich` (previously ISO/raw).
 
@@ -451,7 +476,7 @@ Cancel a specific ticket in Tiflux.
 ```
 
 ### list_tickets
-List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response). The listing already includes both the **opening** date/time (`Criado em`, with time in `rich`) and, when the ticket is closed or cancelled, the **closing** date/time (`Fechado em` in `rich`; `| fechado ...` suffix in `compact`) — there's no need to call `get_ticket` per ticket just to get these dates.
+List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response). The listing already includes both the **opening** date/time (`Criado em`, with time in `rich`) and, when the ticket is closed or cancelled, the **closing** date/time (`Fechado em` in `rich`; `| fechado ...` suffix in `compact`) — there's no need to call `get_ticket` per ticket just to get these dates. On **open** tickets it also shows the **SLA deadline** (resolution, pending first attendance, and whether the SLA is paused) — no `get_ticket` per ticket is needed to know when each one is due. The API does not sort by SLA deadline: the consumer sorts. With `sla_expiring_before` + `limit: 200`, one page usually covers the whole desk.
 
 **Parameters:**
 - `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3") — **max 15**. Duplicates are removed and, above 15, only the first 15 are applied with a warning in the response. The same applies to `client_ids`, `stage_ids`, `responsible_ids` and `requestor_ids`.
@@ -477,9 +502,12 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
+- `search` (string, optional): Word search done by the API in the title, client name, desk name, ticket number, responsible and the start of the description (measured: most matches come from the title). Counts as a strong scope **when it has 3+ characters after trimming** (e.g. `filter_by="open"` + `search="API"` is accepted); a shorter term (`"ab"`) is still sent to the API, but only together with a desk or another scope. It **complements the desk, it does not replace it** — prefer `desk_name` + `search`.
+- `update_start_datetime` (string, optional): Tickets updated at or after this ISO 8601 date/time. Like `search`, counts as a strong scope on its own (e.g. `filter_by="open"` + `update_start_datetime` is accepted without a desk).
+- `update_end_datetime` (string, optional): Tickets updated at or before this ISO 8601 date/time. Also counts as a strong scope on its own.
 - `created_by_way_of` (string, optional): Filter tickets by creation origin. Accepted values: `"web"` (Tiflux Web), `"agent"` (Agente), `"chat_widget"` (Chat Widget), `"whatsapp"` (WhatsApp), `"email"` (E-mail), `"external_form"` (Formulario Externo), `"mobile"` (Mobile), `"api"` (API), `"chat"` (Chat), `"recurrent_activity"` (Atividade Recorrente), `"trigger"` (Gatilho), `"ticket_group"` (Grupo de Tickets), `"ai_agent"` (Agente de IA). Invalid values are rejected locally without calling the API.
 
-**Note:** At least one filter is required (desk, client, requestor, responsible, `stage_ids`, date range, SLA, catalog, priority, or `created_by_way_of`). `stage_name` alone is not a scope — it requires a desk.
+**Note:** At least one filter is required (desk, client, requestor, responsible, `stage_ids`, date range, update range, `search` with 3+ characters, SLA, catalog, priority, or `created_by_way_of`). `stage_name` alone is not a scope — it requires a desk.
 
 **Guard-rails for `date_type="solved_in_time"`:**
 - If `filter_by` is **not** provided, the MCP assumes `filter_by="closed"` and announces it in the response (e.g., "Status: Fechados — assumido; use 'all' para incluir cancelados"). Use `filter_by="all"` to include cancelled tickets too.
@@ -495,12 +523,33 @@ List tickets with filtering options. Catalog and priority are automatically show
 | "João's tickets" (person who opened them) | `requestor_email` or `requestor_ids` |
 | "tickets assigned to João" | `responsible_name="João"` |
 | "this semester vs last" | `get_tickets_comparison` |
+| "which tickets' SLA is due today in desk X?" | `desk_name` + `sla_expiring_before=<end of today>` + `limit=200` — each line already shows the deadline or `pausado` (1 call) |
+| "open tickets in desk X about API" | `desk_name` + `filter_by="open"` + `search="API"` |
+| "tickets updated since Monday in desk X" | `desk_name` + `update_start_datetime` |
 
 **Zero-result diagnostics:** When the response is empty (no tickets), the MCP automatically runs up to 2 sonda API calls to tell the AI *why* — whether it's the status filter, the date range, or a genuine zero for this scope.
 
 **Compact line (`compact`, explicit or automatic):** one line per ticket — `#N title | client | desk | status | stage | responsible | priority | catalog | criado YYYY-MM-DD`, e.g. `#10000 Impressora não imprime em rede (0) | Cliente 00 | Suporte N2 | Aberto | Em atendimento | Técnico 00 | Alta | Infraestrutura › Impressoras › Manutenção | criado 2026-09-01`. The creation date is the day in Brasília time (`America/Sao_Paulo`), not the UTC day — a ticket created at 22:00 in Brasília stays on that day. Missing fields show `—`. The description is not included; use `get_ticket #N` for it.
 
-When the ticket is closed or cancelled (`sla_info.solved_in_time` present), the compact line gets a `| fechado <UTC 'Z'>` suffix (e.g. `| fechado 2026-09-22T21:45Z`) and the `rich` card gets an extra `✅ **Fechado em:** <date, time — Brasília>` line right after `📅 **Criado em:**` (which now also shows the time, not just the date, in Brasília time).
+When the ticket is closed or cancelled (`sla_info.solved_in_time` present), the compact line gets a `| fechado <date -03:00>` suffix (e.g. `| fechado 2026-09-22T18:45-03:00`) and the `rich` card gets an extra `✅ **Fechado em:** <date, time — Brasília>` line right after `📅 **Criado em:**` (which now also shows the time, not just the date, in Brasília time).
+
+**New in v2.64.0:** SLA deadline per open ticket (with ` (estourado)` when already breached), `search` / `update_start_datetime` / `update_end_datetime` filters (`search` alone needs 3+ characters to skip the desk), weekly buckets with dates, and `compact` dates in Brasília time with offset (`-03:00` instead of `Z`).
+
+**SLA deadline (open tickets only, from `sla_info` already in `GET /tickets`):**
+- `compact`: `| resolução vence <date -03:00>` when there is a resolution deadline; `| atendimento vence <date -03:00>` while the first-attendance deadline is still ahead; `| pausado` when the SLA is stopped. When a deadline has **already passed** and the API flags the SLA as breached (`attend_sla_solution` / `attend_sla` = `false`), the date gets ` (estourado)` — same term as `get_ticket` compact. A past attendance deadline is only shown when breached (attended late or still pending — both are a breach); attended in time → omitted. A future deadline carries no verdict (the API doesn't tell whether the first attendance already happened). E.g. `… | resolução vence 2026-11-12T08:14-03:00 (estourado) | atendimento vence 2026-10-28T16:31-03:00 (estourado)`. E.g. `#102525 … | criado 2026-10-28 | resolução vence 2026-11-12T08:14-03:00 | pausado`.
+- `rich`: an extra line `⏰ **Resolução vence:** 12/11/2026, 08:14:10 · atendimento <date> · SLA pausado` (parts only when present, each date followed by ` (estourado)` under the same rule as `compact`; `⏰ **SLA pausado**` alone when there is no deadline).
+- Closed tickets and desks without SLA: unchanged.
+
+**Example — SLA due today in desk X (one call):**
+```json
+{
+  "desk_name": "Suporte",
+  "sla_expiring_before": "2026-11-13T23:59:59-03:00",
+  "limit": 200
+}
+```
+
+**Weekly `group_by`:** buckets show the week dates, e.g. `2026-W33 (10/08–16/08):5` in `compact` and `| 2026-W33 (10/08–16/08) | 5 |` in `rich` (ISO Monday–Sunday).
 
 **Volume guard:** When the total (`X-Total-Items`) exceeds 500 tickets in a regular listing (without `group_by`), the response appends an instruction not to paginate for analysis — use `group_by` or `get_tickets_comparison` instead. This threshold is set at 500 in `LIST_TOTAL_WARN_THRESHOLD`.
 
@@ -839,7 +888,7 @@ Get full details of a client by ID.
 
 **Fixed in v2.50.1:** `Criado em`/`Atualizado em` now show in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
 
-**Note:** the API v2 started returning `created_at`/`updated_at` in `GET /clients/{id}` on 2026-10-06, so `Criado em`/`Atualizado em` now actually appear in the response (Brasília time in `rich`, UTC with `Z` in `compact`). `list_clients`/`search_client` don't include these dates — the listing endpoint doesn't return them.
+**Note:** the API v2 started returning `created_at`/`updated_at` in `GET /clients/{id}` on 2026-10-06, so `Criado em`/`Atualizado em` now actually appear in the response (Brasília time in both: `rich` as `dd/mm/yyyy, hh:mm:ss`, `compact` as short ISO with offset, e.g. `2026-10-06T14:30-03:00`; until v2.63 `compact` used UTC with `Z`). `list_clients`/`search_client` don't include these dates — the listing endpoint doesn't return them.
 
 **Example:**
 ```json
@@ -882,7 +931,7 @@ Update an existing client (partial update — only provided fields are sent).
 - `client_id` (number, required): Client ID to update
 - All fields from `create_client` (all optional)
 
-**Response:** confirmation with ID, name, updated fields and `Atualizado em` (the API's `updated_at` — Brasília time in `rich`, UTC in `compact`), i.e. the client's last actual change. If the submitted values are identical to the current ones, the API doesn't touch `updated_at`, so the date stays the previous one.
+**Response:** confirmation with ID, name, updated fields and `Atualizado em` (the API's `updated_at` — Brasília time in both `rich` and `compact`; `compact` uses short ISO with `-03:00` offset), i.e. the client's last actual change. If the submitted values are identical to the current ones, the API doesn't touch `updated_at`, so the date stays the previous one.
 
 **Example:**
 ```json
@@ -1871,7 +1920,7 @@ List the event history (timeline) of a ticket, showing field changes, stage tran
 **Returns:**
 For each event:
 - Action description, user, date/time (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC), event type and operation
-- Diff of changed fields with old → new values. **Fixed in v2.50.1:** date-time values with a timezone (e.g. `changed_first_stage_at: "2026-10-01T15:28:17Z"`, or any column saved as `...000Z`) are shown in Brasília time (`01/10/2026, 12:28:17`; `compact`: short UTC ISO) instead of raw ISO — detected by the value, not the field name. Appointment time-of-day values (`init_time`/`end_time`) are `HH:MM` strings already in the organization's timezone and are shown as-is. Plain dates and other values are unchanged.
+- Diff of changed fields with old → new values. **Fixed in v2.50.1:** date-time values with a timezone (e.g. `changed_first_stage_at: "2026-10-01T15:28:17Z"`, or any column saved as `...000Z`) are shown in Brasília time (`01/10/2026, 12:28:17`; `compact`: short ISO in Brasília time with offset, `2026-10-01T12:28-03:00` — UTC `Z` until v2.63) instead of raw ISO — detected by the value, not the field name. Appointment time-of-day values (`init_time`/`end_time`) are `HH:MM` strings already in the organization's timezone and are shown as-is. Plain dates and other values are unchanged.
 
 **Example:**
 ```json
@@ -2200,7 +2249,7 @@ Card with all relevant chat fields including:
 - Linked ticket (number + title, e.g. `#127 — Erro no login`); title is normalized to a single line and truncated at 150 chars; shows `Sem ticket vinculado` when no ticket is linked
 - Assessment rating (1–5) if available
 - `Última msg do cliente em:` — timestamp of the last client message (this field is a date, not message text)
-- Timestamps (created, updated, assumed) in Brazil (São Paulo) time in `rich` verbosity, short UTC in `compact`
+- Timestamps (created, updated, assumed) in Brazil (São Paulo) time — `rich` as `dd/mm/yyyy, hh:mm:ss`, `compact` as short ISO with `-03:00` offset (UTC `Z` until v2.63)
 
 **Example:**
 ```json
@@ -4450,6 +4499,7 @@ List the attendant groups (technical groups) linked to a permission group.
 
 The MCP server integrates with the following Tiflux API v2 endpoints:
 
+- `GET /tickets` - List tickets (filters incl. `search`, `update_start_datetime`/`update_end_datetime`, `sla_expiring_before`, `group_by`; each item carries `sla_info` with the SLA deadlines)
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
 - `PUT /tickets/{id}` - Update existing tickets (supports `requestor_id` to change the ticket's requestor; `followers` replaces the full list; `stopped`/`stop_answer` pause or resume the SLA; `ticket_reference_number` sets the parent ticket; `client_id` is never sent — the API rejects it)

@@ -38,8 +38,9 @@ const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 const { resolveCatalogItemIds } = require('../_shared/catalogFilterResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
+const { escapeCell } = require('../_shared/markdown');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
-const { zeroFillTemporalBuckets } = require('../_shared/temporalBuckets');
+const { zeroFillTemporalBuckets, isoWeekRangeLabel } = require('../_shared/temporalBuckets');
 const { slugToNumber, validSlugs } = require('./createdByWayOf');
 const {
   MAX_FILTER_IDS, capFilterIds, capIdFilters, normalizeRequestorEmails, clampListLimit, resolveStageAcrossDesks
@@ -60,6 +61,9 @@ const LIST_TOTAL_WARN_THRESHOLD = 500;
 // silenciosa se getTicketsComparison passasse a importar listTickets.
 const COMPARISON_TOOL_NAME = 'get_tickets_comparison';
 
+// Tamanho minimo (apos trim) para `search` sozinho dispensar a mesa.
+const MIN_SEARCH_SCOPE_LENGTH = 3;
+
 // Catalogo de servico de um ticket: catalog_name › area_name › item_name.
 function formatCatalog(servicesCatalog) {
   if (!servicesCatalog) return '—';
@@ -69,6 +73,61 @@ function formatCatalog(servicesCatalog) {
     servicesCatalog.item_name
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(' › ') : '—';
+}
+
+// Prazos de SLA de um ticket ABERTO (sem solved_in_time). A API devolve sla_info em
+// cada item de GET /tickets; fechado/cancelado ou mesa sem SLA → null (nada a mostrar).
+// Veredito (API v2, `attend_sla?`): attend_sla/attend_sla_solution sao null sem prazo
+// (ou cancelado/mesa sem SLA); com 1o atendimento/solucao ja feito comparam o instante
+// do feito com o prazo, senao comparam NOW com o prazo. Logo, com o prazo NO PASSADO:
+// false = estourado (feito com atraso OU ainda pendente — os dois sao estouro) e
+// true = feito no prazo. Com o prazo no FUTURO, true nao distingue "pendente" de
+// "ja feito cedo" — por isso o rotulo e so "vence <dt>", sem afirmar pendencia.
+// Atendimento: prazo futuro → mostra; prazo passado + false → mostra como estourado;
+// prazo passado + true/null → omite (cumprido no prazo ou sem veredito: ruido).
+function openSlaDeadlines(ticket, now = Date.now()) {
+  const sla = ticket.sla_info;
+  if (!sla || (sla.solved_in_time !== null && sla.solved_in_time !== undefined)) return null;
+  const isPast = (iso) => Boolean(iso) && new Date(iso).getTime() <= now;
+  const attendTs = sla.attend_expiration ? new Date(sla.attend_expiration).getTime() : Number.NaN;
+  const attendBreached = isPast(sla.attend_expiration) && sla.attend_sla === false;
+  const deadlines = {
+    solve: sla.solve_expiration || null,
+    solveBreached: isPast(sla.solve_expiration) && sla.attend_sla_solution === false,
+    attend: (attendTs > now || attendBreached) ? sla.attend_expiration : null,
+    attendBreached,
+    stopped: sla.stopped === true
+  };
+  return (deadlines.solve || deadlines.attend || deadlines.stopped) ? deadlines : null;
+}
+
+// Mesmo termo do get_ticket compact (`Resolução vence: <dt> (estourado)`).
+const BREACHED_SUFFIX = ' (estourado)';
+const breached = (flag) => (flag ? BREACHED_SUFFIX : '');
+
+// compact: `| resolução vence <dt>[ (estourado)]` / `| atendimento vence <dt>[ (estourado)]` / `| pausado`
+function slaCompactSuffix(ticket) {
+  const d = openSlaDeadlines(ticket);
+  if (!d) return '';
+  let out = '';
+  if (d.solve) out += ` | resolução vence ${dateTime(d.solve, 'compact')}${breached(d.solveBreached)}`;
+  if (d.attend) out += ` | atendimento vence ${dateTime(d.attend, 'compact')}${breached(d.attendBreached)}`;
+  if (d.stopped) out += ' | pausado';
+  return out;
+}
+
+// rich: `⏰ **Resolução vence:** <dt>[ (estourado)] · atendimento <dt>[ (estourado)] · SLA pausado`
+function slaRichLine(ticket) {
+  const d = openSlaDeadlines(ticket);
+  if (!d) return '';
+  const parts = [];
+  if (d.solve) parts.push(`**Resolução vence:** ${dateTime(d.solve, 'rich')}${breached(d.solveBreached)}`);
+  if (d.attend) {
+    const attend = `${dateTime(d.attend, 'rich')}${breached(d.attendBreached)}`;
+    parts.push(d.solve ? `atendimento ${attend}` : `**Atendimento vence:** ${attend}`);
+  }
+  if (d.stopped) parts.push(parts.length > 0 ? 'SLA pausado' : '**SLA pausado**');
+  return `\n   ⏰ ${parts.join(' · ')}`;
 }
 
 // compact: item ultra-terso — 1 linha por ticket
@@ -87,7 +146,7 @@ function ticketCompactLine(ticket) {
   const closedSuffix = (solvedInTime !== null && solvedInTime !== undefined)
     ? ` | fechado ${dateTime(solvedInTime, 'compact')}`
     : '';
-  return `#${n} ${title} | ${client} | ${desk} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog} | criado ${created}${closedSuffix}\n`;
+  return `#${n} ${title} | ${client} | ${desk} | ${status} | ${stage} | ${responsible} | ${priority} | ${catalog} | criado ${created}${closedSuffix}${slaCompactSuffix(ticket)}\n`;
 }
 
 // Guard de volume: quando o total real (X-Total-Items) supera o limiar e a listagem
@@ -179,7 +238,7 @@ function ticketRichBlock(ticket, index) {
     `   🚨 **Status:** ${status}\n` +
     `   🔴 **Prioridade:** ${priority}\n` +
     `   🗃️ **Catálogo:** ${catalog}\n` +
-    `   📅 **Criado em:** ${createdAt}${closedLine}${descriptionSummary}\n\n`;
+    `   📅 **Criado em:** ${createdAt}${closedLine}${slaRichLine(ticket)}${descriptionSummary}\n\n`;
 }
 
 /**
@@ -198,7 +257,8 @@ function buildFilterEntries(opts) {
     effectiveFilterBy, filterByAssumed, is_closed,
     filter_by: origFilterBy,
     date_type, start_datetime, end_datetime,
-    group_by, sla_expiring_before
+    group_by, sla_expiring_before,
+    search, update_start_datetime, update_end_datetime
   } = opts;
 
   const entries = [];
@@ -280,6 +340,16 @@ function buildFilterEntries(opts) {
     });
   }
 
+  if (update_start_datetime || update_end_datetime) {
+    entries.push({
+      label: 'Atualizado',
+      value: `${update_start_datetime || '(início)'} → ${update_end_datetime || '(fim)'}`,
+      origin: 'informado'
+    });
+  }
+
+  if (search) entries.push({ label: 'Busca', value: `"${escapeCell(search)}"`, origin: 'informado' });
+
   // Status
   const statusLabelMap = { open: 'Abertos', closed: 'Fechados', canceled: 'Cancelados', all: 'Todos' };
   if (effectiveFilterBy) {
@@ -316,10 +386,10 @@ function buildFilterEntries(opts) {
 
 const schema = {
   name: 'list_tickets',
-  description: `Lista tickets. Já traz data/hora de ABERTURA (rich: "Criado em", com hora em horário de Brasília) e, quando fechado, de FECHAMENTO ("Fechado em" no rich; sufixo "| fechado ..." no compact) — não é preciso chamar get_ticket por ticket só para essas datas. Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` ou \`get_tickets_comparison\` (dois períodos), sem paginar.
+  description: `Lista tickets. Já traz data/hora de ABERTURA (rich: "Criado em", com hora em horário de Brasília) e, quando fechado, de FECHAMENTO ("Fechado em" no rich; sufixo "| fechado ..." no compact); em ticket aberto, o VENCIMENTO do SLA ("Resolução vence"/"| resolução vence ...", "atendimento vence ..." e "pausado"; " (estourado)" quando o prazo já passou e o SLA estourou — atendimento com prazo passado só aparece se estourou) — não é preciso chamar get_ticket por ticket para essas datas nem para o SLA. A API não ordena pelo prazo: ordene você. Para CONTAR/COMPARAR/TENDÊNCIA use \`group_by\` ou \`get_tickets_comparison\` (dois períodos), sem paginar.
 
 **Regras:**
-- Status sozinho (filter_by/is_closed) NÃO basta: exige MESA ou outro recorte forte (cliente, solicitante, responsável, stage_ids, período, sla_expiring_before, catálogo, prioridade, group_by). Busca ampla sem recorte → PERGUNTE a mesa antes de chamar.
+- Status sozinho (filter_by/is_closed) NÃO basta: exige MESA ou outro recorte forte (cliente, solicitante, responsável, stage_ids, período, período de atualização (update_start_datetime/update_end_datetime), sla_expiring_before, search com 3+ caracteres, catálogo, prioridade, group_by). search mais curto só vale junto com a mesa (ou outro recorte). Busca ampla sem recorte → PERGUNTE a mesa antes de chamar.
 - Nome de MESA/equipe ("tickets do tuitui", "do Suporte") = desk_name. Nome de PESSOA: "tickets do João"/"abertos pelo João" = solicitante (requestor_email/requestor_ids); "atribuídos ao João"/"com o João" = responsible_name. client_name só se o usuário disser "cliente"/"empresa" ou der nome corporativo. Na dúvida entre mesa e pessoa, pergunte.
 - date_type="solved_in_time" (data de fechamento) exige filter_by "closed" (assumido se omitido), "canceled" ou "all"; com "open" é erro.
 - stage_name, catalog_query e priority_name exigem mesa; stage_ids, services_catalogs_item_ids e priority_ids, não.
@@ -330,6 +400,8 @@ const schema = {
 - cancelados no período → filter_by="canceled" + date_type="solved_in_time" + desk_name (mesmo com período, pergunte a mesa se não vier)
 - tickets de um catálogo → catalog_query="infraestrutura" + desk_name
 - prioridade alta → priority_name="alta" + desk_name
+- SLA a vencer hoje na mesa X → desk_name + sla_expiring_before=fim do dia + limit=200 (cada linha traz o vencimento)
+- abertos da mesa X que falam de "API" → desk_name + filter_by="open" + search="API"
 - este semestre vs anterior → get_tickets_comparison`,
   inputSchema: {
     type: 'object',
@@ -371,6 +443,9 @@ const schema = {
       },
       start_datetime: { type: 'string', description: 'Data/hora inicial do filtro no formato ISO 8601 (ex: "2024-05-15T00:00:00Z" ou "2024-05-15T00:00:00-03:00"). Filtra tickets com data >= start_datetime' },
       end_datetime: { type: 'string', description: 'Data/hora final do filtro no formato ISO 8601 (ex: "2024-05-15T23:59:59Z" ou "2024-05-15T23:59:59-03:00"). Filtra tickets com data <= end_datetime' },
+      search: { type: 'string', description: 'Busca por palavra no título, cliente, mesa, número, responsável e início da descrição. Complementa a mesa, não a substitui; só dispensa a mesa com 3+ caracteres (mais curta exige mesa ou outro recorte).' },
+      update_start_datetime: { type: 'string', description: 'Atualizados a partir de (ISO 8601).' },
+      update_end_datetime: { type: 'string', description: 'Atualizados até (ISO 8601).' },
       created_by_way_of: {
         type: 'string',
         enum: validSlugs(),
@@ -427,7 +502,9 @@ async function renderGroupByResponse({ api, response, filters, filterEntries, fi
   // Zero-fill temporal buckets quando start/end informados e ao menos 1 bucket.
   // Vale nos 2 modos: bucket ausente e indistinguivel de "nao retornado" e o modelo
   // pode narrar tendencia errada a partir do buraco.
-  const displayBuckets = zeroFillTemporalBuckets(buckets, start_datetime, end_datetime, group_by);
+  // Semana sai com as datas (`2026-W33 (10/08–16/08)`): o modelo nao converte sozinho.
+  const displayBuckets = zeroFillTemporalBuckets(buckets, start_datetime, end_datetime, group_by)
+    .map(b => (group_by === 'week' ? { ...b, period: isoWeekRangeLabel(b.period) } : b));
 
   if (v === 'compact') {
     const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
@@ -475,8 +552,13 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
     sla_expiring_before,
     start_datetime,
     end_datetime,
-    created_by_way_of
+    created_by_way_of,
+    update_start_datetime,
+    update_end_datetime
   } = args;
+  // search so com espacos nao e busca: nao conta como recorte forte nem vai para a API
+  // (sem o trim, "   " furava o guard de busca ampla e listava a org inteira).
+  const search = typeof args.search === 'string' ? (args.search.trim() || undefined) : args.search;
 
   // Validar created_by_way_of localmente — rejeitar slug invalido ANTES de chamar a API
   // (API responde 200 com lista incorreta para numero errado, nao 422).
@@ -508,18 +590,23 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       `*Para filtrar sem mesa, use stage_ids com os IDs exatos (via search_stage).*`
     );
   }
+  // search curto ("ab") casa com quase tudo (titulo, cliente, mesa, numero...): so conta
+  // como recorte forte a partir de 3 caracteres. Mais curto continua valido junto com a
+  // mesa (ou outro recorte) e vai para a API normalmente.
+  const searchIsStrongScope = typeof search === 'string' && search.length >= MIN_SEARCH_SCOPE_LENGTH;
   const hasOtherScope =
     client_ids || client_name || stage_ids ||
     responsible_ids || responsible_name || requestor_ids || requestor_email ||
     start_datetime || end_datetime || sla_expiring_before || group_by ||
     services_catalogs_item_ids || catalog_query || priority_ids || priority_name ||
-    created_by_way_of;
+    created_by_way_of || searchIsStrongScope || update_start_datetime || update_end_datetime;
 
   if (!hasDesk && !hasOtherScope) {
     return errorResponse(
       `**⚠️ Busca muito ampla — informe a mesa**\n\n` +
       `Filtrar apenas por status traria tickets demais. Informe ao menos a **mesa/equipe** ` +
       `(o recorte mais comum) ou outro filtro que delimite a busca:\n` +
+      (search ? `*search "${search}" tem menos de ${MIN_SEARCH_SCOPE_LENGTH} caracteres: sozinho não delimita a busca — use junto com a mesa.*\n` : '') +
       `• **group_by** + **start/end** - Para CONTAR/COMPARAR/TENDÊNCIA (ex: group_by="month" para evolução mensal); para dois períodos use \`${COMPARISON_TOOL_NAME}\`\n` +
       `• **desk_name** - Nome da mesa/equipe (ex: "tuitui") — **preferencial; use quando o usuario der um nome sem qualificar**\n` +
       `• **desk_ids** - IDs das mesas (ex: "1,2,3")\n` +
@@ -528,6 +615,8 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       `• **responsible_name** / **responsible_ids** - Responsavel atribuido (ex: "Joao")\n` +
       `• **stage_ids** - Estagio por ID (stage_name exige desk_name ou desk_ids)\n` +
       `• **start_datetime** + **end_datetime** - Periodo (ex: "desta semana", "hoje")\n` +
+      `• **search** - Palavra (3+ caracteres) no título/cliente/mesa/número/responsável (complementa a mesa; mais curta, só com a mesa)\n` +
+      `• **update_start_datetime** / **update_end_datetime** - Atualizados no periodo\n` +
       `• **sla_expiring_before** - SLA vencendo (para "SLA em risco")\n` +
       `• **catalog_query** - Catalogo de servico (requer mesa)\n` +
       `• **services_catalogs_item_ids** - IDs de itens de catalogo (direto)\n` +
@@ -764,6 +853,9 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
     if (start_datetime) filters.start_datetime = start_datetime;
     if (end_datetime) filters.end_datetime = end_datetime;
     if (finalCreatedByWayOf !== null) filters.created_by_way_of = finalCreatedByWayOf;
+    if (search) filters.search = search;
+    if (update_start_datetime) filters.update_start_datetime = update_start_datetime;
+    if (update_end_datetime) filters.update_end_datetime = update_end_datetime;
 
     // Chamar API para listar tickets
     const response = await api.listTickets(filters);
@@ -788,7 +880,8 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       finalPriorityIds, priority_name,
       effectiveFilterBy, filterByAssumed, is_closed, filter_by,
       date_type, start_datetime, end_datetime,
-      group_by, sla_expiring_before
+      group_by, sla_expiring_before,
+      search, update_start_datetime, update_end_datetime
     });
 
     // Modo agregado: API retorna { group_by, date_type, total, buckets } em vez de lista.

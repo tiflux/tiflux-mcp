@@ -14,7 +14,7 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'get_ticket_histories',
-  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados (datas do diff em horário de Brasília — no formato compact, ISO UTC curto; hora do dia como HH:MM). history_of é obrigatório: 0 = histórico de estágios, 1 = histórico de apontamentos. Filtro operation só é considerado quando history_of=1.',
+  description: 'Listar o histórico de eventos (timeline) de um ticket, com diff de campos alterados (datas do diff em horário de Brasília — no formato compact, ISO curto com offset -03:00; hora do dia como HH:MM). history_of é obrigatório: 0 = histórico de estágios, 1 = histórico de apontamentos. Filtro operation só é considerado quando history_of=1.',
   inputSchema: {
     type: 'object',
     properties: {

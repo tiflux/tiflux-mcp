@@ -101,6 +101,35 @@ function isoWeekLabel(y, m1, d) {
   return `${isoYear}-W${String(weekNum).padStart(2, '0')}`;
 }
 
+const ISO_WEEK_RE = /^(\d{4})-W(\d{2})$/;
+
+/**
+ * Rótulo de exibição de uma semana ISO com as datas (segunda a domingo):
+ * `2026-W33` → `2026-W33 (10/08–16/08)`. Calculado em UTC puro (a semana ISO é um
+ * rótulo de calendário, não um instante), para nenhum fuso deslocar o dia.
+ * Rótulo fora do formato `IYYY-Www`, ou semana inexistente no ano ISO, volta intacto.
+ *
+ * @param {string} label - ex.: "2026-W33"
+ * @returns {string}
+ */
+function isoWeekRangeLabel(label) {
+  const m = ISO_WEEK_RE.exec(String(label));
+  if (!m) return label;
+  const isoYear = Number(m[1]);
+  const week = Number(m[2]);
+  // Semana inexistente (W00, W99, W53 em ano de 52 semanas) volta intacta: inventar datas
+  // daria um rotulo plausivel e errado. 28/12 cai sempre na ultima semana ISO do ano.
+  const lastWeek = Number(isoWeekLabel(isoYear, 12, 28).slice(-2));
+  if (week < 1 || week > lastWeek) return label;
+  // Segunda-feira da semana 1 = segunda da semana que contém 4 de janeiro.
+  const jan4 = Date.UTC(isoYear, 0, 4);
+  const jan4DayNum = (new Date(jan4).getUTCDay() + 6) % 7; // segunda=0
+  const monday = new Date(jan4 - jan4DayNum * DAY_MS + (week - 1) * 7 * DAY_MS);
+  const sunday = new Date(monday.getTime() + 6 * DAY_MS);
+  const ddmm = (d) => `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  return `${label} (${ddmm(monday)}–${ddmm(sunday)})`;
+}
+
 function monthLabels(startY, startM0, endY, endM0) {
   const expected = [];
   const monthSpan = (endY - startY) * 12 + (endM0 - startM0);
@@ -237,4 +266,4 @@ function zeroFillTemporalBuckets(buckets, startDateStr, endDateStr, groupBy, opt
   return filled;
 }
 
-module.exports = { zeroFillTemporalBuckets, temporalLabels, isoWeekLabel, writtenOffsetMinutes };
+module.exports = { zeroFillTemporalBuckets, temporalLabels, isoWeekLabel, isoWeekRangeLabel, writtenOffsetMinutes };

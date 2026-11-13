@@ -72,6 +72,9 @@ function buildListTicketsParams(filters) {
   if (filters.sla_expiring_before) params.append('sla_expiring_before', filters.sla_expiring_before);
   if (filters.start_datetime) params.append('start_datetime', filters.start_datetime);
   if (filters.end_datetime) params.append('end_datetime', filters.end_datetime);
+  if (filters.update_start_datetime) params.append('update_start_datetime', filters.update_start_datetime);
+  if (filters.update_end_datetime) params.append('update_end_datetime', filters.update_end_datetime);
+  if (filters.search) params.append('search', filters.search);
 
   // services_catalogs_item_ids e priority_ids: a Swagger de GET /tickets documenta
   // "maximo 15 itens, sem duplicados" (erro 42201 "cannot have more than 15 items").

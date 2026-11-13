@@ -59,7 +59,7 @@ function originLabel(origin, fallback = 'N/A') {
 /**
  * Linha de "Assumido em:" no formato dos itens de listagem de chats
  * (indentada, com '\n' ao final), com a data formatada por `dateTime` (H30:
- * Brasilia no rich, UTC curto no compact). String vazia quando ausente/nulo/
+ * Brasilia no rich, ISO curto com offset -03:00 no compact). String vazia quando ausente/nulo/
  * vazio — assim o formatter concatena sem condicional e o item fica identico
  * ao de hoje quando nao ha dado. Contrato identico ao ticketLine de chatTicket.js.
  *

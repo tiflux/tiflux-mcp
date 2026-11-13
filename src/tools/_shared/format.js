@@ -375,9 +375,11 @@ function money(value, v) {
 /**
  * Formata data/hora conforme a verbosidade.
  *
- * - compact: SEMPRE UTC com sufixo `Z` (`toISOString().slice(0,16)+'Z'`). O
- *   valor e o mesmo instante em qualquer fuso — o modelo nao perde a
- *   referencia horaria, independente de onde o processo roda.
+ * - compact: ISO 8601 na hora de parede de Brasilia, com o offset explicito
+ *   (`2026-11-12T22:10-03:00`). Continua sendo o mesmo instante e parseavel,
+ *   mas o DIA bate com o do usuario: em UTC (`…T01:10Z`) um evento das 22h de
+ *   Brasilia caia no dia seguinte (spec 2026-11-13-tickets-prazos-sla-brasilia-search).
+ *   O offset vem do Intl (America/Sao_Paulo), nao do fuso do processo.
  * - rich: horario de Brasilia explicito (`timeZone: 'America/Sao_Paulo'`),
  *   nao o fuso do processo. Achado de producao (2026-09-22): o Lambda roda
  *   em UTC e `toLocaleString('pt-BR')` sem `timeZone` mostrava o horario UTC
@@ -393,8 +395,33 @@ function dateTime(value, v) {
   if (!value) return v === 'compact' ? '—' : 'N/A';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
-  if (v === 'compact') return `${d.toISOString().slice(0, 16)}Z`;
+  if (v === 'compact') return saoPauloIsoMinutes(d);
   return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+// Formatter reutilizado por saoPauloIsoMinutes (criar Intl.DateTimeFormat por chamada e
+// caro em laco). en-US + formatToParts + hourCycle h23: independe do locale do processo.
+const SAO_PAULO_WALL = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Sao_Paulo', hourCycle: 'h23',
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+});
+
+/**
+ * `YYYY-MM-DDTHH:MM±hh:mm` na hora de parede de Brasilia. O offset e a diferenca
+ * entre a hora de parede (lida como se fosse UTC) e o instante — cobre horario de
+ * verao, caso volte a existir.
+ */
+function saoPauloIsoMinutes(d) {
+  const p = Object.fromEntries(SAO_PAULO_WALL.formatToParts(d).map(x => [x.type, x.value]));
+  // Ano < 1000: Date.UTC le 0-99 como 1900+ano (offset absurdo) e o ano sai sem padding.
+  // So chega aqui texto malformado (ex.: campo personalizado) → ISO UTC cru, sem inventar offset.
+  if (Number(p.year) < 1000) return d.toISOString();
+  const wallAsUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+  const offsetMin = Math.round((wallAsUtc - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+  const sign = offsetMin < 0 ? '-' : '+';
+  const abs = Math.abs(offsetMin);
+  const off = `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}${off}`;
 }
 
 // Formatter reutilizado por dateOnly (criar Intl.DateTimeFormat por chamada e caro em laco).

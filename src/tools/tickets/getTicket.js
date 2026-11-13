@@ -16,7 +16,7 @@ const { formatEntityField } = require('../_shared/entityFields');
 
 const schema = {
   name: 'get_ticket',
-  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado, incluindo "Fechado em" com data/hora de fechamento em horário de Brasília e "Resolvido no prazo" quando o ticket está fechado; em ticket aberto, "SLA de atendimento"/"SLA de resolução" mostram o estado atual — no prazo ou estourado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) e campos personalizados opcionais. Datas e horas (criação, atualização, expirações de SLA e fechamento) em horário de Brasília no modo rich.',
+  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado, incluindo "Fechado em" com data/hora de fechamento em horário de Brasília e "Resolvido no prazo" quando o ticket está fechado; em ticket aberto, "SLA de atendimento"/"SLA de resolução" mostram o estado atual — no prazo ou estourado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) e campos personalizados opcionais. Datas e horas (criação, atualização, expirações de SLA e fechamento) em horário de Brasília (no compact, ISO com offset -03:00). No compact, os prazos saem rotulados: "Resolução vence" e "Atendimento vence" (com no prazo/estourado), "Prazo do estágio" e "SLA pausado".',
   inputSchema: {
     type: 'object',
     properties: {
@@ -70,6 +70,30 @@ function solutionSlaLines(sla) {
     return out;
   }
   return isSet(sla.attend_sla_solution) ? `  • SLA de resolução: ${slaVerdict(sla.attend_sla_solution)}\n` : '';
+}
+
+// compact: os 3 prazos rotulados (rotulos estaveis para consumidores que parseiam o texto — contrato em
+// .docs/contrato-saida-consumidores.md). Cada linha so com o dado presente; o veredito
+// (no prazo/estourado) reaproveita attend_sla/attend_sla_solution, que sao "vivos" em
+// ticket aberto. Substitui o antigo "SLA expira: <stage_expiration cru>", que fazia o
+// prazo do ESTAGIO parecer o da resolucao.
+function slaCompactLines(sla) {
+  if (!sla) return '';
+  const withVerdict = (ok) => (isSet(ok) ? ` (${slaVerdict(ok)})` : '');
+  let out = '';
+  if (sla.solve_expiration) {
+    out += `\nResolução vence: ${dateTime(sla.solve_expiration, 'compact')}${withVerdict(sla.attend_sla_solution)}`;
+  }
+  if (sla.attend_expiration) {
+    out += `\nAtendimento vence: ${dateTime(sla.attend_expiration, 'compact')}${withVerdict(sla.attend_sla)}`;
+  }
+  if (sla.stage_expiration) out += `\nPrazo do estágio: ${dateTime(sla.stage_expiration, 'compact')}`;
+  // So com stopped true: desactivate_sla_reason pode sobrar de uma pausa ja encerrada.
+  if (sla.stopped === true) {
+    const reason = sla.desactivate_sla_reason ? ` — ${sla.desactivate_sla_reason}` : '';
+    out += `\nSLA pausado: sim${reason}`;
+  }
+  return out;
 }
 
 function formatTicket(ticketNumber, ticket, v) {
@@ -136,10 +160,7 @@ function formatTicket(ticketNumber, ticket, v) {
       });
     }
 
-    let slaCompact = '';
-    if (ticket.sla_info?.stage_expiration) {
-      slaCompact = `\nSLA expira: ${ticket.sla_info.stage_expiration}`;
-    }
+    const slaCompact = slaCompactLines(ticket.sla_info);
 
     const closedCompact = closedCompactLine(ticket);
 
