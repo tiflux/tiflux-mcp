@@ -13,8 +13,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, formatApiErrorDetail } = require('../_shared/errors');
-const { requireField, parseIntStrict } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, formatApiErrorDetail, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const {
   validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB
@@ -110,13 +110,14 @@ function formatAnswer(ticketNumber, answer, files) {
 
 function parseTicketNumber(value) {
   const message = 'ticket_number deve ser um número inteiro positivo (ex: 12345)';
+  const hint = 'Informe o número do ticket só com dígitos, sem # nem caminho. Para achar o número, use list_tickets.';
   let parsed;
   try {
     parsed = parseIntStrict(value, 'ticket_number');
   } catch {
-    throw new Error(message);
+    throw new ValidationError(message, { hint });
   }
-  if (parsed <= 0) throw new Error(message);
+  if (parsed <= 0) throw new ValidationError(message, { hint });
   return parsed;
 }
 
@@ -125,11 +126,11 @@ async function execute(args, { api }) {
   // ticket_number vai interpolado no path (/tickets/{n}/client-answers): so digitos e > 0,
   // senao valores como ".." ou "12/34" reescreveriam o endpoint chamado.
   const ticket_number = parseTicketNumber(requireField(args, 'ticket_number'));
-  const text = requireField(args, 'text');
-  const author_name = requireField(args, 'author_name');
+  const text = requireField(args, 'text', null, { hint: 'Informe em text o conteúdo da resposta do cliente (não pode ser vazio).' });
+  const author_name = requireField(args, 'author_name', null, { hint: 'Informe em author_name o nome de quem respondeu pelo cliente.' });
 
-  if (typeof text !== 'string' || text.trim() === '') throw new Error('text é obrigatório');
-  if (typeof author_name !== 'string' || author_name.trim() === '') throw new Error('author_name é obrigatório');
+  if (typeof text !== 'string' || text.trim() === '') throw new ValidationError('text é obrigatório', { hint: 'Informe em text o conteúdo da resposta do cliente (não pode ser vazio).' });
+  if (typeof author_name !== 'string' || author_name.trim() === '') throw new ValidationError('author_name é obrigatório', { hint: 'Informe em author_name o nome de quem respondeu pelo cliente.' });
 
   try {
     if (!Array.isArray(files_base64)) {
@@ -153,11 +154,9 @@ async function execute(args, { api }) {
 
     return textResponse(formatAnswer(ticket_number, response.data, files_base64));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao registrar resposta do cliente no ticket #${ticket_number}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao registrar resposta do cliente no ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao registrar resposta do cliente no ticket', execute, schema.name) };

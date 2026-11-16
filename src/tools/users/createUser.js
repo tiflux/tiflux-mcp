@@ -7,7 +7,7 @@
  * Requer permissão de administrador — 403 retorna mensagem clara.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveTechnicalGroup } = require('../_shared/technicalGroupResolver');
@@ -105,7 +105,7 @@ async function execute(args, { api }) {
 
     const user = response.data || {};
     return textResponse(
-      `**✅ Usuário criado com sucesso!**\n\n` +
+      `**✅ Usuário${createdRef(user.id, user.name || args.name)} criado com sucesso!**\n\n` +
       `**ID:** ${user.id}\n` +
       `**Nome:** ${user.name || args.name}\n` +
       `**Email:** ${user.email || args.email}\n` +

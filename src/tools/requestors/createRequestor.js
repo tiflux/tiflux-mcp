@@ -10,7 +10,7 @@
  * afetados: `can_open_ticket: false` sobrevive (String(false) === 'false'), ver teste dedicado.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { countryError, normalizeCountry } = require('./requestorCountry');
@@ -100,7 +100,7 @@ async function execute(args, { api }) {
       ? `**Telefone:** ${requestor.telephone || args.telephone}\n`
       : '';
     return textResponse(
-      `**✅ Solicitante criado com sucesso!**\n\n` +
+      `**✅ Solicitante${createdRef(requestor.id, requestor.name || args.name)} criado com sucesso!**\n\n` +
       `**ID:** ${requestor.id}\n` +
       `**Nome:** ${requestor.name || args.name}\n` +
       `**Email:** ${requestor.email || args.email}\n` +

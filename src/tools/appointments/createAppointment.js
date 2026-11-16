@@ -25,7 +25,7 @@
  * e o item efetivamente usado e ecoado na confirmacao do 201 (D3).
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, extractApiErrorCode, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField, parseIntStrict } = require('../_shared/validators');
 const { currencyBRL } = require('../_shared/format');
@@ -239,7 +239,7 @@ function formatCreatedAppointment(appointment, ticketNumber, hadLooseService, re
   const userName = appointment.user?.name || 'Usuário não informado';
 
   let text =
-    `**✅ Apontamento criado com sucesso!**\n\n` +
+    `**✅ Apontamento${createdRef(appointment.id)} criado com sucesso no ticket #${ticketNumber}!**\n\n` +
     `**Ticket:** #${ticketNumber}\n` +
     `**ID do Apontamento:** ${id}\n` +
     `**Data:** ${date}\n` +

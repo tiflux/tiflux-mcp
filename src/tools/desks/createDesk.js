@@ -200,7 +200,7 @@ async function execute(args, { api }) {
       );
     }
     return textResponse(
-      `**✅ Mesa criada com sucesso!**\n\n${formatDesk(desk)}\n\n` +
+      `**✅ Mesa #${desk.id} criada com sucesso!**\n\n${formatDesk(desk)}\n\n` +
       '*Mesas não podem ser excluídas pela API — para desativar, use o portal.*'
     );
   } catch (err) {

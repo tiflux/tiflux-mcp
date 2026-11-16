@@ -6,7 +6,7 @@
  * Obrigatórios: cep, city, neighborhood, number, state, street.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -80,7 +80,7 @@ async function execute(args, { api }) {
 
     const created = response.data || {};
     return textResponse(
-      `**✅ Endereço criado com sucesso!**\n\n` +
+      `**✅ Endereço${createdRef(created.id)} criado com sucesso no cliente #${client_id}!**\n\n` +
       `**ID do endereço:** ${created.id || 'N/A'}\n` +
       `**Cliente:** #${client_id}\n` +
       `**Logradouro:** ${created.street || street}, ${created.number != null ? created.number : number}\n` +

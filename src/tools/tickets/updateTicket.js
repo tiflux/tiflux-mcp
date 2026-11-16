@@ -17,7 +17,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, apiFailureResponse, withValidationResponse } = require('../_shared/errors');
 const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
@@ -69,7 +69,7 @@ O resumo mostra o estado final devolvido pela API e avisa quando um campo enviad
       requestor_id: { type: 'number', description: 'ID do novo solicitante do ticket (opcional). O solicitante deve pertencer ao mesmo cliente vinculado ao ticket. Conflito com requestor_name: requestor_id tem prioridade.' },
       requestor_name: { type: 'string', description: 'Nome do solicitante para busca automática (alternativa ao requestor_id). Busca em GET /requestors (global) com fallback para GET /clients/{id}/requestors em caso de 403. Multiplos candidatos listam opções para desambiguação; zero → sugerir search_requestor. Conflito com requestor_id: requestor_id vence.' },
       followers: { type: 'string', description: 'E-mails dos seguidores separados por vírgula. ATENÇÃO: o valor enviado SUBSTITUI a lista atual de seguidores — para adicionar sem remover, consulte os seguidores atuais via get_ticket e envie a lista completa (atuais + novos). String vazia "" remove todos os seguidores.' },
-      services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo para atualizar mesa com item específico (opcional)' },
+      services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo. Pode ser exigido pela mesa (veja required_fields em get_desk), inclusive na transferência; itens da mesa em search_catalog_item.' },
       catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id). Sem mesa, usa a mesa atual do ticket.' },
       stopped: { type: 'boolean', description: 'Pausa (true) ou retoma (false) o SLA do ticket. Pausar exige stop_answer; retomar vai sem motivo (se informado, é descartado). A mesa precisa permitir pausa, o ticket não pode estar no 1º estágio nem com o SLA de solução vencido, e a pausa não vai junto com outros campos (faça em chamada separada).' },
       stop_answer: { type: 'string', description: 'Motivo da pausa do SLA (texto livre). Obrigatório com stopped: true; na retomada (false) não é enviado, porque a API recusa; não vale sozinho.' },
@@ -204,11 +204,11 @@ function updateFailureResponse({ response, ticketNumber, deskRef, clientId, stop
     );
   }
 
-  return errorResponse(
-    `**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n` +
-    `**Código:** ${response.status}\n` +
-    `**Mensagem:** ${response.error}\n\n` +
-    `*Verifique se o ticket existe e se você tem permissão para editá-lo.*`
+  return apiFailureResponse(
+    `**❌ Erro ao atualizar ticket #${ticketNumber}**`,
+    response,
+    '*Verifique se o ticket existe e se você tem permissão para editá-lo.*',
+    { hints: true }
   );
 }
 
@@ -231,7 +231,7 @@ function normalizeArgs(args) {
   }
   if (typeof out.stopped === 'string') {
     const v = out.stopped.trim().toLowerCase();
-    if (v !== 'true' && v !== 'false') throw new ValidationError('stopped deve ser true (pausar) ou false (retomar)');
+    if (v !== 'true' && v !== 'false') throw new ValidationError('stopped deve ser true (pausar) ou false (retomar)', { hint: 'Envie stopped como booleano: true para pausar o SLA, false para retomar.' });
     out.stopped = v === 'true';
   }
   return out;
@@ -245,10 +245,10 @@ function normalizeArgs(args) {
 function validateStopFields(stopped, stopAnswer) {
   const hasAnswer = typeof stopAnswer === 'string' && stopAnswer.trim() !== '';
   if (stopped === true && !hasAnswer) {
-    throw new ValidationError('stop_answer (motivo) é obrigatório para pausar o SLA');
+    throw new ValidationError('stop_answer (motivo) é obrigatório para pausar o SLA', { hint: 'Repita a chamada com stopped: true e stop_answer com o motivo da pausa.' });
   }
   if (stopAnswer !== undefined && (stopped === undefined || stopped === null)) {
-    throw new ValidationError('stop_answer só vale junto com stopped: true (pausar o SLA)');
+    throw new ValidationError('stop_answer só vale junto com stopped: true (pausar o SLA)', { hint: 'Para pausar, envie stopped: true com stop_answer; para retomar, envie só stopped: false.' });
   }
 }
 
@@ -484,12 +484,9 @@ async function execute(rawArgs, { api }) {
 
     return textResponse(buildSuccessText(ticket_number, plan, updateData, response.data));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao atualizar ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao atualizar ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar ticket', execute, schema.name) };

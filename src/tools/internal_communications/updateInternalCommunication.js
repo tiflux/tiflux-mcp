@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { stripHtml } = require('../_shared/markdown');
@@ -34,8 +34,8 @@ async function execute(args, { api }) {
   const { ticket_number, communication_id, text } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'communication_id');
-  requireField(args, 'text');
+  requireField(args, 'communication_id', null, { hint: 'Informe communication_id com o ID da comunicação interna. Para achar o ID, use list_internal_communications com o ticket_number.' });
+  requireField(args, 'text', null, { hint: 'Informe em text o novo conteúdo da comunicação interna (aceita Markdown).' });
 
   try {
     // Converter Markdown → HTML antes de enviar à API v2 (paridade com create)
@@ -83,8 +83,9 @@ async function execute(args, { api }) {
       `*✅ Comunicação interna atualizada via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar comunicação interna #${communication_id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar comunicação interna #${communication_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar comunicação interna', execute, schema.name) };

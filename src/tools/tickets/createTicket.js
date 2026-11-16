@@ -8,7 +8,10 @@
  * requestor_name -> requestor_id (api.searchRequestors, se sem requestor_id/email),
  * catalog_item_name -> services_catalogs_item_id (api.searchCatalogItems).
  * Falls back para TIFLUX_DEFAULT_{CLIENT,DESK,PRIORITY,CATALOG_ITEM}_ID do env
- * quando IDs nao informados.
+ * quando IDs nao informados — so existe no modo SDK (processo com env proprio);
+ * no Server (Lambda multi-tenant) nao ha default. Por isso o fallback e silencioso
+ * e NAO aparece no schema (documentado so no README): para o agente, cliente e
+ * mesa sao obrigatorios.
  *
  * Auto-resolve de solicitante: quando requestor_name e passado sem requestor_id e sem
  * requestor_email, tenta resolver para requestor_id via GET /requestors (search_requestor).
@@ -18,7 +21,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { ValidationError } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveRequestorName, resolveRequestorEmail } = require('../_shared/requestorResolver');
@@ -33,6 +37,8 @@ const schema = {
   name: 'create_ticket',
   description: `Criar um novo ticket no TiFlux. Mesa primeiro: nome sem qualificar = desk_name; client_name so se o usuario disser "cliente"/"empresa"; pessoa que abre o ticket = requestor_name/requestor_email.
 
+**Obrigatorios:** title, description, cliente (client_id ou client_name) e mesa (desk_id ou desk_name). Prioridade, item de catalogo e solicitante podem ser exigidos pela mesa (veja required_fields em get_desk). Antes de criar em lote, resolva cliente e mesa uma vez (search_client/list_desks) e repita os IDs.
+
 **Solicitante:** o vinculo canonico e o requestor_id. O MCP resolve requestor_email e requestor_name para requestor_id quando o cadastro existe — prioridade: requestor_id > requestor_email > requestor_name; mais de um match → lista para desambiguacao.
 
 **Campos obrigatorios do solicitante** (ex: telephone) vem de required_fields da mesa (GET /desks/{id}), nao do cadastro de solicitante. Consulte a mesa antes de exigir campos nao declarados aqui.`,
@@ -41,12 +47,12 @@ const schema = {
     properties: {
       title: { type: 'string', description: 'Título do ticket' },
       description: { type: 'string', description: 'Descrição do ticket. Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.' },
-      client_id: { type: 'number', description: 'ID do cliente/empresa (opcional - usa TIFLUX_DEFAULT_CLIENT_ID se não informado)' },
-      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática (alternativa ao client_id). Use apenas quando o usuário disser "cliente"/"empresa"; para pessoa, requestor_name.' },
-      desk_id: { type: 'number', description: 'ID da mesa (opcional - usa TIFLUX_DEFAULT_DESK_ID se não informado)' },
-      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
-      priority_id: { type: 'number', description: 'ID da prioridade (opcional - usa TIFLUX_DEFAULT_PRIORITY_ID se não informado)' },
-      services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo (opcional - usa TIFLUX_DEFAULT_CATALOG_ITEM_ID se não informado)' },
+      client_id: { type: 'number', description: 'ID do cliente/empresa. Obrigatório: informe client_id ou client_name. Para achar o ID, use search_client.' },
+      client_name: { type: 'string', description: 'Nome do cliente (empresa contratante) para busca automática. Obrigatório: informe client_id ou client_name. Use apenas quando o usuário disser "cliente"/"empresa"; para pessoa, requestor_name.' },
+      desk_id: { type: 'number', description: 'ID da mesa. Obrigatório: informe desk_id ou desk_name. Use list_desks.' },
+      desk_name: { type: 'string', description: 'Nome da mesa/equipe para busca automática. Obrigatório: informe desk_id ou desk_name. Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados"). Prefira este campo quando o usuário der um nome sem qualificar a entidade.' },
+      priority_id: { type: 'number', description: 'ID da prioridade. Pode ser exigido pela mesa (veja required_fields em get_desk); prioridades da mesa em list_desk_priorities.' },
+      services_catalogs_item_id: { type: 'number', description: 'ID do item de catálogo. Pode ser exigido pela mesa (veja required_fields em get_desk); itens da mesa em search_catalog_item.' },
       catalog_item_name: { type: 'string', description: 'Nome do item de catálogo para busca automática (alternativa ao services_catalogs_item_id, requer desk_id ou desk_name)' },
       status_id: { type: 'number', description: 'ID do status (opcional)' },
       requestor_id: { type: 'number', description: 'ID do solicitante (pessoa fisica que abre o ticket); deve pertencer ao cliente selecionado. Prefira quando ja tiver o ID: e usado direto, sem resolucao.' },
@@ -89,7 +95,9 @@ async function execute(args, { api }) {
   } = args;
 
   if (!title || !description) {
-    throw new Error('title e description são obrigatórios');
+    return toolErrorResponse('Erro ao criar ticket', new ValidationError('title e description são obrigatórios', {
+      hint: 'Informe title (resumo curto) e description (texto do ticket, aceita Markdown).'
+    }));
   }
 
   const parsedParentTicketNumber = parent_ticket_number == null ? undefined : Number.parseInt(parent_ticket_number, 10);
@@ -113,6 +121,20 @@ async function execute(args, { api }) {
   }
 
   try {
+    // Cliente e mesa sao obrigatorios (POST /tickets). Presenca validada antes de
+    // qualquer resolucao por nome, para o agente receber a correcao sem gastar chamadas.
+    // O default por env so existe no modo SDK (ver cabecalho).
+    if (!client_id && !client_name && !process.env.TIFLUX_DEFAULT_CLIENT_ID) {
+      throw new ValidationError('Falta o cliente (empresa) do ticket.', {
+        hint: 'Informe client_id ou client_name. Para descobrir o ID, chame search_client com parte do nome.'
+      });
+    }
+    if (!desk_id && !desk_name && !process.env.TIFLUX_DEFAULT_DESK_ID) {
+      throw new ValidationError('Falta a mesa do ticket.', {
+        hint: 'Informe desk_id ou desk_name. Para descobrir o ID, chame list_desks.'
+      });
+    }
+
     // Converter Markdown → HTML antes de enviar à API v2 (idempotente para HTML já presente)
     const descriptionHtml = markdownToHtml(description);
 
@@ -221,7 +243,7 @@ async function execute(args, { api }) {
       if (matchingItems.length === 0) {
         return errorResponse(
           `**Item de catalogo "${catalog_item_name}" nao encontrado**\n\n` +
-          `*Verifique se o nome esta correto ou use services_catalogs_item_id diretamente.*`
+          `**Como resolver:** chame search_catalog_item com desk_id ${finalDeskId} para ver os itens da mesa e informe services_catalogs_item_id, ou ajuste o catalog_item_name.`
         );
       }
 
@@ -234,15 +256,11 @@ async function execute(args, { api }) {
         return errorResponse(
           `**Multiplos itens de catalogo encontrados para "${catalog_item_name}"**\n\n` +
           `${itemsList}\n` +
-          `*Use services_catalogs_item_id especifico ou seja mais especifico no catalog_item_name.*`
+          `**Como resolver:** informe o services_catalogs_item_id de uma das opções acima, ou refine o catalog_item_name até sobrar um só item.`
         );
       }
 
       finalCatalogItemId = matchingItems[0].id;
-    }
-
-    if (!finalClientId || !finalDeskId) {
-      throw new Error('client_id e desk_id são obrigatórios (configure TIFLUX_DEFAULT_CLIENT_ID e TIFLUX_DEFAULT_DESK_ID ou informe nos parâmetros)');
     }
 
     // Criar ticket via API
@@ -265,11 +283,8 @@ async function execute(args, { api }) {
     });
 
     if (response.error) {
-      return errorResponse(
-        `**❌ Erro ao criar ticket**\n\n` +
-        `**Código:** ${response.status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique os parâmetros e configurações.*`
+      return apiFailureResponse(
+        '**❌ Erro ao criar ticket**', response, '*Verifique os parâmetros e configurações.*', { hints: true }
       );
     }
 
@@ -284,7 +299,7 @@ async function execute(args, { api }) {
       : '';
 
     return textResponse(
-      `**✅ Ticket criado com sucesso!**\n\n` +
+      `**✅ Ticket #${ticket.ticket_number} criado com sucesso!**\n\n` +
       `**Número:** #${ticket.ticket_number}\n` +
       `**Título:** ${ticket.title}\n` +
       `**Cliente:** ${ticket.client.name}\n` +
@@ -299,11 +314,7 @@ async function execute(args, { api }) {
       `*✅ Ticket criado via API TiFlux*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao criar ticket**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse('Erro ao criar ticket', error);
   }
 }
 

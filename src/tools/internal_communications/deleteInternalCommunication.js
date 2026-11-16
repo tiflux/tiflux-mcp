@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
 
@@ -27,7 +27,7 @@ async function execute(args, { api }) {
   const { ticket_number, communication_id } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'communication_id');
+  requireField(args, 'communication_id', null, { hint: 'Informe communication_id com o ID da comunicação interna. Para achar o ID, use list_internal_communications com o ticket_number.' });
 
   try {
     const response = await api.deleteInternalCommunication(ticket_number, communication_id);
@@ -64,8 +64,9 @@ async function execute(args, { api }) {
       `*✅ Comunicação interna removida via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao remover comunicação interna do ticket #${ticket_number}**`, error);
+    return toolErrorResponse(`Erro ao remover comunicação interna do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao remover comunicação interna', execute, schema.name) };

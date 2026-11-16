@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination, renderWithinBudget, cutCountLabel, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -134,7 +134,7 @@ async function execute(args, { api, verbosity }) {
   const { ticket_number, offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'history_of');
+  requireField(args, 'history_of', null, { hint: 'Informe history_of: 0 para o histórico de estágios ou 1 para o de apontamentos.' });
 
   try {
     const response = await api.getTicketHistories(ticket_number, {
@@ -168,13 +168,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatHistoriesList(ticket_number, events, offset, limit, verbosity));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao buscar histórico do ticket**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar histórico do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatHistoriesList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar histórico do ticket', execute, schema.name), format: formatHistoriesList };

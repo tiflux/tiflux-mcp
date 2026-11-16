@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
 
@@ -27,7 +27,7 @@ async function execute(args, { api }) {
   const { ticket_number, file_id } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'file_id');
+  requireField(args, 'file_id', null, { hint: 'Informe file_id com o ID do arquivo. Para achar o ID, use get_ticket_files com o ticket_number.' });
 
   try {
     const response = await api.deleteTicketFile(ticket_number, file_id);
@@ -65,8 +65,9 @@ async function execute(args, { api }) {
       `*✅ Arquivo removido via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao remover arquivo do ticket #${ticket_number}**`, error);
+    return toolErrorResponse(`Erro ao remover arquivo do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao remover arquivo do ticket', execute, schema.name) };

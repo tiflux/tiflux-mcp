@@ -263,6 +263,41 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
   Chame a mesma ferramenta com esse `offset` e esse `limit` para receber exatamente o item seguinte, sem pular nem repetir (a API pagina por número de página: com `limit: 98`, a página 2 começa no item 99). Se a página cortada não era a primeira e a conta não fecha, a linha pede para refinar o recorte (mesa, período) ou refazer desde `offset 1` com o `limit` sugerido. Para análise, prefira `group_by` ou `get_tickets_comparison` a paginar.
 - **Para análise comparativa, use `get_tickets_comparison`.** Em vez de chamar `list_tickets` paginada duas vezes para dois períodos (o que pode ultrapassar 100k tokens e o teto de 6 iterações do orquestrador), use `get_tickets_comparison`: uma chamada MCP, 2 requests à API, resposta de centenas de tokens com totais, Δ e buckets pareados prontos para gráfico.
 
+### Formato de erros
+
+Toda resposta de erro vem com `isError: true` e um texto em parágrafos (separados por linha em branco). Quem consome o MCP por um agente de IA pode ler cada parte por linha:
+
+| Situação | Formato | O que fazer |
+|---|---|---|
+| **Entrada inválida** (faltou um parâmetro, formato errado, combinação inválida) | `**❌ <título>**`, depois `**Problema:** <o que faltou>` e `**Como resolver:** <qual parâmetro informar e qual ferramenta descobre o valor>` | Corrigir a chamada. Não é falha de conexão. |
+| **Erro devolvido pela API do Tiflux** | `**❌ <título>**`, depois `**Código:** <status HTTP>` e `**Mensagem:** <mensagem da API>`. Quando a causa é conhecida, vem também um parágrafo `**Como resolver:**` | Ler o código e a mensagem; seguir a dica quando houver. |
+| **Falha interna** (rede, timeout, resposta inesperada) | `**❌ Erro interno …**`, depois `**Erro:** <detalhe>` e `*Verifique sua conexão e configurações da API.*` | Tentar de novo ou checar a conexão. |
+
+Exemplo de entrada inválida no `create_ticket` sem cliente:
+
+```
+**❌ Erro ao criar ticket**
+
+**Problema:** Falta o cliente (empresa) do ticket.
+
+**Como resolver:** Informe client_id ou client_name. Para descobrir o ID, chame search_client com parte do nome.
+```
+
+Exemplo de erro da API com dica (mesa que exige prioridade):
+
+```
+**❌ Erro ao criar ticket**
+
+**Código:** 422
+**Mensagem:** Erro de validação: {"message":"This desk requires a priority"}
+
+**Como resolver:** A mesa exige prioridade: chame list_desk_priorities com o desk_id e informe priority_id.
+```
+
+As linhas `**Código:**` e `**Mensagem:**` não mudam de formato. Hoje a dica automática cobre as exigências de mesa na criação e na atualização de ticket (prioridade, item de catálogo e solicitante). O formato `Problema` / `Como resolver` está sendo levado a todas as ferramentas por etapas. As de ticket e de comunicação interna já o usam quando falta um parâmetro obrigatório ou ele vem malformado (por exemplo, sem `ticket_number` a dica aponta `list_tickets`). Ficam de fora, com mensagem própria, as validações específicas de `list_tickets`, `get_tickets_comparison`, `get_tickets_feedback_report` e `merge_ticket`, e checagens pontuais como limite de itens ou de anexos.
+
+**Sucesso de criação:** as ferramentas `create_*` trazem o identificador do que foi criado já na primeira linha (ex.: `**✅ Ticket #103395 criado com sucesso!**`, `**✅ Comunicação interna #7001 criada com sucesso no ticket #103395!**`). Assim, várias criações em sequência ficam distinguíveis mesmo para quem mostra só a primeira linha.
+
 ## Available Tools
 
 ### get_ticket
@@ -315,17 +350,17 @@ Comprehensive ticket information including:
 **New in v2.43.0:** Hierarchy (parent/child tickets), requestor, checklists summary, equipment, SLA sub-fields, priority/desk/client sub-fields, and cleanup of phantom fields (tags, closed_at).
 
 ### create_ticket
-Create a new ticket in Tiflux.
+Create a new ticket in Tiflux. **Required:** `title`, `description`, the client (`client_id` or `client_name`) and the desk (`desk_id` or `desk_name`). Priority, catalog item and requestor may be required by the desk (see `required_fields` in `get_desk`). When creating several tickets, resolve the client and the desk once (`search_client` / `list_desks`) and reuse the IDs.
 
 **Parameters:**
 - `title` (string, required): Ticket title
 - `description` (string, required): Ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
-- `client_id` (number, optional): Client (company) ID
-- `client_name` (string, optional): Client (company) name for automatic search (alternative to client_id). Use only when the user says "client" or "company" explicitly; for a person, use `requestor_name`.
-- `desk_id` (number, optional): Desk ID
-- `desk_name` (string, optional): Desk/team name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
-- `priority_id` (number, optional): Priority ID
-- `services_catalogs_item_id` (number, optional): Service catalog item ID
+- `client_id` (number, **required: `client_id` or `client_name`**): Client (company) ID. Use `search_client` to find it.
+- `client_name` (string, **required: `client_id` or `client_name`**): Client (company) name for automatic search. Use only when the user says "client" or "company" explicitly; for a person, use `requestor_name`.
+- `desk_id` (number, **required: `desk_id` or `desk_name`**): Desk ID. Use `list_desks` to find it.
+- `desk_name` (string, **required: `desk_id` or `desk_name`**): Desk/team name for automatic search. Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
+- `priority_id` (number, may be required by the desk): Priority ID. See `required_fields` in `get_desk`; the desk's priorities are in `list_desk_priorities`.
+- `services_catalogs_item_id` (number, may be required by the desk): Service catalog item ID. See `required_fields` in `get_desk`; the desk's items are in `search_catalog_item`.
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id, requires desk_id or desk_name)
 - `status_id` (number, optional): Status ID
 - `requestor_id` (number, optional): Requestor ID (person who opens the ticket, must belong to the selected client). This is the **canonical link** — prefer it when you know the ID. Highest precedence: if provided, it is used directly with no resolution.
@@ -343,6 +378,14 @@ Create a new ticket in Tiflux.
 **New in v2.4.0:** Support for base64 file upload via `files_base64`. The ticket is sent as `multipart/form-data`. **Note for Server mode (Lambda):** `files_base64` payloads are subject to the 6MB API Gateway limit.
 
 > **Breaking change (v2.8.0):** O parametro `files` (caminhos locais) foi removido. Use a nova tool `upload_ticket_files` para enviar arquivos via base64, ou passe os arquivos diretamente via `files_base64`.
+
+**New in v2.65.0 — clear requirements and actionable errors:**
+- The client and the desk are documented as required (ID or name). A call without one of them returns a validation message with `Problema` and `Como resolver` (pointing to `search_client` or `list_desks`) instead of an internal error. See [Formato de erros](#formato-de-erros).
+- When the desk rejects the ticket for a missing priority, catalog item or requestor (422), the API message is kept and a `Como resolver` line names the tool that finds the value.
+- When `client_name`, `desk_name` or `catalog_item_name` matches nothing or more than one record, the message ends with a `Como resolver` line.
+- The success message starts with the ticket number: `**✅ Ticket #<number> criado com sucesso!**` (before: `**✅ Ticket criado com sucesso!**`).
+
+> **SDK mode only (`npx @tiflux/mcp`):** the environment variables `TIFLUX_DEFAULT_CLIENT_ID`, `TIFLUX_DEFAULT_DESK_ID`, `TIFLUX_DEFAULT_PRIORITY_ID` and `TIFLUX_DEFAULT_CATALOG_ITEM_ID` still work as a fallback when the matching parameter is omitted. They do not exist in Server mode (`mcp.tiflux.com`), where the client and the desk must always be sent.
 
 **Fixed in v2.50.1:** `Criado em` in the success response now shows the creation date/time in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
 
@@ -367,7 +410,7 @@ Update an existing ticket in Tiflux. **Changing the ticket's client is not possi
 - `requestor_id` (number, optional): New requestor (ticket opener) ID. The requestor must belong to the same client linked to the ticket. When provided together with `requestor_name`, `requestor_id` takes precedence.
 - `requestor_name` (string, optional): Requestor name for automatic resolution (alternative to `requestor_id`). The MCP tries `GET /requestors` (global) and falls back to `GET /clients/{id}/requestors` on 403. Single match → uses the ID; multiple matches → lists candidates to disambiguate; no match → error suggesting `search_requestor`. If both endpoints return 403, returns a clear message suggesting `requestor_id` directly.
 - `followers` (string, optional): Comma-separated follower emails. **⚠️ REPLACES the full followers list** — to add without removing, fetch current followers via `get_ticket` first and send the complete list (existing + new). Empty string `""` removes all followers.
-- `services_catalogs_item_id` (number, optional): Catalog item ID for updating desk with specific item
+- `services_catalogs_item_id` (number, optional): Catalog item ID. May be required by the desk (see `required_fields` in `get_desk`), including on a transfer; the desk's items are in `search_catalog_item`.
 - `catalog_item_name` (string, optional): Catalog item name for automatic search (alternative to services_catalogs_item_id). Without a desk, it uses the ticket's current desk.
 - `stopped` (boolean, optional): `true` pauses the ticket's SLA, `false` resumes it. Pausing requires `stop_answer` (local error otherwise); resuming goes without a reason, because the API rejects `stop_answer` with `stopped: false` (if given, it is dropped and the summary says so). The desk must allow pausing, the ticket cannot be in the first stage nor have an overdue resolution SLA, and the pause cannot be combined with other fields (send it in a separate call); these API rules come back as a 422 with the API `detail`. The text values `"true"`/`"false"` are accepted. When the API returns the SLA state, the summary shows it ("SLA: pausado"/"em andamento") and warns if the pause or resume was not applied.
 - `stop_answer` (string, optional): Reason for pausing the SLA. Required with `stopped: true`; not sent on resume (`stopped: false`); sent alone, it returns a local error.
@@ -1894,7 +1937,7 @@ Remove a file attached to a specific ticket answer in Tiflux.
 
 **Parameters:**
 - `answer_id` (string, required): ID of the answer from which the file will be removed (obtained via `list_ticket_answers` or `get_ticket_answer`)
-- `file_id` (string, required): ID of the file to remove (obtained via `get_ticket_answer`, field `files[].id`)
+- `file_id` (string, required): ID of the file attached to the answer. `get_ticket_answer` lists the attachments (name, size, link) but does not show their IDs.
 
 **Example:**
 ```json
@@ -3062,7 +3105,7 @@ Create a new knowledge base article. Requires the "Gerenciar conhecimento" permi
 
 **Example response:**
 ```
-Conhecimento criado com sucesso!
+**Conhecimento #201 criado com sucesso!**
 
 **ID:** 201
 **Titulo:** How to configure VPN

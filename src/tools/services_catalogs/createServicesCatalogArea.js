@@ -8,7 +8,7 @@
  * O nome deve ser único por [organização, catálogo] — validado apenas no create.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveCatalogContext } = require('./catalogResolver');
@@ -70,7 +70,7 @@ async function execute(args, { api }) {
 
     const area = response.data || {};
     return textResponse(
-      `**✅ Área criada com sucesso!**\n\n` +
+      `**✅ Área${createdRef(area.id, area.name || name)} criada com sucesso!**\n\n` +
       `**ID:** ${area.id}\n` +
       `**Nome:** ${area.name || name}\n` +
       `**Catálogo:** #${services_catalog_id}\n\n` +

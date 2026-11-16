@@ -5,7 +5,7 @@
  * Obrigatórios: name, social. Demais campos opcionais — só envia os informados.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { clientWritableFieldSchemas, CLIENT_WRITABLE_FIELDS } = require('../_shared/clientShared');
@@ -57,7 +57,7 @@ async function execute(args, { api }) {
 
     const client = response.data || {};
     return textResponse(
-      `**✅ Cliente criado com sucesso!**\n\n` +
+      `**✅ Cliente${createdRef(client.id, client.name || args.name)} criado com sucesso!**\n\n` +
       `**ID:** ${client.id}\n` +
       `**Nome:** ${client.name || args.name}\n` +
       `**Razão Social:** ${client.social || args.social}\n` +

@@ -112,7 +112,7 @@ async function resolveDeskName(api, deskName) {
       `*Verifique se o nome da mesa esta correto ou use desk_id diretamente.*`,
     notFound: () =>
       `**Mesa "${deskName}" nao encontrada**\n\n` +
-      `*Verifique se o nome esta correto ou use desk_id diretamente.*`,
+      `**Como resolver:** chame list_desks para ver as mesas disponíveis e informe desk_id, ou ajuste o desk_name.`,
     multiple: (desks) => {
       let desksList = '**Mesas encontradas:**\n';
       desks.forEach((desk, index) => {
@@ -121,7 +121,7 @@ async function resolveDeskName(api, deskName) {
       return (
         `**Multiplas mesas encontradas para "${deskName}"**\n\n` +
         `${desksList}\n` +
-        `*Use desk_id especifico ou seja mais especifico no desk_name.*`
+        `**Como resolver:** informe o desk_id de uma das opções acima, ou refine o desk_name até sobrar uma só mesa.`
       );
     }
   });

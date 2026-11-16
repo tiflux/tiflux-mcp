@@ -11,8 +11,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { ValidationError, requireField } = require('../_shared/validators');
 const { resolveEntities, formatUpdatedFields, buildEntitiesSchema } = require('../_shared/entityFieldResolver');
 
 const PARTIAL_STATUS = 207;
@@ -108,7 +108,9 @@ async function execute(args, { api }) {
   requireField(args, 'ticket_number');
 
   if (!entities || !Array.isArray(entities) || entities.length === 0) {
-    throw new Error('entities é obrigatório e deve ser um array com pelo menos 1 campo');
+    throw new ValidationError('entities é obrigatório e deve ser um array com pelo menos 1 campo', {
+      hint: 'Informe entities como lista de { entity_field_id, value }. Para ver os campos do ticket e seus IDs, use get_ticket com show_entities: true.'
+    });
   }
 
   if (entities.length > 50) {
@@ -152,13 +154,9 @@ async function execute(args, { api }) {
       `*✅ Campos atualizados via API TiFlux*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao atualizar campos personalizados**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao atualizar campos personalizados do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar campos personalizados do ticket', execute, schema.name) };

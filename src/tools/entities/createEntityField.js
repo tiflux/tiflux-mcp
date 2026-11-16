@@ -9,7 +9,7 @@
  * (ou ausente), a API cria automaticamente uma opcao "Padrao" com null_option: true.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -164,7 +164,7 @@ async function execute(args, { api }) {
     const field = response.data || {};
     const returnedOptions = Array.isArray(field.options) ? field.options : [];
 
-    let text = `**✅ Subcampo criado com sucesso!**\n\n`;
+    let text = `**✅ Subcampo${createdRef(field.id, field.name || name)} criado com sucesso!**\n\n`;
     text += `**ID:** ${field.id}\n`;
     text += `**Nome:** ${field.name || name}\n`;
     text += `**Tipo:** ${field.field_type || field_type}\n`;

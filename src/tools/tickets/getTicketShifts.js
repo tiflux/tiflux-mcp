@@ -10,7 +10,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField, parseIntStrict } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 
@@ -103,11 +103,9 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar deslocamentos do ticket #${ticket_number}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar deslocamentos do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, REFERENCE_LABELS };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar deslocamentos do ticket', execute, schema.name), REFERENCE_LABELS };

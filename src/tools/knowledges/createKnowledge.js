@@ -9,7 +9,7 @@
  * Permissao requerida: "Gerenciar conhecimento".
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
@@ -110,7 +110,7 @@ async function execute(args, { api }) {
       ? k.tags.join(', ')
       : (Array.isArray(args.tags) && args.tags.length > 0 ? args.tags.join(', ') : '—');
 
-    let text = `**Conhecimento criado com sucesso!**\n\n`;
+    let text = `**Conhecimento${createdRef(k.id, k.title || args.title)} criado com sucesso!**\n\n`;
     text += `**ID:** ${k.id || '(sem ID)'}\n`;
     text += `**Titulo:** ${k.title || args.title}\n`;
     text += `**Visibilidade:** ${privado}\n`;

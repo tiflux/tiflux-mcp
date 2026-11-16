@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
@@ -33,7 +33,7 @@ async function execute(args, { api }) {
   const { ticket_number, files_base64 = [] } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'files_base64');
+  requireField(args, 'files_base64', null, { hint: 'Informe files_base64 como lista de { content, filename }, com content em base64.' });
 
   try {
     if (!Array.isArray(files_base64) || files_base64.length === 0) {
@@ -90,8 +90,9 @@ async function execute(args, { api }) {
       `\n*✅ Arquivos enviados via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao fazer upload de arquivos no ticket #${ticket_number}**`, error);
+    return toolErrorResponse(`Erro ao fazer upload de arquivos no ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao fazer upload de arquivos no ticket', execute, schema.name) };

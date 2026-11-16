@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
 
@@ -27,7 +27,7 @@ async function execute(args, { api }) {
   const { ticket_number, answer_id } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'answer_id');
+  requireField(args, 'answer_id', null, { hint: 'Informe answer_id com o ID da resposta. Para achar o ID, use list_ticket_answers com o ticket_number.' });
 
   try {
     const response = await api.deleteTicketAnswer(ticket_number, answer_id);
@@ -64,8 +64,9 @@ async function execute(args, { api }) {
       `*✅ Resposta removida via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao remover resposta do ticket #${ticket_number}**`, error);
+    return toolErrorResponse(`Erro ao remover resposta do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao remover resposta do ticket', execute, schema.name) };

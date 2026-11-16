@@ -5,7 +5,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -43,12 +43,9 @@ async function execute(args, { api }) {
       `*O ticket foi cancelado e não pode mais receber atualizações.*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao cancelar ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e tente novamente.*`
-    );
+    return toolErrorResponse(`Erro ao cancelar ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao cancelar ticket', execute, schema.name) };

@@ -17,7 +17,7 @@
  *   - end_time >= start_time (validado localmente e pela API)
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveAreaContext } = require('./catalogResolver');
@@ -147,7 +147,7 @@ async function execute(args, { api }) {
 
     const item = response.data || {};
     return textResponse(
-      `**✅ Item criado com sucesso!**\n\n` +
+      `**✅ Item${createdRef(item.id, item.name || name)} criado com sucesso!**\n\n` +
       `**ID:** ${item.id}\n` +
       `**Nome:** ${item.name || name}\n` +
       `**SLA atendimento:** ${item.start_time || start_time}\n` +

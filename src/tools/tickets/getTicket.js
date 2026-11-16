@@ -9,7 +9,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, truncate, dateTime } = require('../_shared/format');
 const { formatEntityField } = require('../_shared/entityFields');
@@ -545,12 +545,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatTicket(ticket_number, response.data, v));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao buscar ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatTicket };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar ticket', execute, schema.name), format: formatTicket };

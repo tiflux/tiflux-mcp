@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -17,7 +17,7 @@ const schema = {
     type: 'object',
     properties: {
       answer_id: { type: 'string', description: 'ID da resposta de onde o arquivo será removido (obtido via list_ticket_answers ou get_ticket_answer)' },
-      file_id: { type: 'string', description: 'ID do arquivo a ser removido (obtido via get_ticket_answer, campo files[].id)' }
+      file_id: { type: 'string', description: 'ID do arquivo anexado à resposta a ser removido. get_ticket_answer lista os anexos (nome, tamanho, link), mas não exibe o ID.' }
     },
     required: ['answer_id', 'file_id']
   }
@@ -26,8 +26,8 @@ const schema = {
 async function execute(args, { api }) {
   const { answer_id, file_id } = args;
 
-  requireField(args, 'answer_id');
-  requireField(args, 'file_id');
+  requireField(args, 'answer_id', null, { hint: 'Informe answer_id com o ID da resposta. Para achar o ID, use list_ticket_answers com o ticket_number.' });
+  requireField(args, 'file_id', null, { hint: 'Informe file_id com o ID do arquivo anexado à resposta. get_ticket_answer lista os anexos da resposta (nome, tamanho, link), mas não exibe o ID: se não tiver o ID, peça ao usuário.' });
 
   try {
     const response = await api.deleteTicketAnswerFile(answer_id, file_id);
@@ -66,8 +66,9 @@ async function execute(args, { api }) {
       `*✅ Arquivo removido via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao remover arquivo da resposta #${answer_id}**`, error);
+    return toolErrorResponse(`Erro ao remover arquivo da resposta #${answer_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao remover arquivo da resposta', execute, schema.name) };

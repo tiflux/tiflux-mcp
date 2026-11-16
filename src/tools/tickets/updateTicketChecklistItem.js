@@ -13,7 +13,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField, requireIntField } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 const { _formatField } = require('./getTicketChecklists');
@@ -190,11 +190,9 @@ async function execute(args, { api }) {
     const checklist = response.data;
     return textResponse(formatUpdatedChecklist(ticket_number, index, checklist));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao atualizar checklist item do ticket #${ticket_number}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao atualizar checklist item do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, _formatUpdatedChecklist: formatUpdatedChecklist };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar checklist item do ticket', execute, schema.name), _formatUpdatedChecklist: formatUpdatedChecklist };

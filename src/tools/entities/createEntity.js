@@ -17,7 +17,7 @@
  *   - menu_item e forcado para false pela API quando applied_in e solicitant ou qualquer catalogo.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveCatalogContext, resolveAreaContext } = require('../services_catalogs/catalogResolver');
@@ -223,7 +223,7 @@ function formatLink(sc) {
 }
 
 function formatCreated(entity, { name, applied_in }) {
-  let text = `**✅ Campo personalizado criado com sucesso!**\n\n`;
+  let text = `**✅ Campo personalizado${createdRef(entity.id, entity.name || name)} criado com sucesso!**\n\n`;
   text += `**ID:** ${entity.id}\n`;
   text += `**Nome:** ${entity.name || name}\n`;
   text += `**Applied in:** ${entity.applied_in || applied_in}\n`;

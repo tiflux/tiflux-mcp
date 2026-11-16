@@ -5,7 +5,7 @@
  * Body: { value }.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -76,7 +76,7 @@ async function execute(args, { api }) {
 
     const option = response.data || {};
 
-    let text = `**✅ Opcao criada com sucesso!**\n\n`;
+    let text = `**✅ Opcao${createdRef(option.id, option.value || value)} criada com sucesso!**\n\n`;
     text += `**ID:** ${option.id}\n`;
     text += `**Valor:** ${option.value || value}\n`;
     text += `\n*✅ Opcao criada via API TiFlux*`;

@@ -7,7 +7,7 @@
  * Nota: o request usa `number` (telefone), mas a resposta da API retorna `telephone`.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -71,7 +71,7 @@ async function execute(args, { api }) {
 
     const created = response.data || {};
     return textResponse(
-      `**✅ Contato criado com sucesso!**\n\n` +
+      `**✅ Contato${createdRef(created.id, created.owner || owner)} criado com sucesso no cliente #${client_id}!**\n\n` +
       `**ID do contato:** ${created.id || 'N/A'}\n` +
       `**Cliente:** #${client_id}\n` +
       `**Responsável:** ${created.owner || owner}\n` +

@@ -10,7 +10,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 const { pagination, dateTime } = require('../_shared/format');
@@ -228,11 +228,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatChecklistsList(ticket_number, checklists, offset, limit, total, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar checklists do ticket #${ticket_number}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar checklists do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, _formatChecklistsList: formatChecklistsList, _formatField: formatField };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar checklists do ticket', execute, schema.name), _formatChecklistsList: formatChecklistsList, _formatField: formatField };

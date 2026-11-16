@@ -8,7 +8,7 @@
  * O nome deve ser único na organização — a unicidade é validada apenas no create.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -57,7 +57,7 @@ async function execute(args, { api }) {
 
     const catalog = response.data || {};
     return textResponse(
-      `**✅ Catálogo de serviços criado com sucesso!**\n\n` +
+      `**✅ Catálogo de serviços${createdRef(catalog.id, catalog.name || name)} criado com sucesso!**\n\n` +
       `**ID:** ${catalog.id}\n` +
       `**Nome:** ${catalog.name || name}\n\n` +
       `*✅ Catálogo criado via API TiFlux*`

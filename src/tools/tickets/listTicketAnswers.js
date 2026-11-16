@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
 const { footer, pagination, dateTime } = require('../_shared/format');
@@ -103,13 +103,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatAnswersList(ticket_number, answers, offset, limit, verbosity));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao listar respostas do ticket**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar respostas do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatAnswersList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar respostas do ticket', execute, schema.name), format: formatAnswersList };

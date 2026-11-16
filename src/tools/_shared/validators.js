@@ -8,13 +8,18 @@
 
 /**
  * Erro de input invalido vindo do chamador (campo obrigatorio ausente, inteiro
- * malformado). Mensagem inalterada; serve so para os bootstraps rebaixarem o
- * nivel do log (warn em vez de error) via isValidationError.
+ * malformado). Os bootstraps rebaixam o nivel do log (warn em vez de error) via
+ * isValidationError, e `toolErrorResponse` (errors.js) o renderiza como
+ * "Problema / Como resolver" em vez de "Erro interno".
+ *
+ * `hint` (opcional) e a instrucao acionavel para o agente se corrigir em uma
+ * chamada: qual parametro informar e qual tool descobre o valor.
  */
 class ValidationError extends Error {
-  constructor(message) {
+  constructor(message, { hint } = {}) {
     super(message);
     this.name = 'ValidationError';
+    if (hint) this.hint = hint;
   }
 }
 
@@ -22,10 +27,19 @@ function isValidationError(error) {
   return error instanceof ValidationError;
 }
 
-function requireField(args, field, message = null) {
+/**
+ * Dica padrao por campo obrigatorio, usada quando o slice nao passa `hint`:
+ * diz o que informar e qual tool descobre o valor. So entram aqui campos cujo
+ * significado e o mesmo em qualquer tool.
+ */
+const REQUIRED_FIELD_HINTS = {
+  ticket_number: 'Informe ticket_number com o número do ticket (ex: "12345"). Para achar o número, use list_tickets.'
+};
+
+function requireField(args, field, message = null, { hint } = {}) {
   const value = args && args[field];
   if (value === undefined || value === null || value === '') {
-    throw new ValidationError(message || `${field} é obrigatório`);
+    throw new ValidationError(message || `${field} é obrigatório`, { hint: hint || REQUIRED_FIELD_HINTS[field] });
   }
   return value;
 }
@@ -38,20 +52,20 @@ function requireField(args, field, message = null) {
  * `55` (truncado, não NaN) e `parseInt('abc')` daria NaN que vira `null` no
  * JSON. Lança Error com mensagem específica do campo.
  */
-function parseIntStrict(value, field) {
+function parseIntStrict(value, field, { hint } = {}) {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
     return value;
   }
   if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
     return Number.parseInt(value.trim(), 10);
   }
-  throw new ValidationError(`${field} deve ser um número inteiro válido`);
+  throw new ValidationError(`${field} deve ser um número inteiro válido`, { hint });
 }
 
 /** requireField + parseIntStrict num passo só (campo obrigatório e numérico). */
-function requireIntField(args, field, message = null) {
-  requireField(args, field, message);
-  return parseIntStrict(args[field], field);
+function requireIntField(args, field, message = null, { hint } = {}) {
+  requireField(args, field, message, { hint });
+  return parseIntStrict(args[field], field, { hint });
 }
 
 /**
@@ -69,4 +83,4 @@ function normalizeTicketNumber(value) {
   return /^\d+$/.test(cleaned) ? cleaned : null;
 }
 
-module.exports = { ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber };
+module.exports = { REQUIRED_FIELD_HINTS, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber };

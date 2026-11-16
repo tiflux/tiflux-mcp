@@ -29,7 +29,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
@@ -919,11 +919,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
       filterByAssumed, catalogWarning, priorityWarning, filterWarnings, group_by, autoCompactNotice, v: listV
     });
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao listar tickets**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar tickets`, error);
   }
 }
 

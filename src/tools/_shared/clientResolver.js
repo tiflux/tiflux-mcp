@@ -47,7 +47,7 @@ async function resolveClientName(api, clientName) {
       error: true,
       response: errorResponse(
         `**❌ Cliente "${clientName}" não encontrado**\n\n` +
-        `*Verifique se o nome está correto ou use client_id diretamente.*`
+        `**Como resolver:** chame search_client com um trecho menor do nome para conferir a grafia, ou informe client_id diretamente.`
       )
     };
   }
@@ -63,7 +63,7 @@ async function resolveClientName(api, clientName) {
       response: errorResponse(
         `**⚠️ Múltiplos clientes encontrados para "${clientName}"**\n\n` +
         `${clientsList}\n` +
-        `*Use client_id específico ou seja mais específico no client_name.*`
+        `**Como resolver:** informe o client_id de uma das opções acima, ou refine o client_name até sobrar um só cliente.`
       )
     };
   }

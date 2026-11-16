@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination, dateTime, durationMin, row } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -126,12 +126,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(text);
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao buscar estágios/SLAs do ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar estágios/SLAs do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar estágios/SLAs do ticket', execute, schema.name) };

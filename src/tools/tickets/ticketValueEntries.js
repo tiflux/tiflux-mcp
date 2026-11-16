@@ -30,8 +30,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
-const { requireField, parseIntStrict } = require('../_shared/validators');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 const { escapeCell, formatFileSize } = require('../_shared/markdown');
 const {
@@ -274,18 +274,20 @@ function formatValueEntries({ ticketNumber, entries, total, offset, limit, confi
  */
 function parseTicketNumber(value) {
   const message = 'ticket_number deve ser um número inteiro positivo (ex: 6167)';
+  const hint = 'Informe o número do ticket só com dígitos, sem # nem caminho. Para achar o número, use list_tickets.';
   let parsed;
   try {
     parsed = parseIntStrict(value, 'ticket_number');
   } catch {
-    throw new Error(message);
+    throw new ValidationError(message, { hint });
   }
-  if (parsed <= 0) throw new Error(message);
+  if (parsed <= 0) throw new ValidationError(message, { hint });
   return parsed;
 }
 
 function buildValueEntriesExecute(config) {
-  return async function execute(args, ctx = {}) {
+  // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+  return withValidationResponse(`Erro ao buscar ${config.resourceLabel} do ticket`, async function execute(args, ctx = {}) {
     requireField(args, 'ticket_number');
     const ticket_number = parseTicketNumber(args.ticket_number);
     const { offset = 1, limit = 20 } = args;
@@ -312,12 +314,9 @@ function buildValueEntriesExecute(config) {
         ctx
       }));
     } catch (error) {
-      return internalErrorResponse(
-        `**❌ Erro interno ao buscar ${config.resourceLabel} do ticket #${ticket_number}**`,
-        error
-      );
+      return toolErrorResponse(`Erro ao buscar ${config.resourceLabel} do ticket #${ticket_number}`, error);
     }
-  };
+  }, config.toolName);
 }
 
 module.exports = {

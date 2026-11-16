@@ -32,6 +32,7 @@ const schema = {
 };
 
 const execute = buildValueEntriesExecute({
+  toolName: schema.name,
   fetch: (api, ticketNumber, page) => api.fetchTicketInternalCosts(ticketNumber, page),
   resourceLabel: 'custos internos',
   title: 'Custos internos',

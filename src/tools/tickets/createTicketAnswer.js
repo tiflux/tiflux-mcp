@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_40MB } = require('../_shared/fileValidation');
@@ -36,7 +36,7 @@ async function execute(args, { api }) {
   const { ticket_number, text, with_signature, files_base64 = [] } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'text');
+  requireField(args, 'text', null, { hint: 'Informe em text o conteúdo da resposta (aceita Markdown).' });
 
   try {
     // Validar numero total de arquivos
@@ -89,12 +89,9 @@ async function execute(args, { api }) {
       `*✅ Resposta enviada via API TiFlux*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao criar resposta no ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao criar resposta no ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar resposta no ticket', execute, schema.name) };

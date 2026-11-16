@@ -13,6 +13,8 @@
  *                        `**Código:** ${response.status}\n...`);
  */
 
+const { isValidationError } = require('./validators');
+
 function errorResponse(text) {
   return { content: [{ type: 'text', text }], isError: true };
 }
@@ -37,18 +39,118 @@ function internalErrorResponse(title, error) {
 }
 
 /**
+ * Resposta de erro do bloco catch de um slice, distinguindo input invalido de
+ * falha interna — o agente que le o texto precisa saber se basta corrigir a
+ * chamada ou se o problema e de infraestrutura.
+ *
+ * - `ValidationError` → `**❌ <title>**` + paragrafo `**Problema:**` + paragrafo
+ *   `**Como resolver:**` (quando o erro traz `hint`). Sem rodape de "conexao".
+ *   Cada parte em paragrafo proprio (`\n\n`): o consumidor extrai a linha
+ *   `Como resolver:` por regex.
+ * - Qualquer outro erro → exatamente o `internalErrorResponse`, com o titulo
+ *   "Erro interno ..." (erro interno de verdade continua parecendo erro interno).
+ *
+ * @param {string} title - titulo em texto puro, sem Markdown e sem "interno"
+ *   (ex: "Erro ao criar ticket"). O helper aplica `**❌ ...**` e, para erro
+ *   interno, troca o "Erro" inicial por "Erro interno".
+ * @param {Error} error - excecao capturada
+ */
+function toolErrorResponse(title, error) {
+  if (!isValidationError(error)) {
+    return internalErrorResponse(`**❌ ${title.replace(/^Erro /, 'Erro interno ')}**`, error);
+  }
+  const parts = [`**❌ ${title}**`, `**Problema:** ${error.message}`];
+  if (error.hint) parts.push(`**Como resolver:** ${error.hint}`);
+  return errorResponse(parts.join('\n\n'));
+}
+
+/**
+ * Embrulha o `execute` de um slice para que a validacao de input feita ANTES do
+ * `try` (requireField/parseIntStrict no topo do slice) tambem volte no formato
+ * "Problema / Como resolver". Sem isso o `ValidationError` sobe ao bootstrap e o
+ * agente recebe erro de protocolo (JSON-RPC), que ele nao consegue ler e corrigir.
+ * Qualquer erro que nao seja de validacao e relancado como esta.
+ *
+ * Observabilidade: como o `ValidationError` deixa de chegar aos bootstraps (que
+ * logavam `errorType: 'validation'`), o warn sai daqui, pelo `logger` do ctx — um
+ * ponto so para os 2 modos. So vai a mensagem do erro, nunca os argumentos
+ * (podem conter dado de cliente).
+ *
+ * @param {string} title - titulo em texto puro (ex: "Erro ao fechar ticket"), sem o
+ *   identificador: quando a validacao falha ele pode nem ter sido informado
+ * @param {Function} execute - `execute(args, ctx)` do slice
+ * @param {string} [toolName] - nome da tool MCP, para o log de validacao
+ * @returns {Function} execute com a mesma assinatura
+ */
+function withValidationResponse(title, execute, toolName) {
+  return async function executeWithValidationResponse(args, ctx) {
+    try {
+      return await execute(args, ctx);
+    } catch (error) {
+      if (!isValidationError(error)) throw error;
+      const logger = ctx?.logger;
+      if (typeof logger?.warn === 'function') {
+        logger.warn('Input invalido na tool', { toolName, error: error.message, errorType: 'validation' });
+      }
+      return toolErrorResponse(title, error);
+    }
+  };
+}
+
+/**
+ * Dicas acionaveis para mensagens conhecidas da API v2 (422 de "mesa exige X").
+ * A API responde em ingles e sem dizer qual tool resolve; cada entrada casa uma
+ * regex sobre `response.error` e devolve a dica em pt-BR. Cresce conforme as
+ * auditorias por modulo encontrarem novas mensagens.
+ */
+const API_ERROR_HINTS = [
+  {
+    pattern: /requires a priority/i,
+    hint: 'A mesa exige prioridade: chame list_desk_priorities com o desk_id e informe priority_id.'
+  },
+  {
+    pattern: /requires a services catalog item/i,
+    hint: 'A mesa exige item de catálogo: chame search_catalog_item com o desk_id e informe services_catalogs_item_id.'
+  },
+  {
+    pattern: /Requestor e-mail can not be blank/i,
+    hint: 'A mesa exige solicitante: informe requestor_email (ou requestor_name/requestor_id; use search_requestor).'
+  }
+];
+
+/**
+ * Dicas do `API_ERROR_HINTS` que casam com o erro da API (uma resposta pode
+ * acumular mais de uma exigencia da mesa).
+ * @param {{error?: string}} response
+ * @returns {string} dicas unidas por espaco, ou '' quando nenhuma casa
+ */
+function apiErrorHint(response) {
+  const text = typeof response?.error === 'string' ? response.error : '';
+  return API_ERROR_HINTS.filter(({ pattern }) => pattern.test(text)).map(({ hint }) => hint).join(' ');
+}
+
+/**
  * Resposta de erro para falha vinda da API v2 (`response.error` presente).
  * Padroniza o corpo "Código / Mensagem"; titulo e cauda contextual variam por slice.
+ *
+ * As linhas `**Código:**` e `**Mensagem:**` sao CONTRATO com consumidores (o
+ * orquestrador do Prisma extrai o JSON depois de `Mensagem:`) — nao mudam.
+ * Com `{ hints: true }` e uma mensagem mapeada em `API_ERROR_HINTS`, entra um
+ * paragrafo `**Como resolver:**` logo apos a mensagem; sem match (ou sem a
+ * opcao), a saida e identica a de sempre.
  *
  * @param {string} title - titulo em Markdown (ex: "**❌ Erro ao buscar cliente #123**")
  * @param {{status: number|string, error: string}} response - resposta da API com erro
  * @param {string} [tail] - dica contextual em Markdown (ex: "*Verifique se o cliente existe.*")
+ * @param {{hints?: boolean}} [options]
  */
-function apiFailureResponse(title, response, tail = '') {
+function apiFailureResponse(title, response, tail = '', { hints = false } = {}) {
+  const hint = hints ? apiErrorHint(response) : '';
   return errorResponse(
     `${title}\n\n` +
     `**Código:** ${response.status}\n` +
     `**Mensagem:** ${response.error}\n\n` +
+    (hint ? `**Como resolver:** ${hint}\n\n` : '') +
     `${tail}`
   );
 }
@@ -130,6 +232,7 @@ function formatApiErrorDetail(response) {
 }
 
 module.exports = {
-  errorResponse, apiErrorResponse, internalErrorResponse, apiFailureResponse,
+  errorResponse, apiErrorResponse, internalErrorResponse, toolErrorResponse, withValidationResponse, apiFailureResponse,
+  API_ERROR_HINTS, apiErrorHint,
   extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail
 };

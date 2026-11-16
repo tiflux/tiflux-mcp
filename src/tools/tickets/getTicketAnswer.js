@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
 const { footer, dateTime } = require('../_shared/format');
@@ -34,7 +34,7 @@ async function execute(args, { api, verbosity }) {
   const { ticket_number, answer_id } = args;
 
   requireField(args, 'ticket_number');
-  requireField(args, 'answer_id');
+  requireField(args, 'answer_id', null, { hint: 'Informe answer_id com o ID da resposta. Para achar o ID, use list_ticket_answers com o ticket_number.' });
 
   try {
     const response = await api.getTicketAnswer(ticket_number, answer_id);
@@ -93,14 +93,9 @@ async function execute(args, { api, verbosity }) {
       `${footer(verbosity)}`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao buscar resposta do ticket**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Resposta ID:** ${answer_id}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar resposta #${answer_id} do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar resposta do ticket', execute, schema.name) };

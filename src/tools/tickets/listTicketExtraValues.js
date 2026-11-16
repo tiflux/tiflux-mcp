@@ -34,6 +34,7 @@ const schema = {
 };
 
 const execute = buildValueEntriesExecute({
+  toolName: schema.name,
   fetch: (api, ticketNumber, page) => api.fetchTicketExtraValues(ticketNumber, page),
   resourceLabel: 'valores extras',
   title: 'Valores extras',

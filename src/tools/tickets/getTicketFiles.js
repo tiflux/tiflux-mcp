@@ -9,7 +9,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField, normalizeTicketNumber } = require('../_shared/validators');
 const { formatFileSize } = require('../_shared/markdown');
 const { footer, pagination, renderWithinBudget, cutCountLabel } = require('../_shared/format');
@@ -99,12 +99,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatFilesList(ticket_number, files, verbosity, { offset, limit, total: response.total }));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao buscar arquivos do ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar arquivos do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatFilesList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar arquivos do ticket', execute, schema.name), format: formatFilesList };

@@ -12,8 +12,8 @@
  * o contrato do handler legado (que tambem usa return, nao throw, exceto nos required).
  */
 
-const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { textResponse, createdRef } = require('../_shared/response');
+const { errorResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
@@ -48,10 +48,16 @@ const schema = {
 async function execute(args, { api }) {
   const { ticket_number, text, files_base64 = [] } = args;
 
-  requireField(args, 'ticket_number');
-  requireField(args, 'text');
-
   try {
+    // Dentro do try: input invalido volta como "Problema / Como resolver" (toolErrorResponse),
+    // que o agente consegue ler e corrigir, em vez de erro de protocolo.
+    requireField(args, 'ticket_number', null, {
+      hint: 'Informe ticket_number com o número do ticket (ex: "12345"). Para achar o número, use list_tickets.'
+    });
+    requireField(args, 'text', null, {
+      hint: 'Informe em text o conteúdo da comunicação interna (aceita Markdown).'
+    });
+
     if (files_base64.length > MAX_FILES) {
       return tooManyFilesError(ticket_number, files_base64.length, '10 arquivos por comunicação');
     }
@@ -91,7 +97,7 @@ async function execute(args, { api }) {
       : 'Comunicação criada';
 
     return textResponse(
-      `**✅ Comunicação interna criada com sucesso!**\n\n` +
+      `**✅ Comunicação interna${createdRef(communication.id)} criada com sucesso no ticket #${ticket_number}!**\n\n` +
       `**Ticket:** #${ticket_number}\n` +
       `**ID da Comunicação:** ${communication.id}\n` +
       `**Autor:** ${communication.user?.name || 'Usuário não informado'}\n` +
@@ -101,12 +107,8 @@ async function execute(args, { api }) {
       `*✅ Comunicação interna adicionada via API TiFlux*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao criar comunicação interna**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    const where = ticket_number ? ` no ticket #${ticket_number}` : '';
+    return toolErrorResponse(`Erro ao criar comunicação interna${where}`, error);
   }
 }
 

@@ -13,7 +13,7 @@
  * Permissoes necessarias: "Gerenciar recursos" + Licenca Tickets.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField, requireIntField } = require('../_shared/validators');
 
@@ -89,7 +89,7 @@ async function execute(args, { api }) {
 
     const eq = response.data || {};
     return textResponse(
-      `**✅ Recurso criado com sucesso!**\n\n` +
+      `**✅ Recurso${createdRef(eq.id, eq.name || args.name)} criado com sucesso!**\n\n` +
       `**ID:** ${eq.id}\n` +
       `**Nome:** ${eq.name || args.name}\n` +
       `**Cliente:** ${eq.client?.name || args.client_id}\n` +

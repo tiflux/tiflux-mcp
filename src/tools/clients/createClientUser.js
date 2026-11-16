@@ -5,7 +5,7 @@
  * Obrigatórios: user.name e user.email.
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -74,7 +74,7 @@ async function execute(args, { api }) {
 
     const createdUser = response.data || {};
     return textResponse(
-      `**✅ Usuário do portal criado com sucesso!**\n\n` +
+      `**✅ Usuário do portal${createdRef(createdUser.id, createdUser.name || name)} criado com sucesso!**\n\n` +
       `**ID do usuário:** ${createdUser.id || 'N/A'}\n` +
       `**Nome:** ${createdUser.name || name}\n` +
       `**Email:** ${createdUser.email || email}\n` +

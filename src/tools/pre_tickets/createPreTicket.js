@@ -8,7 +8,7 @@
  * Permissão requerida: licença Tickets + "Gerenciar pré-tickets".
  */
 
-const { textResponse } = require('../_shared/response');
+const { textResponse, createdRef } = require('../_shared/response');
 const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
@@ -114,7 +114,7 @@ async function execute(args, { api }) {
     const pt = response.data || {};
     const client = pt.client ? pt.client.name : (args.client_id ? `ID ${args.client_id}` : '—');
 
-    let text = `**Pré-ticket criado com sucesso!**\n\n`;
+    let text = `**Pré-ticket${createdRef(pt.id, pt.title || args.title)} criado com sucesso!**\n\n`;
     text += `**ID:** ${pt.id || '(sem ID)'}\n`;
     text += `**Título:** ${pt.title || args.title}\n`;
     text += `**Cliente:** ${client}\n`;

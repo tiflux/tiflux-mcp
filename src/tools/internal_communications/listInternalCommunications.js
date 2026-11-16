@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -97,13 +97,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatCommunicationsList(ticket_number, communications, offset, limit, verbosity));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao listar comunicações internas**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar comunicações internas do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatCommunicationsList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar comunicações internas do ticket', execute, schema.name), format: formatCommunicationsList };
