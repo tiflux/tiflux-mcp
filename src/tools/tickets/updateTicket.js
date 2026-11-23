@@ -489,4 +489,4 @@ async function execute(rawArgs, { api }) {
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar ticket', execute, schema.name) };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar ticket', execute) };

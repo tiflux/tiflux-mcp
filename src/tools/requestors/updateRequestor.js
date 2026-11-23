@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { countryError, normalizeCountry } = require('./requestorCountry');
 
@@ -104,11 +104,9 @@ async function execute(args, { api }) {
       `*✅ Solicitante atualizado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao atualizar solicitante #${requestor_id} (cliente #${client_id})**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao atualizar solicitante #${requestor_id} (cliente #${client_id})`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar solicitante', execute) };

@@ -173,4 +173,4 @@ async function execute(args, { api, verbosity }) {
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar histórico do ticket', execute, schema.name), format: formatHistoriesList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar histórico do ticket', execute), format: formatHistoriesList };

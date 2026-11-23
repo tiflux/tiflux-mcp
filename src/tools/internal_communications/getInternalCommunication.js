@@ -66,4 +66,4 @@ async function execute(args, { api }) {
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar comunicação interna', execute, schema.name) };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar comunicação interna', execute) };

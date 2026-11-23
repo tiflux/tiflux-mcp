@@ -19,6 +19,35 @@ function errorResponse(text) {
   return { content: [{ type: 'text', text }], isError: true };
 }
 
+/**
+ * Marca interna de "esta resposta e uma falha de validacao de input".
+ *
+ * A validacao volta ao agente como resposta `isError` (nao como excecao), entao os
+ * bootstraps nao a veem mais no `catch`. A marca deixa o bootstrap reconhecer o caso
+ * e logar o warn `errorType: 'validation'` com a correlacao que so ele tem
+ * (requestId; no Server, tambem sessionId e apiKeyHash).
+ *
+ * Symbol + nao-enumeravel: nao aparece no JSON enviado ao cliente MCP nem em
+ * comparacoes de objeto. Guarda so a mensagem do erro, nunca os argumentos
+ * (podem conter dado de cliente).
+ */
+const VALIDATION_FAILURE = Symbol('tiflux.validationFailure');
+
+function markValidationFailure(response, message) {
+  Object.defineProperty(response, VALIDATION_FAILURE, { value: message, enumerable: false });
+  return response;
+}
+
+/**
+ * Mensagem da falha de validacao carregada por um resultado de tool, ou `null`
+ * quando o resultado nao e uma falha de validacao (sucesso, erro da API, erro interno).
+ * @param {object} result - retorno de `registry.execute`
+ * @returns {string|null}
+ */
+function validationFailure(result) {
+  return result?.[VALIDATION_FAILURE] ?? null;
+}
+
 // Alias mantido por compatibilidade com usos existentes.
 const apiErrorResponse = errorResponse;
 
@@ -61,7 +90,7 @@ function toolErrorResponse(title, error) {
   }
   const parts = [`**❌ ${title}**`, `**Problema:** ${error.message}`];
   if (error.hint) parts.push(`**Como resolver:** ${error.hint}`);
-  return errorResponse(parts.join('\n\n'));
+  return markValidationFailure(errorResponse(parts.join('\n\n')), error.message);
 }
 
 /**
@@ -71,27 +100,22 @@ function toolErrorResponse(title, error) {
  * agente recebe erro de protocolo (JSON-RPC), que ele nao consegue ler e corrigir.
  * Qualquer erro que nao seja de validacao e relancado como esta.
  *
- * Observabilidade: como o `ValidationError` deixa de chegar aos bootstraps (que
- * logavam `errorType: 'validation'`), o warn sai daqui, pelo `logger` do ctx — um
- * ponto so para os 2 modos. So vai a mensagem do erro, nunca os argumentos
- * (podem conter dado de cliente).
+ * Observabilidade: a resposta sai marcada (ver `validationFailure`) e quem loga o
+ * warn `errorType: 'validation'` e o bootstrap, que tem requestId/apiKeyHash.
  *
  * @param {string} title - titulo em texto puro (ex: "Erro ao fechar ticket"), sem o
  *   identificador: quando a validacao falha ele pode nem ter sido informado
  * @param {Function} execute - `execute(args, ctx)` do slice
- * @param {string} [toolName] - nome da tool MCP, para o log de validacao
  * @returns {Function} execute com a mesma assinatura
  */
-function withValidationResponse(title, execute, toolName) {
+function withValidationResponse(title, execute) {
   return async function executeWithValidationResponse(args, ctx) {
     try {
-      return await execute(args, ctx);
+      // `tools/call` sem `arguments` chega como undefined: normaliza para {} e a
+      // falta do campo obrigatorio vira "Problema" em vez de TypeError de protocolo.
+      return await execute(args ?? {}, ctx);
     } catch (error) {
       if (!isValidationError(error)) throw error;
-      const logger = ctx?.logger;
-      if (typeof logger?.warn === 'function') {
-        logger.warn('Input invalido na tool', { toolName, error: error.message, errorType: 'validation' });
-      }
       return toolErrorResponse(title, error);
     }
   };
@@ -233,6 +257,7 @@ function formatApiErrorDetail(response) {
 
 module.exports = {
   errorResponse, apiErrorResponse, internalErrorResponse, toolErrorResponse, withValidationResponse, apiFailureResponse,
+  validationFailure,
   API_ERROR_HINTS, apiErrorHint,
   extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail
 };

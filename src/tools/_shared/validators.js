@@ -33,7 +33,12 @@ function isValidationError(error) {
  * significado e o mesmo em qualquer tool.
  */
 const REQUIRED_FIELD_HINTS = {
-  ticket_number: 'Informe ticket_number com o número do ticket (ex: "12345"). Para achar o número, use list_tickets.'
+  ticket_number: 'Informe ticket_number com o número do ticket (ex: "12345"). Para achar o número, use list_tickets.',
+  client_id: 'Informe client_id com o ID do cliente. Para achar o ID, use search_client (por nome) ou list_clients.',
+  requestor_id: 'Informe requestor_id com o ID do solicitante. Para achar o ID, use list_requestors (com o client_id) ou search_requestor.',
+  // Nos slices de endereço e contato o parâmetro se chama `id`: eles passam estas dicas explicitamente.
+  address_id: 'Informe o ID do endereço do cliente. Para achar o ID, use list_client_addresses com o client_id.',
+  contact_id: 'Informe o ID do contato do cliente. Para achar o ID, use list_client_contacts com o client_id.'
 };
 
 function requireField(args, field, message = null, { hint } = {}) {

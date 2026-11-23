@@ -6,6 +6,7 @@
  */
 
 const { listClientSubresource } = require('../_shared/clientShared');
+const { withValidationResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -55,4 +56,5 @@ function execute(args, ctx) {
   );
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar endereços do cliente', execute) };

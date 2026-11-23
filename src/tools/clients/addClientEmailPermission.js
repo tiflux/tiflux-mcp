@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -52,11 +52,9 @@ async function execute(args, { api }) {
       `*✅ E-mails do endereço/domínio informado agora podem abrir tickets em nome deste cliente.*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao adicionar permissão de e-mail**\n\n**Cliente:** #${client_id}`,
-      error
-    );
+    return toolErrorResponse(`Erro ao adicionar permissão de e-mail ao cliente #${client_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao adicionar permissão de e-mail', execute) };

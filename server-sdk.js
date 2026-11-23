@@ -29,6 +29,7 @@ const InfrastructureBootstrap = require('./src/infrastructure/InfrastructureBoot
 // Registry central de tools — schemas + roteamento self-describing por handler
 const { createRegistry } = require('./src/registry');
 const { isValidationError } = require('./src/tools/_shared/validators');
+const { validationFailure } = require('./src/tools/_shared/errors');
 
 const { version } = require('./package.json');
 
@@ -129,6 +130,19 @@ class TifluxMCPServerV2 {
         const result = await this.registry.execute(name, args);
 
         timer();
+
+        // Validacao de input volta como resposta isError (o agente le e corrige), nao
+        // como excecao: o warn sai daqui, com o requestId.
+        const invalidInput = validationFailure(result);
+        if (invalidInput) {
+          this.logger.warn('Tool input validation failed', {
+            requestId,
+            toolName: name,
+            error: invalidInput,
+            errorType: 'validation'
+          });
+          return result;
+        }
 
         this.logger.info('Tool execution completed successfully', {
           requestId,

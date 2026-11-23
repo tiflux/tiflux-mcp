@@ -316,7 +316,7 @@ function buildValueEntriesExecute(config) {
     } catch (error) {
       return toolErrorResponse(`Erro ao buscar ${config.resourceLabel} do ticket #${ticket_number}`, error);
     }
-  }, config.toolName);
+  });
 }
 
 module.exports = {

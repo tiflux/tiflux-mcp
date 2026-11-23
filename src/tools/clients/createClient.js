@@ -6,7 +6,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { clientWritableFieldSchemas, CLIENT_WRITABLE_FIELDS } = require('../_shared/clientShared');
 
@@ -31,7 +31,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'name');
+  requireField(args, 'name', null, { hint: 'Informe name (nome do cliente) e social (razão social): os dois são obrigatórios.' });
   requireField(args, 'social');
 
   try {
@@ -66,11 +66,9 @@ async function execute(args, { api }) {
       `\n*✅ Cliente criado via API TiFlux. Use o ID ${client.id} para criar tickets e vínculos.*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao criar cliente "${args.name}"**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao criar cliente "${args.name}"`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar cliente', execute) };

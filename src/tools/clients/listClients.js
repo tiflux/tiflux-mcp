@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { apiFailureResponse, toolErrorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -93,7 +93,7 @@ async function execute(args, { api, verbosity }) {
     if (footerStr) text += `\n${footerStr}`;
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao listar clientes**`, error);
+    return toolErrorResponse(`Erro ao listar clientes`, error);
   }
 }
 

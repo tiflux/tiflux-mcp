@@ -6,7 +6,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -82,11 +82,9 @@ async function execute(args, { api }) {
       `*✅ O usuário pode acessar o portal de clientes com o email informado.*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao criar usuário do portal**\n\n**Cliente:** #${client_id}`,
-      error
-    );
+    return toolErrorResponse(`Erro ao criar usuário do portal do cliente #${client_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar usuário do portal', execute) };

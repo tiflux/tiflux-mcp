@@ -233,4 +233,4 @@ async function execute(args, { api, verbosity }) {
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar checklists do ticket', execute, schema.name), _formatChecklistsList: formatChecklistsList, _formatField: formatField };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar checklists do ticket', execute), _formatChecklistsList: formatChecklistsList, _formatField: formatField };

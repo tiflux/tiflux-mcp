@@ -12,7 +12,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -180,11 +180,7 @@ async function execute(args, { api }) {
       `*Verifique a grafia, ou informe \`requestor_id\`/\`requestor_email\` diretamente ao criar o ticket.*`
     );
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar solicitantes**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse('Erro ao buscar solicitantes', error);
   }
 }
 

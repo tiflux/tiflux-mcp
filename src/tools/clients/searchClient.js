@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -40,7 +40,7 @@ function formatClientsList(client_name, clients) {
 async function execute(args, { api }) {
   const { client_name } = args;
 
-  requireField(args, 'client_name');
+  requireField(args, 'client_name', null, { hint: 'Informe client_name com o nome (ou parte do nome) do cliente. Para percorrer os clientes sem filtrar por nome, use list_clients.' });
 
   try {
     const response = await api.searchClients(client_name);
@@ -66,12 +66,9 @@ async function execute(args, { api }) {
 
     return textResponse(formatClientsList(client_name, clients));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao buscar cliente "${client_name}"**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar cliente "${client_name}"`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatClientsList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar cliente', execute), format: formatClientsList };

@@ -6,7 +6,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { footer, dateTime } = require('../_shared/format');
 
@@ -118,11 +118,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatClient(response.data, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar cliente #${client_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar cliente #${client_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatClient };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar cliente', execute), format: formatClient };

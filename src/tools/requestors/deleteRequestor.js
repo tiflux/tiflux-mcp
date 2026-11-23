@@ -16,8 +16,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, extractApiErrorCode, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireIntField, ValidationError, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'delete_requestor',
@@ -74,9 +74,11 @@ function failure(clientId, requestorId, response) {
 }
 
 function requirePositiveId(args, field) {
-  const id = requireIntField(args, field);
-  // 0 passa no parseIntStrict mas nunca e um ID valido: evita um DELETE /clients/0/... inutil.
-  if (id <= 0) throw new Error(`${field} deve ser um número inteiro positivo`);
+  const hint = REQUIRED_FIELD_HINTS[field];
+  const id = requireIntField(args, field, null, { hint });
+  // Negativos ja caem no parseIntStrict ("inteiro válido"); so o 0 passa por la e nunca
+  // e um ID valido: este branch evita um DELETE /clients/0/... inutil.
+  if (id <= 0) throw new ValidationError(`${field} deve ser um número inteiro positivo`, { hint });
   return id;
 }
 
@@ -97,11 +99,9 @@ async function execute(args, { api }) {
       `*A exclusão não pode ser desfeita pela API.*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao excluir o solicitante #${requestor_id} do cliente #${client_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao excluir o solicitante #${requestor_id} do cliente #${client_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao excluir solicitante', execute) };

@@ -108,4 +108,4 @@ async function execute(args, { api, verbosity }) {
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar respostas do ticket', execute, schema.name), format: formatAnswersList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar respostas do ticket', execute), format: formatAnswersList };

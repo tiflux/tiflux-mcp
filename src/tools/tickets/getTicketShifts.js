@@ -108,4 +108,4 @@ async function execute(args, { api }) {
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar deslocamentos do ticket', execute, schema.name), REFERENCE_LABELS };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar deslocamentos do ticket', execute), REFERENCE_LABELS };

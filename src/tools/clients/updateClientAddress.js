@@ -6,8 +6,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'update_client_address',
@@ -62,7 +62,7 @@ async function execute(args, { api }) {
   const { client_id, id } = args;
 
   requireField(args, 'client_id');
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: REQUIRED_FIELD_HINTS.address_id });
 
   const address = {};
   for (const field of UPDATABLE_FIELDS) {
@@ -100,11 +100,9 @@ async function execute(args, { api }) {
       `*✅ Endereço atualizado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao atualizar endereço #${id} do cliente #${client_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao atualizar endereço #${id} do cliente #${client_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar endereço do cliente', execute) };
