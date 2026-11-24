@@ -50,6 +50,7 @@ const slices = [
   require('./createClientAnswer'),
   require('./listTicketExtraValues'),
   require('./listTicketInternalCosts'),
+  require('./listTicketShiftEntries'),
   require('./mergeTicket')
 ];
 

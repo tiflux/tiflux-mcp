@@ -1351,6 +1351,21 @@ class TiFluxAPI {
   }
 
   /**
+   * Lista os deslocamentos e caronas LANÇADOS em um ticket (um item por apontamento).
+   * GET /tickets/{ticket_number}/shift-entries?offset&limit
+   *
+   * Só transporte (guardrail BE-003). O `headers` da resposta segue intacto: os totais
+   * do ticket inteiro (`x-total-loose-value`, `x-total-contract-value`) são lidos pelo slice.
+   *
+   * @param {string|number} ticketNumber - numero do ticket
+   * @param {object} filters - { offset, limit }
+   */
+  async fetchTicketShiftEntries(ticketNumber, filters = {}) {
+    const response = await this.makeRequest(`/tickets/${ticketNumber}/shift-entries?${this._pageQuery(filters)}`);
+    return this._attachTotalItems(response);
+  }
+
+  /**
    * Querystring `offset&limit` com o clamp padrão dos métodos paginados
    * (offset >= 1, limit 1..200, default 20). O path com `makeRequest` fica
    * literal no chamador (o `swagger_analyze.py coverage` detecta endpoints por ele).
@@ -1565,7 +1580,8 @@ class TiFluxAPI {
    * POST /clients/{client_id}/requestors
    *
    * @param {number|string} clientId - ID do cliente
-   * @param {object} body - { name*, telephone*, email, can_open_ticket, extension, country }
+   * @param {object} body - { name*, email, telephone, can_open_ticket, extension, country } — só `name` é obrigatório;
+   *   `email` segue a configuração "Exigir e-mail no cadastro de solicitante" da organização
    */
   async createRequestor(clientId, body) {
     const jsonData = JSON.stringify(body);
@@ -3124,7 +3140,8 @@ class TiFluxAPI {
         'requestor_telephone',
         'requestor_ramal',
         'requestor_country',
-        'client_id'
+        'client_id',
+        'requestor_id'
       ];
 
       const fields = [];

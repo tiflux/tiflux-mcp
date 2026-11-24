@@ -324,5 +324,8 @@ module.exports = {
   buildValueEntriesExecute,
   MASKED_LABEL,
   MANUAL_ENTRY_LABEL,
-  PERMISSION_HINT
+  PERMISSION_HINT,
+  parseTicketNumber,
+  toCents,
+  clampPage
 };

@@ -12,6 +12,7 @@
 const { textResponse } = require('../_shared/response');
 const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
 const { pagination, dateOnly } = require('../_shared/format');
+const { escapeCell } = require('../_shared/markdown');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -62,7 +63,9 @@ function formatPreTicketsList(preTickets, opts = {}) {
   preTickets.forEach(pt => {
     const title = pt.title || '—';
     const client = pt.client ? pt.client.name : '—';
-    const solicitante = pt.requestor_name || '—';
+    // `Nome (#id)` quando o pré-ticket está ligado a um solicitante cadastrado (encadeia get_requestor).
+    const requestorName = pt.requestor_name || '—';
+    const solicitante = escapeCell(pt.requestor_id ? `${requestorName} (#${pt.requestor_id})` : requestorName);
     const criadoEm = dateOnly(pt.created_at);
     text += `| ${pt.id} | ${title} | ${client} | ${solicitante} | ${criadoEm} |\n`;
   });

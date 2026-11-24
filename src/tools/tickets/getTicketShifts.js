@@ -26,7 +26,7 @@ const REFERENCE_LABELS = {
 
 const schema = {
   name: 'get_ticket_shifts',
-  description: 'Listar os deslocamentos disponíveis para valorização de um apontamento no ticket. Deslocamento é o componente de valorização que representa o custo de deslocamento (viagem/visita) ao cliente. Útil para descobrir quais deslocamentos podem ser referenciados ao criar um apontamento valorizado. Irmão de get_ticket_service_types.',
+  description: 'Listar os deslocamentos DISPONÍVEIS (cadastro) para valorização de um apontamento no ticket. Para os deslocamentos e caronas já LANÇADOS no ticket, com valores e totais, use `list_ticket_shift_entries`. Deslocamento é o componente de valorização que representa o custo de deslocamento (viagem/visita) ao cliente. Útil para descobrir quais deslocamentos podem ser referenciados ao criar um apontamento valorizado. Irmão de get_ticket_service_types.',
   inputSchema: {
     type: 'object',
     properties: {

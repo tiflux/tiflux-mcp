@@ -144,7 +144,7 @@ Qualquer cliente MCP funciona com o servidor hospedado:
 
 ## Funcionalidades
 
-- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), e custos internos da operação (`list_ticket_internal_costs`), somente leitura; agrupar um ticket em outro, com o agrupado cancelado (`merge_ticket`, irreversível)
+- **Tickets**: criar, consultar, atualizar, fechar, cancelar, reabrir e listar tickets com filtros avançados — incluindo transferência de mesa, histórico de estágios e SLA; relatório de avaliações de atendimento (CSAT) com comparação de período (`get_tickets_feedback_report`); valores extras cobrados do cliente, com faturado × a faturar (`list_ticket_extra_values`), custos internos da operação (`list_ticket_internal_costs`) e deslocamentos e caronas lançados no ticket, com os totais avulsos × contrato (`list_ticket_shift_entries`), somente leitura; agrupar um ticket em outro, com o agrupado cancelado (`merge_ticket`, irreversível)
 - **Comunicações internas e respostas**: criar, listar, editar e excluir comunicações internas e respostas de tickets, com anexos (até 10 arquivos de 25MB cada); registrar resposta em nome do cliente (`create_client_answer`, só Administrador)
 - **Apontamentos de horas**: criar e listar apontamentos de trabalho em tickets; listagem global por período com filtros server-side (`list_appointments_global`); relatório agregado de apoio N2 por técnico e mesa com totalizadores (`list_appointments_report`); pré-apontamentos (cronômetros em andamento) via `list_pre_appointments`. O detalhe de valorização mostra o aditivo do contrato (número, versão e modalidade).
 - **Chats (WhatsApp)**: listar caixa de entrada/meus/em atendimento/arquivados, ler o conteúdo/mensagens de um chat (`list_chat_messages`, incluindo a transcrição já existente dos áudios — exige acesso aos recursos de IA do TiFlux), transferir e vincular chats, enviar mensagens, finalizar e cancelar atendimentos (`cancel_chat` — sem ticket nem item de catálogo); relatório de avaliações de atendimento (CSAT) com comparação de período (`get_chats_feedback_report`)
@@ -240,7 +240,7 @@ Clientes MCP (Claude Code, claude.ai) recusam resultados de ferramenta acima de 
 
 | Limite | Quando vale | O que acontece |
 |--------|-------------|----------------|
-| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`: `day`/`week`/`month`/`desk` nunca trocam de formato; as agregações por dimensão e por período × responsável trocam para `compact`, com a mesma linha de aviso, só quando o `rich` passaria do teto de ~40k — ver "Response ceiling" em `list_tickets`), `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_ticket_extra_values`, `list_ticket_internal_costs` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
+| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`: `day`/`week`/`month`/`desk` nunca trocam de formato; as agregações por dimensão e por período × responsável trocam para `compact`, com a mesma linha de aviso, só quando o `rich` passaria do teto de ~40k — ver "Response ceiling" em `list_tickets`), `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_ticket_extra_values`, `list_ticket_internal_costs`, `list_ticket_shift_entries` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
 | **Teto de ~40k caracteres** | As mesmas listagens, em qualquer modo | A lista é cortada no fim de um item e a linha de corte substitui o bloco de paginação, com o `offset`/`limit` exatos para continuar (ver [Dicas](#dicas-para-reduzir-consumo-de-tokens)). |
 | **Rede global de ~60k caracteres** | Qualquer ferramenta | O texto é cortado no último parágrafo que cabe, com o aviso `…resposta cortada em ~60k caracteres — reduza limit ou refine o recorte.` (`isError` não muda). |
 
@@ -254,7 +254,7 @@ Ao construir aplicações que chamam este servidor MCP programaticamente, o cust
 - **Passe IDs quando já os tiver.** Toda ferramenta que aceita um parâmetro `_name` para auto-resolução (ex.: `desk_name`, `stage_name`, `entity_field_name`) fará uma ou mais chamadas extras à API para resolver o nome. Se você guardou o ID de uma chamada anterior, passe-o diretamente (ex.: `desk_id`, `stage_id`, `entity_field_id`) — é sempre mais rápido e barato.
 - **Use verbosidade `compact`** via `TIFLUX_MCP_VERBOSITY=compact` (SDK) ou header `x-tiflux-verbosity: compact` (Server). A redução varia por família de ferramenta: ~65% em `list_tickets`, e de 20% a 62% nas ferramentas de análise. Para perguntas analíticas o ganho não é só de tamanho: com datas em ISO, durações em minutos e valores decimais, o modelo agrega direto em vez de converter texto antes de calcular.
 - **Pagine deliberadamente.** `list_tickets` com um intervalo de datas amplo em uma mesa movimentada pode retornar centenas de itens. Passe `limit` e `offset` intencionalmente — quando uma página cheia retorna, o modo compact acrescenta uma dica de próxima página (`→ offset: N`) para o modelo saber que pode haver mais a buscar.
-- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats`, `get_ticket_histories`, `list_ticket_extra_values`, `list_ticket_internal_costs` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
+- **Linha de corte: continue com o `offset`/`limit` que ela sugere.** As listagens pesadas (`list_tickets`, `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats`, `get_ticket_histories`, `list_ticket_extra_values`, `list_ticket_internal_costs`, `list_ticket_shift_entries` e a lista de `get_tickets_feedback_report`/`get_chats_feedback_report`) limitam a resposta a ~40k caracteres e cortam sempre no fim de um item. Quando cortam, a linha de corte substitui o bloco de paginação:
   - `rich`: `✂️ Mostrando 98 dos 200 tickets desta página (total 1305) — resposta limitada a ~40k caracteres. Para continuar: offset 2, limit 98`
   - `compact`: `[cortado: 98/200 nesta pág (total 1305) — offset 2 limit 98]`
 
@@ -1472,20 +1472,20 @@ Get full details of a requestor of a client by ID (`GET /clients/{id}/requestors
 ```
 
 ### create_requestor
-Create a new requestor in a client (`POST /clients/{id}/requestors`). Required fields: `client_id`, `name`, `email`. Other fields are optional and only sent if provided.
+Create a new requestor in a client (`POST /clients/{id}/requestors`). Required fields: `client_id` and `name`. `email` is required only when the organization enforces it (setting **"Exigir e-mail no cadastro de solicitante"**); if it does and the e-mail is missing, the API rejects with 422 and the tool adds a hint pointing to that setting. Other fields are optional and only sent if provided.
 
 > **Note:** `telephone` is optional here. When it comes to ticket creation, field requirements may differ — they depend on the desk's `required_fields` (see `GET /desks/{id}`), not on the requestor registration endpoint.
 
 **Parameters:**
 - `client_id` (number, required): Client to link the requestor to
 - `name` (string, required): Requestor name
-- `email` (string, required): Requestor email
+- `email` (string, optional): Requestor email. Required only when the organization enforces e-mail on requestor registration; when provided it must be a valid e-mail (stored in lowercase)
 - `telephone` (string, optional): Requestor phone. If provided, must be a valid number — do not send an empty string (causes 422)
 - `can_open_ticket` (boolean, optional): Whether the requestor can open tickets by email
 - `extension` (string, optional): Requestor extension
 - `country` (string, optional): Country of the **phone number**, ISO 3166-1 alpha-2 (e.g. `BR`, `US`; lowercase is uppercased). Used by the API only to validate and normalize the number; not stored (default `BR`). Only valid together with `telephone`: `country` alone, or a value that is not 2 letters, is rejected locally.
 
-**Returns:** The created requestor's id, name, email, and telephone (if provided).
+**Returns:** The created requestor's id, name, email (only when there is one) and telephone (if provided).
 
 **Example:**
 ```json
@@ -1772,7 +1772,7 @@ Each list can be independently empty (shows "none found" for that section); **bo
 ```
 
 ### get_ticket_shifts
-List the displacements (travel/visit) available for valorization of an appointment on a ticket. Displacement is a valorization component representing the travel cost to the client. Useful for discovering which displacements can be referenced when creating a valued appointment. Sister tool of `get_ticket_service_types`.
+List the displacements (travel/visit) **available** (registered) for valorization of an appointment on a ticket. For the displacements and rides already **entered** on the ticket, with values and totals, use `list_ticket_shift_entries`. Displacement is a valorization component representing the travel cost to the client. Useful for discovering which displacements can be referenced when creating a valued appointment. Sister tool of `get_ticket_service_types`.
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number (e.g., "98875", "123")
@@ -1851,7 +1851,7 @@ List the **extra values** of a ticket (portal tab "Valorização" → "Valores e
 - **Masking:** without the permission **"Visualizar valores dos tickets"**, `unitary_value`/`total_value` come as `--` — except on entries the user created — and are shown as "oculto (sem permissão)" (never `R$ 0,00`). They stay out of the sum, with a note of how many were left out; with some entries hidden the label becomes "Total do ticket (só valores visíveis)" / "Soma desta página (só valores visíveis)", and with every entry hidden no sum is shown ("Soma indisponível: nenhum valor visível"). Blank values are treated the same way. `quantity` and `billed` are never masked.
 - **File links** are signed URLs valid for **72 h**.
 - An extra value that has already been billed can no longer be edited or removed in the portal. When tickets are grouped (merged), extra values move to the main ticket.
-- Not included here: loose appointment values and travel (`list_appointments`, `get_ticket_shifts`). For what the operation spent (not charged), use `list_ticket_internal_costs`.
+- Not included here: loose appointment values (`list_appointments`) and travel — for the displacements entered on the ticket, with totals, use `list_ticket_shift_entries` (`get_ticket_shifts` only lists the displacements available). For what the operation spent (not charged), use `list_ticket_internal_costs`.
 - Errors: 404 (ticket not found or from another org), 422 (invalid `ticket_number`); a `ticket_number` that is not a positive integer is rejected before calling the API, 403 `40301` (needs "Visualizar e abrir tickets" / "Visualizar tickets em que eu não sou o responsável"; client users have no access), 403 `40304` (no Tickets license).
 - Response budget: auto `compact` above 50 entries without explicit verbosity; ~40k cut at an entry boundary with continuation line (the sum is recalculated over the entries shown).
 
@@ -1868,6 +1868,41 @@ List the **internal costs** of a ticket (portal tab "Valorização" → "Custos 
 ```
 
 **Returns:** same entry layout as `list_ticket_extra_values`, **without** the Faturado column and the billed split (internal costs have no billing concept). Same sum footer ("Total do ticket" / "Soma desta página"), same masking rule (`--` → "oculto (sem permissão)", out of the sum), same 72 h file links, errors and response budget. When tickets are grouped (merged), internal costs **do not move**: they stay on the grouped (cancelled) ticket.
+
+### list_ticket_shift_entries
+List the displacements (travel) and rides (**caronas**) **entered** on a ticket (portal tab "Valorização"), one item per appointment, with the totals of the whole ticket. Read-only. For the displacements **available** (registered) to valorize an appointment, use `get_ticket_shifts`.
+
+**Parameters:**
+- `ticket_number` (string, required): Ticket number (e.g., "6167"). Digits only; anything else is rejected before calling the API
+- `offset` (number, optional): Page number (default: 1)
+- `limit` (number, optional): Entries per page (default: 20, max: 200)
+
+**Example:**
+```json
+{
+  "ticket_number": "6167"
+}
+```
+
+**Returns:**
+- Header `🚗 Deslocamentos lançados — Ticket #N (x de y)`.
+- **Totals of the whole ticket** (not of the page), read from the response headers `X-Total-Loose-Value` and `X-Total-Contract-Value`: `Totais do ticket: Avulsos R$ 150,55 · Contrato/grupo R$ 140,00 (sem garantia)`. They leave out appointments under warranty and rides, and are never recalculated from the page. Both masked (`--`, no "Visualizar valores dos tickets" permission) → `valores ocultos (sem permissão)`; a missing or non-numeric header shows as `indisponível` instead of blaming permission.
+- **Rides received** — the tickets that took a ride on this ticket's displacement — shown once in the header: `Caronas neste deslocamento: #38 (1 apontamento), #987613 (2 apontamentos)` (up to 10 tickets, then `+N`; `compact` shows only the count).
+- One entry per appointment:
+  - **Date** exactly as the API returns it — it follows the locale's date format: `11/03/2025` (= March 11th) in Portuguese, `2025-03-11` in English (the Swagger example).
+  - **Kind**: `Avulso` (loose), `Contrato`, `Grupo de contratos`, `Carona` or `Deslocamento removido` (the displacement registration was deleted).
+  - Displacement name, contract or contract group, and **value** — the value stored on the entry, not the current registered price.
+  - **Faturado** `Sim`/`Não` only on loose displacements (`—` when the API sends null); contract and ride entries have no billing flag.
+  - **Em garantia** when the appointment is under warranty (out of the totals).
+  - Who entered it and the appointment id.
+  - A **ride** shows `Pega carona no ticket #X, sem custo próprio` — it reuses the displacement of another ticket and has no cost of its own (`ticket dono removido` when the owner ticket was deleted).
+- Empty page: `Nenhum deslocamento lançado no ticket #N` (with `offset` > 1, a hint to go back to `offset: 1`).
+- `compact`: one line per entry, `data|tipo|deslocamento|contrato|valor|fat|garantia|por|apont`.
+
+**Notes:**
+- **Masking:** without the permission **"Visualizar valores dos tickets"**, `value` comes as `--` — except on the user's own appointments — and is shown as "oculto (sem permissão)" (never `R$ 0,00`); the totals come as `--` and are shown as "valores ocultos (sem permissão)". Old entries stored without a value show `—`.
+- Errors: 404 (ticket not found or from another org), 422 (invalid parameter), 403 `40301` (needs "Visualizar e abrir tickets" / "Visualizar tickets em que eu não sou o responsável"; client users have no access), 403 `40304` (no Tickets license).
+- Response budget: auto `compact` above 50 entries without explicit verbosity; ~40k cut at an entry boundary with continuation line (the totals stay those of the whole ticket).
 
 ### update_ticket_checklist_item
 Fill or clear a single checklist field for a ticket. One field per call (1:1 with the API). Use `get_ticket_checklists` first to obtain `checklist_id`, `index`, and the option ids for `checkbox`/`radio` fields.
@@ -3731,7 +3766,7 @@ List pre-tickets of the organization. Pre-tickets are service requests in a pre-
 | `limit` | number | no | 20 | Results per page (max: 200) |
 | `offset` | number | no | 1 | Page number |
 
-**Returns:** Markdown table `ID | Título | Cliente | Solicitante | Criado em` with pagination footer. Empty list returns a message with guidance. **Fixed in v2.50.1:** `Criado em` now shows the Brasília-time date — previously used the host process's timezone.
+**Returns:** Markdown table `ID | Título | Cliente | Solicitante | Criado em` with pagination footer. When the pre-ticket is linked to a registered requestor, the Solicitante column shows `Name (#requestor_id)` — use the id with `get_requestor`. Empty list returns a message with guidance. **Fixed in v2.50.1:** `Criado em` now shows the Brasília-time date — previously used the host process's timezone.
 
 **Example:**
 ```json
@@ -3752,14 +3787,17 @@ Create a new pre-ticket in TiFlux. Pre-tickets represent incoming service reques
 | `title` | string | yes | Pre-ticket title |
 | `description` | string | yes | Description/details of the request |
 | `requestor_name` | string | yes | Requestor full name |
-| `requestor_email` | string | yes | Requestor e-mail address |
+| `requestor_email` | string | no* | Requestor e-mail address. *Required only when the organization enforces e-mail on requestor registration (setting "Exigir e-mail no cadastro de solicitante"); when provided it must be a valid e-mail |
 | `requestor_telephone` | string | yes | Requestor telephone number |
+| `requestor_id` | number | no | ID of an already registered requestor to link to the pre-ticket (find it with `search_requestor` / `list_requestors`). Must be active and, when `client_id` is also sent, belong to that client. It does **not** fill in name or telephone: `requestor_name` and `requestor_telephone` remain required |
 | `requestor_ramal` | number | no | Requestor extension (ramal) |
 | `requestor_country` | string | no | Requestor country (ISO 2-letter code). Example: `"BR"`, `"US"` |
 | `client_id` | number | no | Client ID to associate with the pre-ticket. Example: `724` |
 | `files` | array | no | Attachments. Each item: `{ "content": "<base64>", "filename": "file.pdf" }`. Max 10 files, 25MB each |
 
-**Returns:** Confirmation text with pre-ticket ID, title, client, and requestor info.
+**Returns:** Confirmation text with pre-ticket ID, title, client, and requestor info (name, e-mail only when there is one, and `#requestor_id` when the pre-ticket was linked to a registered requestor).
+
+**Errors:** a 422 on `requestor_id` (not found, inactive or from another client) adds a hint to check it with `search_requestor`/`list_requestors`; a 422 on `requestor_email` adds a hint that the organization requires the requestor e-mail or the e-mail provided is invalid.
 
 **Example (minimal):**
 ```json
@@ -3769,6 +3807,17 @@ Create a new pre-ticket in TiFlux. Pre-tickets represent incoming service reques
   "requestor_name": "João Silva",
   "requestor_email": "joao.silva@empresa.com",
   "requestor_telephone": "11999990001"
+}
+```
+
+**Example (registered requestor, no e-mail):**
+```json
+{
+  "title": "Impressora parada",
+  "description": "Não imprime desde ontem.",
+  "requestor_name": "Maria Souza",
+  "requestor_telephone": "11999990003",
+  "requestor_id": 117609
 }
 ```
 
@@ -4623,7 +4672,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /requestors` - Search requestors with server-side filtering (`search_requestor`, and `requestor_name`/`requestor_email` auto-resolve in `create_ticket` and `update_ticket`). Used as fallback when the client-scoped route returns 403 or when no `client_id` is available.
 - `GET /clients/{client_id}/requestors` - Client-scoped requestor listing/search. Powers `list_requestors`. **Primary route** for `requestor_name`/`requestor_email` auto-resolve in `create_ticket` and `update_ticket` when `client_id` is known (scoped-first since v2.37.0, eliminates ticket #98515 class of bug). Falls back to global `GET /requestors` on 403.
 - `GET /clients/{client_id}/requestors/{id}` - Get a single requestor of a client (`get_requestor`; `include_entity_fields` for custom fields).
-- `POST /clients/{client_id}/requestors` - Create a requestor in a client (`create_requestor`).
+- `POST /clients/{client_id}/requestors` - Create a requestor in a client (`create_requestor`). Required: `name`; `email` only when the organization enforces e-mail on requestor registration.
 - `PUT /clients/{client_id}/requestors/{id}` - Update a requestor (`update_requestor`, partial).
 - `PUT /clients/{client_id}/requestors/{id}/entities` - Update a requestor's custom fields (`update_requestor_entities`).
 - `DELETE /clients/{client_id}/requestors/{id}` - Delete a requestor of a client (`delete_requestor`). Irreversible. Requires "Gerenciar clientes e grupos de recursos".
@@ -4665,6 +4714,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /tickets/{ticket_number}/checklists` - List checklists (forms) of a ticket with all fields and fill state (`get_ticket_checklists`; paginated via `offset`/`limit`; header `X-Total-Items` for total count)
 - `GET /tickets/{ticket_number}/extra-values` - List extra values (charged to the client) of a ticket (`list_ticket_extra_values`; paginated via `offset`/`limit`; header `X-Total-Items`)
 - `GET /tickets/{ticket_number}/internal-costs` - List internal costs (not charged to the client) of a ticket (`list_ticket_internal_costs`; paginated via `offset`/`limit`; header `X-Total-Items`)
+- `GET /tickets/{ticket_number}/shift-entries` - List the displacements and rides entered on a ticket, one item per appointment (`list_ticket_shift_entries`; paginated via `offset`/`limit`; headers `X-Total-Items`, `X-Total-Loose-Value`, `X-Total-Contract-Value`)
 - `POST /tickets/{ticket_number}/merge` - Merge a ticket into another; the merged ticket is cancelled, irreversible (`merge_ticket`)
 - `PUT /tickets/{ticket_number}/checklists/{id}/items/{index}` - Fill or clear a single checklist field (`update_ticket_checklist_item`; payload: `{ value }` for text/textarea/value/radio or `{ options: [{id, checked}] }` for checkbox; `{ value: null }` clears any field)
 - `POST /tickets/{ticket_number}/appointments` - Create a ticket appointment. Supports 9 valorization fields: `attendance` (1/2/3), `attendance_kind` (1/2), `contract_rider_id`, `loose_service_id`, `shift_id`, `shift_owner_ticket_number`, `guarantee`, `value`, `external_user_name`. Plus 3 name-resolution params: `shift_name`, `loose_service_name`, `contract_name`.
@@ -4722,7 +4772,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `GET /equipment-groups` - List equipment groups with optional `client_id` filter (`list_equipment_groups`). Paginated with `X-Total-Items`.
 - `GET /equipment-types` - List equipment types with optional `name` filter (partial, case-insensitive) (`list_equipment_types`). Paginated with `X-Total-Items`.
 - `GET /pre-tickets` - List pre-tickets (service requests in pre-triage) with optional filters (`list_pre_tickets`). Supports `archived`, `client_id`, `created_after`, `created_before`, `include_description`, pagination. Header `X-Total-Items` for total count. Requires Tickets license + "Gerenciar pré-tickets" permission.
-- `POST /pre-tickets` - Create a new pre-ticket (`create_pre_ticket`). `multipart/form-data`. Required: `title`, `description`, `requestor_name`, `requestor_email`, `requestor_telephone`. Optional: `requestor_ramal`, `requestor_country`, `client_id`, `files[]` (max 10, 25MB each).
+- `POST /pre-tickets` - Create a new pre-ticket (`create_pre_ticket`). `multipart/form-data`. Required: `title`, `description`, `requestor_name`, `requestor_telephone`. Optional: `requestor_email` (required only when the organization enforces e-mail on requestor registration), `requestor_id`, `requestor_ramal`, `requestor_country`, `client_id`, `files[]` (max 10, 25MB each).
 - `GET /templates/gupshup` - List HSM templates from the Gupshup integration (`list_gupshup_templates`). Filters: `integration_id`, `offset`, `limit`. Header `X-Total-Items` for total count. Requires "Gerenciar Modelos" permission.
 - `GET /templates/whatsapp_cloud` - List templates from the WhatsApp Cloud (Meta) integration (`list_whatsapp_cloud_templates`). Filters: `integration_id`, `status` (enum: APPROVED/MISSING_VARS/REJECTED/PENDING), `offset`, `limit`. Header `X-Total-Items` for total count. Requires "Gerenciar Modelos" permission.
 - `GET /services-catalogs` - List org-wide service catalogs (`list_services_catalogs`). Filter by `name` (ilike). Header `X-Total-Items`. Requires `service_catalogs_manage` role for write operations (read is unrestricted).

@@ -34,7 +34,9 @@ const FIELD_TYPES_WITH_OPTIONS = new Set(['single_select', 'checkbox']);
 function formatEntityField(field) {
   const value = field.value !== null && field.value !== undefined ? field.value : '(vazio)';
   const requiredSuffix = field.required === true ? ' (obrigatório)' : '';
-  let text = `  • ${field.name}${requiredSuffix} (${field.field_type}): ${value}\n`;
+  // field_type pode vir null no shape GET (Swagger de 2026-11-23): omite o parêntese de tipo.
+  const typeSuffix = field.field_type ? ` (${field.field_type})` : '';
+  let text = `  • ${field.name}${requiredSuffix}${typeSuffix}: ${value}\n`;
   text += `    - entity_field_id: ${field.entity_field_id}\n`;
 
   if (FIELD_TYPES_WITH_OPTIONS.has(field.field_type)) {
