@@ -211,6 +211,46 @@ function buildNotices(verbosity, { userNamesRequested, appointmentsLength, final
   return notices;
 }
 
+/**
+ * Piso do `limit` enviado à API (contorno temporário de desempenho). Contexto e critério de
+ * remoção no backlog interno (BL-049).
+ */
+const MIN_API_LIMIT = 20;
+
+/**
+ * Busca a página pedida pelo agente (`offset` = nº da página, `limit` = itens por página).
+ * Com `limit` >= MIN_API_LIMIT é 1 chamada, repassada como veio. Abaixo disso, pede páginas
+ * de MIN_API_LIMIT à API e recorta a fatia equivalente: mesma ordem e mesmo total da API,
+ * no máximo 2 chamadas (quando a fatia cruza a fronteira de uma página da API).
+ *
+ * @returns {Promise<{data: object[], total: number|undefined}|{error: string, status: *}>}
+ */
+async function fetchAppointmentsPage(api, filters, offset, limit) {
+  if (limit >= MIN_API_LIMIT) {
+    return api.listAppointmentsGlobal({ ...filters, offset, limit });
+  }
+
+  const start = (offset - 1) * limit;
+  const apiPage = Math.floor(start / MIN_API_LIMIT) + 1;
+  const startInPage = start % MIN_API_LIMIT;
+
+  const first = await api.listAppointmentsGlobal({ ...filters, offset: apiPage, limit: MIN_API_LIMIT });
+  if (first.error) return first;
+
+  let items = first.data || [];
+  const crossesPage = startInPage + limit > MIN_API_LIMIT;
+  if (crossesPage && items.length === MIN_API_LIMIT) {
+    const second = await api.listAppointmentsGlobal({ ...filters, offset: apiPage + 1, limit: MIN_API_LIMIT });
+    if (second.error) return second;
+    // Se um item entrar na faixa da 1a página entre as 2 chamadas, o 1o da 2a página repete o
+    // último da 1a: descarta ids já vistos para a fatia não trazer o mesmo apontamento duas vezes.
+    const seen = new Set(items.map(a => a?.id).filter(id => id != null));
+    items = items.concat((second.data || []).filter(a => a?.id == null || !seen.has(a.id)));
+  }
+
+  return { ...first, data: items.slice(startInPage, startInPage + limit) };
+}
+
 async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }) {
   const {
     start_date,
@@ -242,7 +282,7 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
   const effectiveLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
 
   try {
-    const response = await api.listAppointmentsGlobal({
+    const response = await fetchAppointmentsPage(api, {
       start_date,
       end_date,
       user_ids: finalUserIds,
@@ -250,10 +290,8 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
       client_ids: finalClientIds,
       contract_ids: finalContractIds,
       contract_group_ids: finalContractGroupIds,
-      include_valorization: include_valorization === true,
-      offset: effectiveOffset,
-      limit: effectiveLimit
-    });
+      include_valorization: include_valorization === true
+    }, effectiveOffset, effectiveLimit);
 
     if (response.error) {
       return appointmentsApiErrorResponse(response, '**❌ Erro ao listar apontamentos**');
