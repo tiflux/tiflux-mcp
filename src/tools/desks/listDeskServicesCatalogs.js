@@ -15,7 +15,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { fuzzyMatchItems } = require('../_shared/fuzzyMatch');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -112,12 +112,8 @@ async function execute(args, { api }) {
 
     return textResponse(formatServicesCatalogs(catalogs));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar catalogos**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar catalogos`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatServicesCatalogs };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar catálogos', execute), format: formatServicesCatalogs };

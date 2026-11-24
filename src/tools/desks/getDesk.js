@@ -8,7 +8,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { resolveDeskName } = require('../_shared/deskResolver');
 
 const schema = {
@@ -164,12 +164,8 @@ async function execute(args, { api }) {
     const desk = response.data || response;
     return textResponse(formatDesk(desk));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar mesa**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar mesa`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatDesk };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar mesa', execute), format: formatDesk };

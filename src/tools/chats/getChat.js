@@ -6,8 +6,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { footer, dateTime } = require('../_shared/format');
 const { ticketReference } = require('../_shared/chatTicket');
 const { originLabel, waitingLabel, personLine } = require('../_shared/chatFields');
@@ -67,7 +67,7 @@ function formatChatCard(chat, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.chat });
 
   const id = parseInt(args.id);
 
@@ -110,13 +110,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatChatCard(response.data, verbosity));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar chat**\n\n` +
-      `**ID:** ${id}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar chat #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatChatCard };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar chat', execute), format: formatChatCard };

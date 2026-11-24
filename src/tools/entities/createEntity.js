@@ -18,7 +18,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveCatalogContext, resolveAreaContext } = require('../services_catalogs/catalogResolver');
 
@@ -236,8 +236,8 @@ function formatCreated(entity, { name, applied_in }) {
 }
 
 async function execute(args, { api }) {
-  requireField(args, 'name');
-  requireField(args, 'applied_in');
+  requireField(args, 'name', null, { hint: 'Informe name com o nome do campo personalizado (texto).' });
+  requireField(args, 'applied_in', null, { hint: `Informe applied_in com onde o campo se aplica. Valores aceitos: ${APPLIED_IN_VALUES.join(', ')}.` });
 
   const invalid = validateArgs(args);
   if (invalid) return invalid;
@@ -258,8 +258,8 @@ async function execute(args, { api }) {
     if (response.error) return failureResponse(response, applied_in);
     return textResponse(formatCreated(response.data || {}, { name, applied_in }));
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao criar campo personalizado**`, error);
+    return toolErrorResponse(`Erro ao criar campo personalizado`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar campo personalizado', execute) };

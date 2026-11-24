@@ -29,7 +29,7 @@ const {
   footer, pagination, currencyBRL, appendWithinBudget, renderWithinBudget, continuationLine, RESPONSE_ITEM_BUDGET
 } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
-const { parseIntStrict, ValidationError } = require('../_shared/validators');
+const { parseIntStrict, ValidationError, isRealDate } = require('../_shared/validators');
 const { escapeCell } = require('../_shared/markdown');
 const { contractsLicenseErrorResponse, contractApiErrorResponse, pageBeyondEndMessage } = require('../_shared/contractShared');
 
@@ -95,11 +95,6 @@ const schema = {
     required: ['date']
   }
 };
-
-function isRealDate(y, m, d) {
-  const dt = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
-  return dt.getUTCFullYear() === Number(y) && dt.getUTCMonth() === Number(m) - 1 && dt.getUTCDate() === Number(d);
-}
 
 function validateDate(date) {
   if (date === undefined || date === null || date === '') throw new ValidationError('date é obrigatório (formato YYYY-MM-DD)', { hint: DATE_HINT });

@@ -15,9 +15,9 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
-const { requireField } = require('../_shared/validators');
+const { requireField, ValidationError, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { ticketNumberSchemaProperty, paginationSchemaProperties } = require('../_shared/schemaProps');
 const { escapeCell } = require('../_shared/markdown');
 
@@ -96,7 +96,7 @@ async function execute(args, { api, verbosity }) {
   // Validacao de formato: ticket_number deve conter apenas digitos para evitar
   // path traversal no URL interpolado (/tickets/${ticket_number}/pre-appointments).
   if (!/^\d+$/.test(String(ticket_number))) {
-    throw new Error('ticket_number deve conter apenas dígitos');
+    throw new ValidationError('ticket_number deve conter apenas dígitos', { hint: REQUIRED_FIELD_HINTS.ticket_number });
   }
 
   // Clamp identico ao aplicado em api.listPreAppointments, para que a heuristica
@@ -152,12 +152,8 @@ async function execute(args, { api, verbosity }) {
     const items = response.data || [];
     return textResponse(format(ticket_number, items, effectiveOffset, effectiveLimit, verbosity, response.total));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar pre-apontamentos do Ticket #${ticket_number}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar pre-apontamentos do Ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar pré-apontamentos', execute), format };

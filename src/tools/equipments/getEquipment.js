@@ -35,8 +35,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, extractApiErrorCode, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { footer } = require('../_shared/format');
 const { formatEntityField } = require('../_shared/entityFields');
 const { hasStr, hasArr, formatInventoryFull } = require('../_shared/equipmentInventory');
@@ -118,7 +118,7 @@ async function execute(args, { api, verbosity }) {
 
   // ID validado estritamente (inteiro) antes de virar path na URL — honra o
   // `type: number` do schema e nunca interpola argumento MCP cru em /equipments/{id}.
-  const equipment_id = requireIntField(args, 'equipment_id');
+  const equipment_id = requireIntField(args, 'equipment_id', null, { hint: REQUIRED_FIELD_HINTS.equipment_id });
 
   try {
     const options = {};
@@ -172,11 +172,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatEquipment(response.data, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar recurso #${equipment_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar recurso #${equipment_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatEquipment };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar recurso', execute), format: formatEquipment };

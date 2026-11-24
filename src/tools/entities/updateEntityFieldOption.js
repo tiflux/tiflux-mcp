@@ -6,8 +6,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'update_entity_field_option',
@@ -38,7 +38,7 @@ const schema = {
 
 async function execute(args, { api }) {
   requireField(args, 'entity_field_id');
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.entity_field_option });
   requireField(args, 'value');
   const { entity_field_id, id, value } = args;
 
@@ -87,8 +87,8 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar opcao #${id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar opcao #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar opção de subcampo', execute) };

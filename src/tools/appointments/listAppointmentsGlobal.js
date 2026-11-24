@@ -26,6 +26,7 @@ const {
   contractFilterLabel,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
+  validatePeriodDates,
   resolveAppointmentFilterIds,
   appointmentsApiErrorResponse
 } = require('./appointmentFilters');
@@ -229,6 +230,7 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
 
   const periodError = validateRequiredPeriod({ start_date, end_date });
   if (periodError) return periodError;
+  validatePeriodDates({ start_date, end_date });
 
   const userNamesRequested = !!(user_names || user_ids);
 

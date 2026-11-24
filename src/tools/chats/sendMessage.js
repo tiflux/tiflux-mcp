@@ -8,7 +8,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireIntField, parseIntStrict } = require('../_shared/validators');
 const { chatWriteApiError } = require('./chatWriteErrors');
 
@@ -79,11 +79,14 @@ Para HSM com variaveis use parameters (corpo) e header_parameters (cabecalho, ap
   }
 };
 
+const NUMBER_HINT = 'Informe number com o telefone de destino só com dígitos, com DDD e sem "+", espaços ou traços (ex: 11999998888). Para outro país, informe também country_code.';
+const INTEGRATION_ID_HINT = 'Informe integration_id com o ID da integração WhatsApp (inteiro). O ID aparece em list_whatsapp_cloud_templates e list_gupshup_templates (campo integração de cada modelo).';
+
 async function execute(args, { api }) {
   // Coerção estrita de number/integration_id: rejeita telefone formatado
   // ("+55 11 99999-9999") que parseInt truncaria silenciosamente (M1).
-  const number = requireIntField(args, 'number');
-  const integration_id = requireIntField(args, 'integration_id');
+  const number = requireIntField(args, 'number', null, { hint: NUMBER_HINT });
+  const integration_id = requireIntField(args, 'integration_id', null, { hint: INTEGRATION_ID_HINT });
 
   const {
     message,
@@ -161,12 +164,8 @@ async function execute(args, { api }) {
       `*Confira a entrega com \`list_chat_messages\`.*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao enviar mensagem**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao enviar mensagem`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao enviar mensagem', execute) };

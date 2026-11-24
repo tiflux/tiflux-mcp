@@ -11,8 +11,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { footer, pagination, renderWithinBudget, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -403,7 +403,7 @@ async function execute(args, { api, verbosity }) {
   // Sem compact automatico aqui: a transcricao nao varia com a verbosidade (so
   // rodape e paginacao), entao o aviso "formato compacto aplicado" seria falso.
   // O teto de ~40k (renderWithinBudget) continua valendo.
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.chat });
 
   const id = parseInt(args.id);
   const offset = Math.max(1, parseInt(args.offset) || 1);
@@ -467,13 +467,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatTranscript(messages, offset, limit, id, verbosity, response.total));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar mensagens do chat**\n\n` +
-      `**ID:** ${id}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar mensagens do chat #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatTranscript };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar mensagens do chat', execute), format: formatTranscript };

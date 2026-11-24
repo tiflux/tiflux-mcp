@@ -11,6 +11,7 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { row } = require('../_shared/format');
 const { escapeCell } = require('../_shared/markdown');
 const { TECHNICAL_GROUP, groupIdSchemaProperty, createGroupSubresourceList } = require('../_shared/organizationGroups');
+const { withValidationResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_technical_group_desks',
@@ -47,4 +48,4 @@ const execute = createGroupSubresourceList({
   renderItem
 });
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar mesas do grupo de atendentes', execute) };

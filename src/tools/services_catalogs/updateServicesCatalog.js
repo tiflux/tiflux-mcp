@@ -10,8 +10,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'update_services_catalog',
@@ -37,8 +37,8 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'id');
-  requireField(args, 'name');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.services_catalog });
+  requireField(args, 'name', null, { hint: 'Informe name com o novo nome do catálogo (texto).' });
 
   const { id, name } = args;
 
@@ -61,8 +61,8 @@ async function execute(args, { api }) {
       `*✅ Catálogo atualizado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar catálogo #${id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar catálogo #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar catálogo', execute) };

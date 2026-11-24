@@ -7,8 +7,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const TYPES_WITH_OPTIONS = new Set(['single_select', 'checkbox']);
@@ -61,9 +61,10 @@ function formatEntityFieldsList(entityId, fields) {
 }
 
 async function execute(args, { api }) {
-  const { entity_id, field_type, required, name, limit, offset } = args;
+  const { field_type, required, name, limit, offset } = args;
 
-  requireField(args, 'entity_id');
+  // ID validado estritamente (inteiro) antes de virar path em `/entities/{id}/fields`.
+  const entity_id = requireIntField(args, 'entity_id', null, { hint: REQUIRED_FIELD_HINTS.entity_id });
 
   try {
     const filters = {};
@@ -88,12 +89,8 @@ async function execute(args, { api }) {
     const fields = response.data || [];
     return textResponse(formatEntityFieldsList(entity_id, fields));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar subcampos da entity**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar subcampos da entity`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatEntityFieldsList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar subcampos', execute), format: formatEntityFieldsList };

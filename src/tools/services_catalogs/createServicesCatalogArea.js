@@ -9,7 +9,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveCatalogContext } = require('./catalogResolver');
 
@@ -40,7 +40,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'name');
+  requireField(args, 'name', null, { hint: 'Informe name com o nome da área (texto), mais services_catalog_id ou services_catalog_name do catálogo.' });
 
   const { name } = args;
 
@@ -77,10 +77,8 @@ async function execute(args, { api }) {
       `*✅ Área criada via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao criar área no catálogo #${services_catalog_id}**`, error
-    );
+    return toolErrorResponse(`Erro ao criar área no catálogo #${services_catalog_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar área de catálogo', execute) };

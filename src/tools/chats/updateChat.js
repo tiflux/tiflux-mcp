@@ -8,8 +8,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireIntField, parseIntStrict } = require('../_shared/validators');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, parseIntStrict, ID_PARAM_HINTS } = require('../_shared/validators');
 const { chatWriteApiError } = require('./chatWriteErrors');
 
 const schema = {
@@ -52,7 +52,7 @@ Informe pelo menos um de: user_id, user_name, department_id, ticket_number.`,
 };
 
 async function execute(args, { api }) {
-  const id = requireIntField(args, 'id');
+  const id = requireIntField(args, 'id', null, { hint: ID_PARAM_HINTS.chat });
   const { user_id, user_name, department_id, ticket_number } = args;
 
   // Coerção estrita dos IDs opcionais ANTES de montar o body: input inválido
@@ -144,12 +144,8 @@ async function execute(args, { api }) {
       `*✅ Chat atualizado via API TiFlux*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao atualizar chat #${id}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao atualizar chat #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar chat', execute) };

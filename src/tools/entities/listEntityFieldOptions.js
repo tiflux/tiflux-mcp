@@ -7,8 +7,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -50,9 +50,10 @@ function formatEntityFieldOptionsList(entityFieldId, options) {
 }
 
 async function execute(args, { api }) {
-  const { entity_field_id, value, limit, offset } = args;
+  const { value, limit, offset } = args;
 
-  requireField(args, 'entity_field_id');
+  // ID validado estritamente (inteiro) antes de virar path em `/entity_fields/{id}/options`.
+  const entity_field_id = requireIntField(args, 'entity_field_id', null, { hint: REQUIRED_FIELD_HINTS.entity_field_id });
 
   try {
     const filters = {};
@@ -75,12 +76,8 @@ async function execute(args, { api }) {
     const options = response.data || [];
     return textResponse(formatEntityFieldOptionsList(entity_field_id, options));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar opcoes do entity_field**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar opcoes do entity_field`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatEntityFieldOptionsList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar opções do subcampo', execute), format: formatEntityFieldOptionsList };

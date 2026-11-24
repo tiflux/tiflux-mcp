@@ -17,7 +17,7 @@
  * campos ausentes (`—`).
  */
 
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { TECHNICAL_GROUP, permissionTail, paginationFilters, pagedListResponse, renderIdName } = require('../_shared/organizationGroups');
 
@@ -54,8 +54,8 @@ async function execute(args, ctx) {
       renderItem: renderIdName
     });
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao listar grupos de atendentes**', error);
+    return toolErrorResponse('Erro ao listar grupos de atendentes', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar grupos de atendentes', execute) };

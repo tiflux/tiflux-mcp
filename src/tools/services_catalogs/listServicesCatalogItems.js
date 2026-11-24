@@ -12,7 +12,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderList } = require('../_shared/format');
 const { resolveAreaContext } = require('./catalogResolver');
@@ -104,10 +104,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao listar itens da área #${services_catalogs_area_id}**`, error
-    );
+    return toolErrorResponse(`Erro ao listar itens da área #${services_catalogs_area_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar itens da área', execute) };

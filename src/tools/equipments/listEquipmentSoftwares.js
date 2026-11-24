@@ -14,8 +14,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { footer } = require('../_shared/format');
 
 const schema = {
@@ -64,10 +64,12 @@ function formatSoftwaresList(softwares, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
+  // ID validado estritamente (inteiro) antes de virar path na URL — nunca
+  // interpolar argumento MCP cru em `/equipments/${id}/softwares`. Fica antes do
+  // try: a falha volta como "Problema / Como resolver" pelo embrulho do export.
+  const equipmentId = requireIntField(args, 'equipment_id', null, { hint: REQUIRED_FIELD_HINTS.equipment_id });
+
   try {
-    // ID validado estritamente (inteiro) antes de virar path na URL — nunca
-    // interpolar argumento MCP cru em `/equipments/${id}/softwares`.
-    const equipmentId = requireIntField(args, 'equipment_id');
     const response = await api.listEquipmentSoftwares(equipmentId);
 
     if (response.error) {
@@ -82,11 +84,8 @@ async function execute(args, { api, verbosity }) {
     const softwares = response.data || [];
     return textResponse(formatSoftwaresList(softwares, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao listar softwares do recurso #${args.equipment_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao listar softwares do recurso #${args.equipment_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatSoftwaresList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar softwares do recurso', execute), format: formatSoftwaresList };

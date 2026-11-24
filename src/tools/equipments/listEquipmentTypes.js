@@ -12,7 +12,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -89,8 +89,8 @@ async function execute(args, { api, verbosity }) {
       formatTypesList(types, effectiveOffset, effectiveLimit, response.total, verbosity)
     );
   } catch (error) {
-    return internalErrorResponse('**Erro interno ao listar tipos de recursos**', error);
+    return toolErrorResponse('Erro ao listar tipos de recursos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatTypesList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar tipos de recursos', execute), format: formatTypesList };

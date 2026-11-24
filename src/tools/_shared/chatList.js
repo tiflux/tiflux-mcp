@@ -16,7 +16,7 @@ const { assumedAtLine, personLine, originLabel, waitingLabel } = require('./chat
 const { createdAtFilterSchemaProperties, paginationSchemaProperties, startedByFilterSchemaProperty } = require('./schemaProps');
 const { commonChatListFilters } = require('./chatFilters');
 const { textResponse } = require('./response');
-const { errorResponse } = require('./errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('./errors');
 
 /**
  * Propriedades de schema comuns as 4 listagens de chats: paginacao + filtros
@@ -95,11 +95,7 @@ async function executeChatList({ request, offset, noun, emptyTitle, emptyHint, r
 
     return textResponse(render(chats, response.total));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar ${noun}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar ${noun}`, error);
   }
 }
 
@@ -238,7 +234,8 @@ function defineChatListSlice({
     });
   }
 
-  return { name, schema, execute, format };
+  // `tools/call` sem `arguments` chega como undefined: o embrulho normaliza para {}.
+  return { name, schema, execute: withValidationResponse(`Erro ao listar ${noun}`, execute), format };
 }
 
 module.exports = {

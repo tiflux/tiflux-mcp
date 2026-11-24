@@ -10,8 +10,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { resolveAreaContext } = require('./catalogResolver');
 const { validateTimes } = require('./createServicesCatalogItem');
 
@@ -43,7 +43,7 @@ const schema = {
       },
       id: {
         type: 'number',
-        description: 'ID do item a ser atualizado (obrigatório)'
+        description: 'ID do item a ser atualizado (obrigatório; obtenha via list_services_catalog_items)'
       },
       name: {
         type: 'string',
@@ -65,7 +65,7 @@ const schema = {
 const UPDATABLE_FIELDS = ['name', 'start_time', 'end_time'];
 
 async function execute(args, { api }) {
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.services_catalog_item });
 
   const { id } = args;
 
@@ -118,8 +118,8 @@ async function execute(args, { api }) {
       `\n*✅ Item atualizado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar item #${id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar item #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar item', execute) };

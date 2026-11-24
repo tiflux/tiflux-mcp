@@ -7,8 +7,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { footer } = require('../_shared/format');
 
 const schema = {
@@ -57,7 +57,7 @@ function formatUser(user, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const id = requireIntField(args, 'id');
+  const id = requireIntField(args, 'id', null, { hint: ID_PARAM_HINTS.user });
 
   try {
     const response = await api.getUser(id);
@@ -86,11 +86,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatUser(response.data, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar usuário #${id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar usuário #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatUser };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar usuário', execute), format: formatUser };

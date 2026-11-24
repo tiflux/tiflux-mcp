@@ -11,7 +11,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -88,8 +88,8 @@ async function execute(args, { api, verbosity }) {
       formatGroupsList(groups, effectiveOffset, effectiveLimit, response.total, verbosity)
     );
   } catch (error) {
-    return internalErrorResponse('**Erro interno ao listar grupos de recursos**', error);
+    return toolErrorResponse('Erro ao listar grupos de recursos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatGroupsList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar grupos de recursos', execute), format: formatGroupsList };

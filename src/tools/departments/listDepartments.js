@@ -11,7 +11,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -76,12 +76,8 @@ async function execute(args, { api }) {
     const departments = response.data || [];
     return textResponse(formatDepartmentsList(departments));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar departamentos**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar departamentos`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatDepartmentsList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar departamentos', execute), format: formatDepartmentsList };

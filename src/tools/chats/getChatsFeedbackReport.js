@@ -26,6 +26,7 @@
 const { runFeedbackReport, withTitle, compactListRenderer } = require('../_shared/feedbackReport');
 const { feedbackReportSchemaProperties, FEEDBACK_FILTER_KEYS } = require('../_shared/schemaProps');
 const { row, renderWithinBudget } = require('../_shared/format');
+const { withValidationResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'get_chats_feedback_report',
@@ -133,4 +134,4 @@ async function execute(args, ctx) {
   });
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao gerar relatório de avaliações de chats', execute) };

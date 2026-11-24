@@ -17,7 +17,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { renderList } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -110,11 +110,8 @@ async function execute(args, { api, verbosity }) {
       verbosity
     }));
   } catch (error) {
-    return internalErrorResponse(
-      '**Erro interno ao listar templates WhatsApp Cloud**',
-      error
-    );
+    return toolErrorResponse('Erro ao listar templates WhatsApp Cloud', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatWhatsappCloudTemplatesList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar templates WhatsApp Cloud', execute), format: formatWhatsappCloudTemplatesList };

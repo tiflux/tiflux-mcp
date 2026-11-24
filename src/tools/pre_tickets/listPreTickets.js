@@ -10,7 +10,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { pagination, dateOnly } = require('../_shared/format');
 const { escapeCell } = require('../_shared/markdown');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -117,11 +117,8 @@ async function execute(args, { api, verbosity }) {
       verbosity
     }));
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao listar pré-tickets**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao listar pré-tickets`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatPreTicketsList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar pré-tickets', execute), format: formatPreTicketsList };

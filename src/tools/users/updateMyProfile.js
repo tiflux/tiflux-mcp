@@ -18,8 +18,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, formatApiErrorDetail } = require('../_shared/errors');
-const { parseIntStrict } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, formatApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { parseIntStrict, ValidationError } = require('../_shared/validators');
 
 const STRING_FIELDS = ['name', 'telephone', 'country_code'];
 
@@ -65,11 +65,13 @@ function buildBody(args) {
     else body[field] = value;
   }
   if (blankFields.length > 0) {
-    throw new Error(`Campo(s) informado(s) em branco: ${blankFields.join(', ')}. Omita o campo para não alterá-lo.`);
+    throw new ValidationError(`Campo(s) informado(s) em branco: ${blankFields.join(', ')}`, {
+      hint: 'Omita o campo para não alterá-lo, ou informe um valor não vazio.'
+    });
   }
   if (body.country_code) body.country_code = body.country_code.toUpperCase();
   if (args.extension !== undefined && args.extension !== null && args.extension !== '') {
-    body.extension = parseIntStrict(args.extension, 'extension');
+    body.extension = parseIntStrict(args.extension, 'extension', { hint: 'Informe extension (ramal) só com dígitos (ex: 2010).' });
   }
   return body;
 }
@@ -127,8 +129,8 @@ async function execute(args, { api }) {
 
     return textResponse(formatProfile(response.data, body));
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao atualizar o perfil**', error);
+    return toolErrorResponse('Erro ao atualizar o perfil', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar o perfil', execute) };

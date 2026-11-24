@@ -17,8 +17,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { preflightCatalog, formatCatalogCascade } = require('./cascadePreflight');
 
 const schema = {
@@ -42,7 +42,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.services_catalog });
 
   const { id } = args;
 
@@ -67,8 +67,8 @@ async function execute(args, { api }) {
       `*✅ Catálogo removido via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao remover catálogo #${id}**`, error);
+    return toolErrorResponse(`Erro ao remover catálogo #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao remover catálogo', execute) };

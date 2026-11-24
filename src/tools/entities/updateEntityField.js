@@ -9,8 +9,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 
 const UPDATABLE_FIELDS = ['name', 'required'];
 
@@ -28,7 +28,7 @@ const schema = {
     properties: {
       entity_id: {
         type: 'number',
-        description: 'ID do campo personalizado (entity) pai. Obrigatorio.'
+        description: 'ID do campo personalizado (entity) pai. Obrigatorio. Obtenha via list_entities.'
       },
       id: {
         type: 'number',
@@ -54,7 +54,7 @@ function yesNoOrDash(value) {
 
 async function execute(args, { api }) {
   requireField(args, 'entity_id');
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.entity_field });
   const { entity_id, id } = args;
 
   const body = {};
@@ -113,8 +113,8 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar subcampo #${id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar subcampo #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar subcampo', execute) };

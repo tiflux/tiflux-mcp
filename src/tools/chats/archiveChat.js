@@ -8,8 +8,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireIntField, parseIntStrict } = require('../_shared/validators');
+const { withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, parseIntStrict, ID_PARAM_HINTS } = require('../_shared/validators');
 const { chatWriteApiError } = require('./chatWriteErrors');
 
 const schema = {
@@ -38,7 +38,7 @@ A API responde 202 (Accepted) — o encerramento e processado de forma assincron
 };
 
 async function execute(args, { api }) {
-  const id = requireIntField(args, 'id');
+  const id = requireIntField(args, 'id', null, { hint: ID_PARAM_HINTS.chat });
   const { services_catalogs_item_id } = args;
 
   // Coerção estrita do ID opcional antes de montar o body (M1).
@@ -77,12 +77,8 @@ async function execute(args, { api }) {
       `*A API aceitou a solicitação; o encerramento é processado de forma assíncrona. Se sua organização exigir ticket vinculado para finalizar, vincule antes com \`update_chat\` (\`ticket_number\`) — senão o encerramento é descartado no processamento.*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao finalizar chat #${id}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao finalizar chat #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao finalizar chat', execute) };

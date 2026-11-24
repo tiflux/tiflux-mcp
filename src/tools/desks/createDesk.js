@@ -18,9 +18,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const {
-  errorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorCode, formatApiErrorDetail
-} = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, extractApiErrorCode, formatApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { format: formatDesk } = require('./getDesk');
 
 const APPOINTMENT_TYPES = ['Without Appointments', 'Appointments with Valorization', 'Appointments with no Valorization'];
@@ -204,8 +202,8 @@ async function execute(args, { api }) {
       '*Mesas não podem ser excluídas pela API — para desativar, use o portal.*'
     );
   } catch (err) {
-    return internalErrorResponse('**❌ Erro interno ao criar mesa**', err);
+    return toolErrorResponse('Erro ao criar mesa', err);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, APPOINTMENT_TYPES, ATTENDANCE_TYPES };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar mesa', execute), APPOINTMENT_TYPES, ATTENDANCE_TYPES };

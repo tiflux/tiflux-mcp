@@ -8,8 +8,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { resolveTechnicalGroup } = require('../_shared/technicalGroupResolver');
 
 const UPDATABLE_FIELDS = [
@@ -100,7 +100,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const id = requireIntField(args, 'id');
+  const id = requireIntField(args, 'id', null, { hint: ID_PARAM_HINTS.user });
 
   // Resolver technical_group_id se alguma forma de grupo foi informada
   const wantsGroupUpdate = args.technical_group_id != null || args.technical_group_name != null;
@@ -161,11 +161,8 @@ async function execute(args, { api }) {
       `*✅ Usuário atualizado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao atualizar usuário #${id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao atualizar usuário #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar usuário', execute) };

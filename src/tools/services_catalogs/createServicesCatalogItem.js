@@ -18,7 +18,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveAreaContext } = require('./catalogResolver');
 
@@ -102,10 +102,12 @@ function validateTimes(start_time, end_time) {
   return null;
 }
 
+const TIME_HINT = 'Informe start_time (SLA de atendimento) e end_time (SLA de solução) no formato HH:MM (ex: "02:00" e "08:00"); end_time deve ser maior ou igual a start_time.';
+
 async function execute(args, { api }) {
-  requireField(args, 'name');
-  requireField(args, 'start_time');
-  requireField(args, 'end_time');
+  requireField(args, 'name', null, { hint: 'Informe name com o nome do item de catálogo (texto), mais a área (services_catalogs_area_id ou nome).' });
+  requireField(args, 'start_time', null, { hint: TIME_HINT });
+  requireField(args, 'end_time', null, { hint: TIME_HINT });
 
   const { name, start_time, end_time } = args;
 
@@ -155,10 +157,8 @@ async function execute(args, { api }) {
       `*✅ Item criado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao criar item na área #${services_catalogs_area_id}**`, error
-    );
+    return toolErrorResponse(`Erro ao criar item na área #${services_catalogs_area_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, validateTimes };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar item de catálogo', execute), validateTimes };

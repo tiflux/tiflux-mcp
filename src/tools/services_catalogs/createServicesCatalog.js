@@ -9,7 +9,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse, extractApiErrorDetail } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const schema = {
@@ -31,7 +31,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'name');
+  requireField(args, 'name', null, { hint: 'Informe name com o nome do catálogo de serviços (texto).' });
 
   const { name } = args;
 
@@ -63,8 +63,8 @@ async function execute(args, { api }) {
       `*✅ Catálogo criado via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao criar catálogo de serviços**', error);
+    return toolErrorResponse('Erro ao criar catálogo de serviços', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar catálogo de serviços', execute) };

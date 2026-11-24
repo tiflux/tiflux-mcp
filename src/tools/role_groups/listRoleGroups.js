@@ -7,7 +7,7 @@
  * ex: "Administrador", "Clientes").
  */
 
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { row } = require('../_shared/format');
 const { escapeCell } = require('../_shared/markdown');
@@ -68,8 +68,8 @@ async function execute(args, ctx) {
       renderItem
     });
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao listar grupos de permissoes**', error);
+    return toolErrorResponse('Erro ao listar grupos de permissoes', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar grupos de permissões', execute) };

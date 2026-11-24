@@ -7,7 +7,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { ValidationError } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -53,7 +54,9 @@ async function execute(args, { api }) {
   const { desk_id, desk_name, limit, offset } = args;
 
   if (!desk_id && !desk_name) {
-    throw new Error('desk_id ou desk_name e obrigatorio');
+    throw new ValidationError('desk_id ou desk_name é obrigatório', {
+      hint: 'Informe desk_id (ID da mesa) ou desk_name (nome, aceita parcial). Para achar a mesa, use list_desks.'
+    });
   }
 
   try {
@@ -93,12 +96,8 @@ async function execute(args, { api }) {
 
     return textResponse(formatStagesList(finalDeskId, stages));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar estagios**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar estagios`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatStagesList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar estágios', execute), format: formatStagesList };

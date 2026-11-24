@@ -12,8 +12,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'update_equipment',
@@ -30,7 +30,7 @@ const schema = {
     properties: {
       equipment_id: {
         type: 'number',
-        description: 'ID do recurso a ser atualizado (obrigatorio)'
+        description: 'ID do recurso a ser atualizado (obrigatorio — use list_equipments para descobrir)'
       },
       name: {
         type: 'string',
@@ -60,10 +60,12 @@ const schema = {
 };
 
 async function execute(args, { api }) {
+  // ID validado estritamente (inteiro) antes de virar path na URL — nunca
+  // interpolar argumento MCP cru em `/equipments/${id}`. Fica antes do try: a
+  // falha volta como "Problema / Como resolver" pelo embrulho do export.
+  const equipmentId = requireIntField(args, 'equipment_id', null, { hint: REQUIRED_FIELD_HINTS.equipment_id });
+
   try {
-    // ID validado estritamente (inteiro) antes de virar path na URL — nunca
-    // interpolar argumento MCP cru em `/equipments/${id}`.
-    const equipmentId = requireIntField(args, 'equipment_id');
     const body = {};
 
     if (args.name !== undefined) body.name = args.name;
@@ -92,8 +94,8 @@ async function execute(args, { api }) {
       `\n*✅ Recurso atualizado via API TiFlux.*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar recurso #${args.equipment_id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar recurso #${args.equipment_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar recurso', execute) };

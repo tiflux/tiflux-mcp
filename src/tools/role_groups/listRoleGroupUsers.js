@@ -12,6 +12,8 @@
 
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { ROLE_GROUP, groupIdSchemaProperty, createGroupSubresourceList, renderGroupUser } = require('../_shared/organizationGroups');
+const { withValidationResponse } = require('../_shared/errors');
+const { ValidationError } = require('../_shared/validators');
 
 const EMAIL_MAX_LENGTH = 255;
 
@@ -37,11 +39,13 @@ const schema = {
  * Filtro opcional `email`. O `maxLength` do schema depende do cliente MCP
  * aplica-lo — validado aqui tambem (defesa em profundidade).
  */
+const EMAIL_HINT = `Informe email como texto com até ${EMAIL_MAX_LENGTH} caracteres (ex: "nome@empresa.com"), ou omita o filtro para listar todos os usuários do grupo.`;
+
 function emailFilter({ email }) {
   if (email === undefined || email === null || email === '') return {};
-  if (typeof email !== 'string') throw new Error('email deve ser um texto');
+  if (typeof email !== 'string') throw new ValidationError('email deve ser um texto', { hint: EMAIL_HINT });
   if (email.length > EMAIL_MAX_LENGTH) {
-    throw new Error(`email excede o maximo de ${EMAIL_MAX_LENGTH} caracteres`);
+    throw new ValidationError(`email excede o maximo de ${EMAIL_MAX_LENGTH} caracteres`, { hint: EMAIL_HINT });
   }
   return { email };
 }
@@ -57,4 +61,4 @@ const execute = createGroupSubresourceList({
   extraFilters: emailFilter
 });
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar usuários do grupo de permissões', execute) };

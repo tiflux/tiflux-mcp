@@ -9,7 +9,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { smartSearchUsers } = require('../_shared/userResolver');
@@ -60,7 +60,7 @@ function formatUsersList(name, users) {
 async function execute(args, { api }) {
   const { name, type, active, limit, offset } = args;
 
-  requireField(args, 'name');
+  requireField(args, 'name', null, { hint: 'Informe name com o nome (ou parte do nome) do usuário a buscar. Para listar atendentes sem filtrar por nome, use search_technical_user.' });
 
   try {
     const filters = {
@@ -103,12 +103,8 @@ async function execute(args, { api }) {
     const resultText = formatUsersList(name, users) + fallbackNote + truncatedNote;
     return textResponse(resultText);
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar usuario "${name}"**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar usuario "${name}"`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatUsersList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar usuário', execute), format: formatUsersList };

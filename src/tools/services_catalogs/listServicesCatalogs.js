@@ -15,7 +15,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderList } = require('../_shared/format');
 
@@ -82,8 +82,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao listar catálogos de serviços**', error);
+    return toolErrorResponse('Erro ao listar catálogos de serviços', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar catálogos de serviços', execute) };

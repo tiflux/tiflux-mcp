@@ -10,7 +10,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { renderList } = require('../_shared/format');
 const { resolveCatalogContext } = require('./catalogResolver');
@@ -89,10 +89,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao listar áreas do catálogo #${services_catalog_id}**`, error
-    );
+    return toolErrorResponse(`Erro ao listar áreas do catálogo #${services_catalog_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar áreas do catálogo', execute) };

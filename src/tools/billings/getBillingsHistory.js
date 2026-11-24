@@ -30,7 +30,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { footer, pagination, currencyBRL, money, row, appendWithinBudget, cutCountLabel, listVerbosity, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { resolveClientName } = require('../_shared/clientResolver');
@@ -320,12 +320,8 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
 
     return textResponse(formatBillingsHistory(billings, effectiveOffset, effectiveLimit, verbosity, response.total, autoCompactNotice));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar histórico de faturamentos**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar histórico de faturamentos`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatBillingsHistory };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar histórico de faturamentos', execute), format: formatBillingsHistory };

@@ -43,7 +43,29 @@ const REQUIRED_FIELD_HINTS = {
   contract_group_id: 'Informe contract_group_id com o ID do grupo de contrato (inteiro positivo). Para achar o ID, use list_contracts (linha "· grupo").',
   knowledge_id: 'Informe knowledge_id com o ID do conhecimento. Para achar o ID, use list_knowledges.',
   folder_id: 'Informe folder_id com o ID da pasta de conhecimento. Para achar o ID, use list_knowledge_folders.',
-  reminder_id: 'Informe reminder_id com o ID do lembrete de consumo (inteiro positivo). Para achar o ID, use list_consumption_reminders com o dono do lembrete (contract_id ou contract_group_id).'
+  reminder_id: 'Informe reminder_id com o ID do lembrete de consumo (inteiro positivo). Para achar o ID, use list_consumption_reminders com o dono do lembrete (contract_id ou contract_group_id).',
+  entity_id: 'Informe entity_id com o ID do campo personalizado (entity). Para achar o ID, use list_entities.',
+  entity_field_id: 'Informe entity_field_id com o ID do subcampo. Para achar o ID, use list_entity_fields com o entity_id.',
+  equipment_id: 'Informe equipment_id com o ID do recurso (equipamento). Para achar o ID, use list_equipments.',
+  technical_group_id: 'Informe technical_group_id com o ID do grupo de atendentes. Para achar o ID, use list_technical_groups.',
+  role_group_id: 'Informe role_group_id com o ID do grupo de permissões. Para achar o ID, use list_role_groups.'
+};
+
+/**
+ * Dicas para o parâmetro genérico `id` (usuário, chat, entity, catálogo...). `id`
+ * significa uma coisa diferente em cada tool, então NÃO entra em
+ * REQUIRED_FIELD_HINTS: o slice passa a dica explicitamente, como já faz com
+ * `address_id`/`contact_id`.
+ */
+const ID_PARAM_HINTS = {
+  user: 'Informe id com o ID do usuário (inteiro). Para achar o ID, use search_user (por nome).',
+  chat: 'Informe id com o ID do chat (inteiro positivo). Para achar o ID, use list_my_chats, list_inbox_chats ou list_in_attendance_chats.',
+  entity: 'Informe id com o ID do campo personalizado (entity). Para achar o ID, use list_entities.',
+  entity_field: 'Informe id com o ID do subcampo. Para achar o ID, use list_entity_fields com o entity_id.',
+  entity_field_option: 'Informe id com o ID da opção do subcampo. Para achar o ID, use list_entity_field_options com o entity_field_id.',
+  services_catalog: 'Informe id com o ID do catálogo de serviços. Para achar o ID, use list_services_catalogs.',
+  services_catalog_area: 'Informe id com o ID da área. Para achar o ID, use list_services_catalog_areas com o catálogo.',
+  services_catalog_item: 'Informe id com o ID do item de catálogo. Para achar o ID, use list_services_catalog_items com a área.'
 };
 
 function requireField(args, field, message = null, { hint } = {}) {
@@ -107,4 +129,20 @@ function requireTicketNumber(args, field = 'ticket_number') {
   return normalized;
 }
 
-module.exports = { REQUIRED_FIELD_HINTS, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber, requireTicketNumber };
+/** Data no formato YYYY-MM-DD, com ano/mês/dia capturados. */
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Ano/mês/dia formam uma data que existe no calendário (rejeita 2026-02-30 e mês 13).
+ * Extraído para cá quando o 3º slice passou a precisar (base_date de contratos,
+ * date de reajustes e o período de apontamentos).
+ */
+function isRealDate(y, m, d) {
+  const [year, month, day] = [y, m, d].map(Number);
+  // setUTCFullYear em vez de Date.UTC: Date.UTC lê anos 0–99 como 1900–1999.
+  const dt = new Date(0);
+  dt.setUTCFullYear(year, month - 1, day);
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+}
+
+module.exports = { REQUIRED_FIELD_HINTS, ID_PARAM_HINTS, ISO_DATE_PATTERN, isRealDate, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber, requireTicketNumber };

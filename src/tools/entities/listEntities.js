@@ -7,7 +7,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -79,12 +79,8 @@ async function execute(args, { api }) {
     const entities = response.data || [];
     return textResponse(formatEntitiesList(entities));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar campos personalizados**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar campos personalizados`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatEntitiesList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar campos personalizados', execute), format: formatEntitiesList };

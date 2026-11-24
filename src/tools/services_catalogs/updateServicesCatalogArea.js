@@ -9,8 +9,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 const { resolveCatalogContext } = require('./catalogResolver');
 
 const schema = {
@@ -44,8 +44,8 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'id');
-  requireField(args, 'name');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.services_catalog_area });
+  requireField(args, 'name', null, { hint: 'Informe name com o novo nome da área (texto).' });
 
   const { id, name } = args;
 
@@ -73,8 +73,8 @@ async function execute(args, { api }) {
       `*✅ Área atualizada via API TiFlux*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar área #${id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar área #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar área', execute) };

@@ -13,7 +13,8 @@
  * Preserva contrato do handler legado: em erro/multiplas, resposta tem isError: true.
  */
 
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse } = require('../_shared/errors');
+const { ValidationError } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -25,11 +26,11 @@ const schema = {
     properties: {
       desk_id: {
         type: 'number',
-        description: 'ID da mesa onde buscar itens de catálogo (use desk_id OU desk_name)'
+        description: 'ID da mesa onde buscar itens de catálogo. Obrigatório: informe desk_id ou desk_name (para achar a mesa, use list_desks).'
       },
       desk_name: {
         type: 'string',
-        description: 'Nome da mesa para busca automática (alternativa ao desk_id). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").'
+        description: 'Nome da mesa para busca automática (alternativa ao desk_id; um dos dois é obrigatório). Aceita nomes parciais (ex: "cansados" resolve para "Dev - Cansados").'
       },
       search: {
         type: 'string',
@@ -69,15 +70,22 @@ async function execute(args, { api }) {
     offset
   } = args;
 
+  // Validação de input antes do try: volta como "Problema / Como resolver" pelo embrulho
+  // do export. Os `throw` dentro do try (sem resultado, ambíguo, erro da API) são
+  // resultado de busca e seguem no formato próprio do catch.
+  if (!desk_id && !desk_name) {
+    throw new ValidationError('desk_id ou desk_name é obrigatório para buscar itens de catálogo', {
+      hint: 'Informe desk_id (ID da mesa) ou desk_name (nome, aceita parcial). Para achar a mesa, use list_desks; get_desk mostra os catálogos da mesa.'
+    });
+  }
+
+  if (!search && !catalog_item_name && !area_id && !catalog_id) {
+    throw new ValidationError('falta o critério de busca do item de catálogo', {
+      hint: 'Informe search (termo livre), catalog_item_name (nome do item) ou area_id/catalog_id (lista todos os itens da área/catálogo). Para ver os catálogos da mesa, use get_desk ou list_desk_services_catalogs.'
+    });
+  }
+
   try {
-    if (!desk_id && !desk_name) {
-      throw new Error('desk_id ou desk_name e obrigatorio para buscar itens de catalogo');
-    }
-
-    if (!search && !catalog_item_name && !area_id && !catalog_id) {
-      throw new Error('Forneça search para busca por termo livre, catalog_item_name para busca por nome do item, ou area_id/catalog_id para listar todos os itens de uma área/catálogo');
-    }
-
     let finalDeskId = desk_id;
     if (!finalDeskId && desk_name) {
       const resolved = await resolveDeskName(api, desk_name);
@@ -176,4 +184,4 @@ async function execute(args, { api }) {
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar item de catálogo', execute) };

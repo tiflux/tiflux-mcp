@@ -14,8 +14,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse, extractApiErrorDetail } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, ID_PARAM_HINTS } = require('../_shared/validators');
 
 const UPDATABLE_FIELDS = ['name', 'description', 'active', 'menu_item', 'desk_ids', 'equipment_type_id'];
 
@@ -105,7 +105,7 @@ function failureResponse(response, id) {
 }
 
 async function execute(args, { api }) {
-  requireField(args, 'id');
+  requireField(args, 'id', null, { hint: ID_PARAM_HINTS.entity });
   const { id } = args;
 
   const body = {};
@@ -143,8 +143,8 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar entity #${id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar entity #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar campo personalizado', execute) };

@@ -29,7 +29,7 @@
 const { textResponse } = require('../_shared/response');
 const { toolErrorResponse, withValidationResponse, apiFailureResponse, extractApiErrorCode, formatApiErrorDetail } = require('../_shared/errors');
 const { footer, currencyBRL } = require('../_shared/format');
-const { ValidationError } = require('../_shared/validators');
+const { ValidationError, ISO_DATE_PATTERN, isRealDate } = require('../_shared/validators');
 const { modalityLabel, closingPeriodLabel } = require('../_shared/contractModality');
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
@@ -55,15 +55,7 @@ const schema = {
   }
 };
 
-const BASE_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** Ano/mes/dia formam uma data real (rejeita ex.: 2026-02-30). */
 const BASE_DATE_HINT = 'Informe base_date como uma data existente no formato YYYY-MM-DD (ex: "2026-11-30"), ou omita o campo para usar a data de hoje.';
-
-function isRealDate(y, m, d) {
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
-}
 
 /**
  * Valida `base_date` ANTES do request (E1): formato YYYY-MM-DD + data real.
@@ -72,7 +64,7 @@ function isRealDate(y, m, d) {
  */
 function validateBaseDate(value) {
   if (value === undefined) return undefined;
-  const match = BASE_DATE_PATTERN.exec(value);
+  const match = ISO_DATE_PATTERN.exec(value);
   if (!match) throw new ValidationError('base_date deve estar no formato YYYY-MM-DD', { hint: BASE_DATE_HINT });
   const [, y, mo, d] = match.map(Number);
   if (!isRealDate(y, mo, d)) throw new ValidationError('base_date deve ser uma data real (YYYY-MM-DD)', { hint: BASE_DATE_HINT });

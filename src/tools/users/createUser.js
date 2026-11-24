@@ -8,7 +8,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 const { resolveTechnicalGroup } = require('../_shared/technicalGroupResolver');
 
@@ -68,8 +68,8 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  requireField(args, 'name');
-  requireField(args, 'email');
+  requireField(args, 'name', null, { hint: 'Informe name com o nome completo do usuário (texto).' });
+  requireField(args, 'email', null, { hint: 'Informe email com o e-mail de login do usuário (ex: "nome@empresa.com").' });
 
   // Resolver technical_group_id (obrigatório — via id direto ou nome)
   const groupResult = await resolveTechnicalGroup(api, {
@@ -113,11 +113,8 @@ async function execute(args, { api }) {
       `*✅ Usuário criado via API TiFlux. Use o ID ${user.id} ao atribuir responsabilidades em tickets.*`
     );
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao criar usuário "${args.name}"**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao criar usuário "${args.name}"`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar usuário', execute) };

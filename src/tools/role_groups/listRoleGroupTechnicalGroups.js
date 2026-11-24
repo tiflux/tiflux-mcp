@@ -9,6 +9,7 @@
 
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { ROLE_GROUP, groupIdSchemaProperty, createGroupSubresourceList, renderIdName } = require('../_shared/organizationGroups');
+const { withValidationResponse } = require('../_shared/errors');
 
 const schema = {
   name: 'list_role_group_technical_groups',
@@ -33,4 +34,4 @@ const execute = createGroupSubresourceList({
   renderItem: renderIdName
 });
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar grupos de atendentes do grupo de permissões', execute) };

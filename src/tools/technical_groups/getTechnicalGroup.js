@@ -13,7 +13,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireIntField } = require('../_shared/validators');
 const { TECHNICAL_GROUP, groupIdSchemaProperty, groupErrorResponse, isGroupObject, unexpectedGroupResponse } = require('../_shared/organizationGroups');
 const { truncate, footer } = require('../_shared/format');
@@ -101,11 +101,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatGroup(response.data, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar grupo de atendentes #${technical_group_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar grupo de atendentes #${technical_group_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatGroup };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar grupo de atendentes', execute), format: formatGroup };

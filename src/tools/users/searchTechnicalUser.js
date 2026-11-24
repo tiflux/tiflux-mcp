@@ -11,7 +11,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -116,12 +116,8 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatRich(users));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao buscar atendentes tecnicos**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao buscar atendentes tecnicos`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatRich };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar atendentes técnicos', execute), format: formatRich };

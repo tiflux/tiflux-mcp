@@ -13,7 +13,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { toolErrorResponse, apiFailureResponse, extractApiErrorDetail } = require('../_shared/errors');
+const { toolErrorResponse, apiFailureResponse, extractApiErrorDetail, withValidationResponse } = require('../_shared/errors');
 const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
 const { escapeCell } = require('../_shared/markdown');
 
@@ -23,6 +23,15 @@ const REQUIRED_FIELDS = [
   'requestor_name',
   'requestor_telephone'
 ];
+
+// Dica de formato por obrigatório ausente (não há tool de descoberta para estes campos;
+// se o solicitante já existe, requestor_id vem de search_requestor/list_requestors).
+const REQUIRED_FIELD_FORMAT_HINTS = {
+  title: 'Informe title com o título do pré-ticket (texto curto).',
+  description: 'Informe description com a descrição do pedido (texto).',
+  requestor_name: 'Informe requestor_name com o nome de quem pede. Se o solicitante já está cadastrado, ache-o com search_requestor ou list_requestors e informe também requestor_id.',
+  requestor_telephone: 'Informe requestor_telephone com o telefone do solicitante, com DDD (ex: "11999998888").'
+};
 
 const OPTIONAL_FIELDS = [
   'requestor_email',
@@ -143,11 +152,12 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  try {
-    for (const field of REQUIRED_FIELDS) {
-      requireField(args, field);
-    }
+  // Validação antes do try: o título do erro não interpola `args.title` ausente.
+  for (const field of REQUIRED_FIELDS) {
+    requireField(args, field, null, { hint: REQUIRED_FIELD_FORMAT_HINTS[field] });
+  }
 
+  try {
     const body = {};
 
     for (const field of REQUIRED_FIELDS) {
@@ -194,4 +204,4 @@ async function execute(args, { api }) {
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar pré-ticket', execute) };

@@ -10,7 +10,7 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { requireField } = require('../_shared/validators');
 
 const FIELD_TYPE_VALUES = ['email', 'date', 'currency', 'phone', 'checkbox', 'text', 'text_area', 'single_select', 'link'];
@@ -178,8 +178,8 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao criar subcampo na entity #${entity_id}**`, error);
+    return toolErrorResponse(`Erro ao criar subcampo na entity #${entity_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar subcampo', execute) };

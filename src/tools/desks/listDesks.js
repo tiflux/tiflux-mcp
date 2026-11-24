@@ -8,7 +8,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
@@ -71,12 +71,8 @@ async function execute(args, { api }) {
     const desks = response.data || [];
     return textResponse(formatDesksList(desks));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar mesas**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar mesas`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatDesksList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar mesas', execute), format: formatDesksList };

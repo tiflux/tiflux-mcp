@@ -20,7 +20,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse } = require('../_shared/errors');
+const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const {
   footer, pagination, appendWithinBudget, continuationLine, cutCountLabel, listVerbosity, RESPONSE_ITEM_BUDGET
 } = require('../_shared/format');
@@ -191,8 +191,8 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
       formatEquipmentsList(equipments, effectiveOffset, effectiveLimit, response.total, verbosity, notice)
     );
   } catch (error) {
-    return internalErrorResponse('**Erro interno ao listar recursos**', error);
+    return toolErrorResponse('Erro ao listar recursos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatEquipmentsList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar recursos', execute), format: formatEquipmentsList };

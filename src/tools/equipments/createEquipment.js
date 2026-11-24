@@ -14,14 +14,14 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireField, requireIntField } = require('../_shared/validators');
+const { apiFailureResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireField, requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'create_equipment',
   description:
     'Criar um novo recurso/equipamento no TiFlux. ' +
-    'Obrigatorios: name (nome do recurso), client_id (ID do cliente), equipment_type_id (ID do tipo — use list_equipment_types para descobrir). ' +
+    'Obrigatorios: name (nome do recurso), client_id (ID do cliente — use search_client para descobrir), equipment_type_id (ID do tipo — use list_equipment_types para descobrir). ' +
     'Opcional: equipment_group_id (ID do grupo — use list_equipment_groups com client_id para descobrir; se omitido, a API associa ao primeiro grupo do cliente), ' +
     'acquisition_date e warranty_date (formato YYYY-MM-DD; warranty_date deve ser >= acquisition_date). ' +
     'Tipos e grupos sao configurados por organizacao — consulte list_equipment_types e list_equipment_groups antes de criar. ' +
@@ -35,7 +35,7 @@ const schema = {
       },
       client_id: {
         type: 'number',
-        description: 'ID do cliente ao qual o recurso pertence (obrigatorio)'
+        description: 'ID do cliente ao qual o recurso pertence (obrigatorio — use search_client ou list_clients para descobrir)'
       },
       equipment_type_id: {
         type: 'number',
@@ -60,13 +60,18 @@ const schema = {
   }
 };
 
+const NAME_HINT = 'Informe name com o nome do recurso (texto, até 255 caracteres).';
+const EQUIPMENT_TYPE_ID_HINT = 'Informe equipment_type_id com o ID do tipo de recurso. Para achar o ID, use list_equipment_types.';
+
 async function execute(args, { api }) {
+  // Validação antes do try: volta como "Problema / Como resolver" pelo embrulho do export.
+  requireField(args, 'name', null, { hint: NAME_HINT });
+  // client_id/equipment_type_id validados estritamente como inteiros (paridade com
+  // update_equipment) — evita repassar string arbitraria verbatim no body do POST.
+  const clientId = requireIntField(args, 'client_id', null, { hint: REQUIRED_FIELD_HINTS.client_id });
+  const equipmentTypeId = requireIntField(args, 'equipment_type_id', null, { hint: EQUIPMENT_TYPE_ID_HINT });
+
   try {
-    requireField(args, 'name');
-    // client_id/equipment_type_id validados estritamente como inteiros (paridade com
-    // update_equipment) — evita repassar string arbitraria verbatim no body do POST.
-    const clientId = requireIntField(args, 'client_id');
-    const equipmentTypeId = requireIntField(args, 'equipment_type_id');
     const body = {
       name: args.name,
       client_id: clientId,
@@ -98,8 +103,8 @@ async function execute(args, { api }) {
       `\n*✅ Recurso criado via API TiFlux. Use o ID ${eq.id} para atualizacoes.*`
     );
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao criar recurso "${args.name}"**`, error);
+    return toolErrorResponse(`Erro ao criar recurso "${args.name}"`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar recurso', execute) };

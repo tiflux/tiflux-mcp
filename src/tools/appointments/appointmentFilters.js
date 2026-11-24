@@ -13,6 +13,7 @@
  */
 
 const { errorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
+const { ValidationError, ISO_DATE_PATTERN, isRealDate } = require('../_shared/validators');
 const { capIds } = require('../_shared/reportMath');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { resolveDeskName } = require('../_shared/deskResolver');
@@ -223,6 +224,68 @@ function validateRequiredPeriod({ start_date, end_date }) {
   return null;
 }
 
+const PERIOD_DATE_HINT = 'Informe start_date e end_date como datas existentes no formato YYYY-MM-DD (ex: "2026-11-01" e "2026-11-30").';
+const PERIOD_ORDER_HINT = 'start_date é o início e end_date o fim do período: troque as datas ou ajuste o intervalo (ex: "2026-11-01" e "2026-11-30").';
+
+/** Formas de data que a API aceita e que conferimos aqui (sondas na base de teste, 2026-11-24). */
+const YMD_DATE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/; // 2026-11-01 e 2026-11-1
+const DMY_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/; // 01/11/2026 (a API lê dia/mês)
+const ISO_TIME = /^\d{2}:\d{2}(:\d{2}(\.\d+)?)?/; // hora de um datetime ISO
+const ISO_OFFSET = /^(Z|[+-]\d{2}:?\d{2})?$/; // fuso opcional depois da hora
+
+/** O trecho depois de `T`/espaço é uma hora ISO (HH:MM[:SS[.fff]]) com fuso opcional. */
+function isIsoTimeSuffix(suffix) {
+  const time = ISO_TIME.exec(suffix);
+  return !!time && ISO_OFFSET.test(suffix.slice(time[0].length));
+}
+
+/**
+ * Extrai ano/mês/dia de uma data em forma reconhecida: `YYYY-MM-DD` (com ou sem
+ * zero à esquerda, com hora ISO opcional depois de `T` ou espaço) ou `DD/MM/YYYY`.
+ * @param {*} value
+ * @returns {{y: string, m: string, d: string}|null} null quando a forma não é reconhecida
+ */
+function parsePeriodDate(value) {
+  if (typeof value !== 'string') return null;
+  const dmy = DMY_DATE.exec(value);
+  if (dmy) return { y: dmy[3], m: dmy[2], d: dmy[1] };
+  const sep = value.search(/[T ]/);
+  if (sep !== -1 && !isIsoTimeSuffix(value.slice(sep + 1))) return null;
+  const ymd = YMD_DATE.exec(sep === -1 ? value : value.slice(0, sep));
+  return ymd ? { y: ymd[1], m: ymd[2], d: ymd[3] } : null;
+}
+
+/**
+ * Confere as datas do período ANTES de resolver filtros ou chamar a API, recusando
+ * só o que a API comprovadamente recusa (sondas GET /appointments na base de teste):
+ * - data inexistente ("2026-13-01", "2026-02-30", "31/02/2026", "2026-02-30T00:00:00")
+ *   numa forma reconhecida por `parsePeriodDate` — voltava como 422 "invalid date";
+ * - `end_date` anterior a `start_date` quando as duas estão em `YYYY-MM-DD` estrito —
+ *   voltava como 422 "must be greater than or equal to :start_date".
+ * Todo o resto segue para a API sem bloqueio (fail-open): `01/11/2026`, `2026-11-1`
+ * e `2026-11-01T00:00:00` são aceitos por ela, e formas não reconhecidas aqui
+ * ("20261101", "3 Feb 2026") não são julgadas localmente. A ordem só é conferida em
+ * `YYYY-MM-DD` estrito porque a API compara as datas como texto: nas outras formas o
+ * resultado dela não segue o calendário, então não o reproduzimos.
+ * Chamar depois de `validateRequiredPeriod` (data ausente segue no formato próprio).
+ * @param {object} args - argumentos da tool
+ * @throws {ValidationError} com `hint`
+ */
+function validatePeriodDates({ start_date, end_date }) {
+  for (const [field, value] of [['start_date', start_date], ['end_date', end_date]]) {
+    const parsed = parsePeriodDate(value);
+    if (parsed && !isRealDate(parsed.y, parsed.m, parsed.d)) {
+      throw new ValidationError(`${field} deve ser uma data real (YYYY-MM-DD)`, { hint: PERIOD_DATE_HINT });
+    }
+  }
+  // typeof: RegExp.test e `<` convertem para texto, então um array ["2026-11-01"]
+  // casaria o formato e receberia a dica de ordem em vez de seguir fail-open.
+  const bothStrings = typeof start_date === 'string' && typeof end_date === 'string';
+  if (bothStrings && ISO_DATE_PATTERN.test(start_date) && ISO_DATE_PATTERN.test(end_date) && end_date < start_date) {
+    throw new ValidationError('end_date deve ser igual ou posterior a start_date', { hint: PERIOD_ORDER_HINT });
+  }
+}
+
 /**
  * Resolve um CSV de nomes para um CSV de IDs.
  * Aborta no primeiro nome ambiguo/inexistente, propagando a resposta do resolver.
@@ -366,6 +429,7 @@ module.exports = {
   ATTENDANCE_KIND_LABELS,
   appointmentFilterSchemaProperties,
   validateRequiredPeriod,
+  validatePeriodDates,
   resolveAppointmentFilterIds,
   validateAndNormalizeIds,
   appointmentsApiErrorResponse

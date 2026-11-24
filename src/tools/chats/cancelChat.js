@@ -9,8 +9,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireIntField, ValidationError } = require('../_shared/validators');
+const { withValidationResponse, toolErrorResponse } = require('../_shared/errors');
+const { requireIntField, ValidationError, ID_PARAM_HINTS } = require('../_shared/validators');
 const { chatWriteApiError } = require('./chatWriteErrors');
 
 const schema = {
@@ -49,9 +49,9 @@ const FORBIDDEN_HINT =
   'departamento do chat. Chat de outra organização também retorna 403.';
 
 async function execute(args, { api }) {
-  const id = requireIntField(args, 'id');
+  const id = requireIntField(args, 'id', null, { hint: ID_PARAM_HINTS.chat });
   // Escrita irreversível: id 0 nunca é chat válido — barra antes do request.
-  if (id <= 0) throw new ValidationError('id deve ser um inteiro positivo');
+  if (id <= 0) throw new ValidationError('id deve ser um inteiro positivo', { hint: ID_PARAM_HINTS.chat });
 
   try {
     const response = await api.cancelChat(id);
@@ -77,12 +77,8 @@ async function execute(args, { api }) {
       `Confira o resultado com \`get_chat\`.*`
     );
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao cancelar chat #${id}**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao cancelar chat #${id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao cancelar chat', execute) };
