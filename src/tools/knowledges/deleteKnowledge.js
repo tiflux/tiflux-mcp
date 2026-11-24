@@ -17,8 +17,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 
 const schema = {
   name: 'delete_knowledge',
@@ -42,7 +42,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const knowledge_id = requireIntField(args, 'knowledge_id');
+  const knowledge_id = requireIntField(args, 'knowledge_id', null, { hint: REQUIRED_FIELD_HINTS.knowledge_id });
 
   // Pre-flight best-effort: buscar titulo para mensagem de confirmacao.
   // Falha do pre-flight NAO aborta o DELETE.
@@ -82,11 +82,9 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao arquivar conhecimento #${knowledge_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao arquivar conhecimento #${knowledge_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao arquivar conhecimento', execute) };

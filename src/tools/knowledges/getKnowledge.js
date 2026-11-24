@@ -13,8 +13,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { htmlToMarkdown } = require('../_shared/htmlToMarkdown');
 const { dateOnly } = require('../_shared/format');
 
@@ -59,7 +59,7 @@ function formatKnowledge(knowledge) {
 }
 
 async function execute(args, { api }) {
-  const knowledge_id = requireIntField(args, 'knowledge_id');
+  const knowledge_id = requireIntField(args, 'knowledge_id', null, { hint: REQUIRED_FIELD_HINTS.knowledge_id });
 
   try {
     const response = await api.getKnowledge(knowledge_id);
@@ -85,11 +85,9 @@ async function execute(args, { api }) {
 
     return textResponse(formatKnowledge(response.data));
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao buscar conhecimento #${knowledge_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar conhecimento #${knowledge_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatKnowledge };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar conhecimento', execute), format: formatKnowledge };

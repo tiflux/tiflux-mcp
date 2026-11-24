@@ -14,7 +14,7 @@
 const { errorResponse, extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail } = require('./errors');
 const { currencyBRL, appendWithinBudget } = require('./format');
 const { formatFileSize, escapeCell } = require('./markdown');
-const { requireIntField, ValidationError } = require('./validators');
+const { requireIntField, ValidationError, REQUIRED_FIELD_HINTS } = require('./validators');
 
 /** Dica padrao de permissao das mensagens de acesso negado (40301). */
 const CONTRACTS_PERMISSION_HINT =
@@ -61,9 +61,12 @@ function contractsAccessDeniedResponse(title, response, errorCode, hint = CONTRA
  * 0; o schema promete "inteiro positivo" — 0 nunca e um ID valido.
  */
 function requirePositiveIdField(args, field) {
-  const id = requireIntField(args, field);
+  // Dica explicita: o `parseIntStrict` nao tem dica padrao por campo, e ID malformado
+  // ("abc") ou 0 tambem precisa dizer ao agente qual tool lista o ID.
+  const hint = REQUIRED_FIELD_HINTS[field];
+  const id = requireIntField(args, field, null, { hint });
   if (id < 1) {
-    throw new ValidationError(`${field} deve ser um número inteiro positivo`);
+    throw new ValidationError(`${field} deve ser um número inteiro positivo`, { hint });
   }
   return id;
 }
@@ -314,7 +317,10 @@ function resolveReminderOwner(args) {
   const hasContract = args?.contract_id !== undefined && args?.contract_id !== null;
   const hasGroup = args?.contract_group_id !== undefined && args?.contract_group_id !== null;
   if (hasContract === hasGroup) {
-    throw new ValidationError('Informe exatamente um dono do lembrete: contract_id (contrato) OU contract_group_id (grupo de contrato).');
+    throw new ValidationError(
+      'Informe exatamente um dono do lembrete: contract_id (contrato) OU contract_group_id (grupo de contrato).',
+      { hint: 'Envie só contract_id (linha sem "· grupo" de list_contracts) ou só contract_group_id (linha "· grupo"), nunca os dois nem nenhum. Para achar o ID, use list_contracts.' }
+    );
   }
   if (hasContract) {
     const id = requirePositiveIdField(args, 'contract_id');

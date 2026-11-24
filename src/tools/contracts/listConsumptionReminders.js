@@ -11,7 +11,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { footer } = require('../_shared/format');
 const {
   REMINDER_OWNER_SCHEMA_PROPS, resolveReminderOwner, reminderApiErrorResponse, formatReminderWithId
@@ -53,8 +53,9 @@ async function execute(args, { api, verbosity }) {
     }
     return textResponse(formatReminders(response.data, owner.label, verbosity));
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao listar lembretes do ${owner.label}**`, error);
+    return toolErrorResponse(`Erro ao listar lembretes do ${owner.label}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatReminders };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar lembretes de consumo', execute), format: formatReminders };

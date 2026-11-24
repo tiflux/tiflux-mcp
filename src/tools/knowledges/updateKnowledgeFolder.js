@@ -28,8 +28,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 
 const UPDATABLE_FIELDS = ['title', 'description', 'icon', 'tags'];
 
@@ -103,7 +103,7 @@ function format(folder, { folder_id, camposAlterados, tagsEnviadas }) {
 }
 
 async function execute(args, { api }) {
-  const folder_id = requireIntField(args, 'folder_id');
+  const folder_id = requireIntField(args, 'folder_id', null, { hint: REQUIRED_FIELD_HINTS.folder_id });
 
   // Montar body apenas com os campos informados (exceto folder_id).
   // args[field] !== undefined trata `null` explicito como "informado" —
@@ -152,11 +152,9 @@ async function execute(args, { api }) {
 
     return textResponse(format(folder, { folder_id, camposAlterados, tagsEnviadas }));
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao atualizar pasta de conhecimento #${folder_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao atualizar pasta de conhecimento #${folder_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar pasta de conhecimento', execute), format };

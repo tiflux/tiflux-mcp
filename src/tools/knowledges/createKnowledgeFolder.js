@@ -28,8 +28,8 @@
  * title e o unico campo que muda de opcional (update) para obrigatorio (create).
  */
 
-const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
+const { textResponse, createdRef } = require('../_shared/response');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 
 const OPTIONAL_FIELDS = ['description', 'icon', 'tags'];
 
@@ -128,11 +128,10 @@ async function execute(args, { api }) {
 
     return textResponse(format(folder));
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao criar pasta de conhecimento "${args.title}"**`,
-      error
-    );
+    // Título vem do input: `createdRef` achata numa linha e tira marcação Markdown/aspas (como em createKnowledge).
+    return toolErrorResponse(`Erro ao criar pasta de conhecimento${createdRef(undefined, args.title)}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar pasta de conhecimento', execute), format };

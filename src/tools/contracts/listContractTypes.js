@@ -14,7 +14,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse } = require('../_shared/contractShared');
-const { internalErrorResponse, extractApiErrorCode } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse, extractApiErrorCode } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { parseIntStrict } = require('../_shared/validators');
@@ -26,6 +26,8 @@ const { escapeCell } = require('../_shared/markdown');
 const OFFSET_MIN = 1;
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 200;
+const LIMIT_HINT = 'Informe limit como número inteiro de 1 a 200.';
+const OFFSET_HINT = 'Informe offset como o número da página: inteiro a partir de 1.';
 
 const schema = {
   name: 'list_contract_types',
@@ -88,10 +90,10 @@ async function execute(args, { api, verbosity }) {
   // Swagger (listagem read-only nao deve falhar por estar fora da faixa).
   const filters = {};
   if (limit !== undefined) {
-    filters.limit = Math.min(Math.max(parseIntStrict(limit, 'limit'), LIMIT_MIN), LIMIT_MAX);
+    filters.limit = Math.min(Math.max(parseIntStrict(limit, 'limit', { hint: LIMIT_HINT }), LIMIT_MIN), LIMIT_MAX);
   }
   if (offset !== undefined) {
-    filters.offset = Math.max(parseIntStrict(offset, 'offset'), OFFSET_MIN);
+    filters.offset = Math.max(parseIntStrict(offset, 'offset', { hint: OFFSET_HINT }), OFFSET_MIN);
   }
 
   try {
@@ -129,11 +131,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatContractTypesList(types, filters.offset || OFFSET_MIN, filters.limit || 20, verbosity, response.total));
   } catch (error) {
-    return internalErrorResponse(
-      '**❌ Erro interno ao listar tipos de contrato**',
-      error
-    );
+    return toolErrorResponse('Erro ao listar tipos de contrato', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatContractTypesList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar tipos de contrato', execute), format: formatContractTypesList };

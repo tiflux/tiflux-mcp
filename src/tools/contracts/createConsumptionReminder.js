@@ -14,8 +14,8 @@
  * O resumo mostra o lembrete como a API devolveu (e-mails normalizados).
  */
 
-const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { textResponse, createdRef } = require('../_shared/response');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const {
   REMINDER_ALERT_SCOPES, REMINDER_OWNER_SCHEMA_PROPS, resolveReminderOwner, buildReminderBody,
   reminderValidationResponse, reminderApiErrorResponse, formatReminderSaved
@@ -68,11 +68,12 @@ async function execute(args, { api }) {
       return reminderApiErrorResponse(response, { title: `Erro ao criar lembrete no ${owner.label}`, write: true });
     }
     return textResponse(formatReminderSaved(
-      `Lembrete de consumo criado no ${owner.label}`, owner.label, response.data, { percentagesSent: hasPercent }
+      `Lembrete de consumo${createdRef(response.data?.id)} criado com sucesso no ${owner.label}!`, owner.label, response.data, { percentagesSent: hasPercent }
     ));
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao criar lembrete no ${owner.label}**`, error);
+    return toolErrorResponse(`Erro ao criar lembrete no ${owner.label}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar lembrete de consumo', execute) };

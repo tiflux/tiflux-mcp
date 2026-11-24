@@ -26,8 +26,8 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { errorResponse, apiFailureResponse, extractApiErrorCode, extractApiErrorDetail } = require('../_shared/errors');
-const { requireField, parseIntStrict } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse, extractApiErrorCode, extractApiErrorDetail } = require('../_shared/errors');
+const { requireField, parseIntStrict, requireTicketNumber } = require('../_shared/validators');
 const { currencyBRL } = require('../_shared/format');
 const { resolveShiftName, resolveLooseServiceName, resolveContractName } = require('./valorizationResolver');
 
@@ -39,7 +39,7 @@ const schema = {
     properties: {
       ticket_number: {
         type: 'string',
-        description: 'Número do ticket onde será criado o apontamento'
+        description: 'Número do ticket onde será criado o apontamento (só dígitos; "#123" é aceito). Para achar o número, use list_tickets.'
       },
       date: {
         type: 'string',
@@ -398,15 +398,30 @@ function appointmentApiErrorResponse(response, ticketNumber) {
   );
 }
 
+// Dica curta por inteiro opcional malformado: valores aceitos ou a tool que lista o ID.
+const INT_FIELD_HINTS = {
+  attendance: 'Informe attendance como número inteiro: 1 (Externo), 2 (Remoto) ou 3 (Interno).',
+  attendance_kind: 'Informe attendance_kind como número inteiro: 1 (Avulso) ou 2 (Contrato).',
+  contract_rider_id: 'Informe contract_rider_id com o ID numérico do aditivo de contrato. Para achar o ID, use get_ticket_service_types (ou informe contract_name).',
+  loose_service_id: 'Informe loose_service_id com o ID numérico do serviço avulso. Para achar o ID, use get_ticket_service_types (ou informe loose_service_name).',
+  shift_id: 'Informe shift_id com o ID numérico do deslocamento. Para achar o ID, use get_ticket_shifts (ou informe shift_name).',
+  shift_owner_ticket_number: 'Informe shift_owner_ticket_number com o número do ticket que já cobrou o deslocamento (só dígitos). Para achar o número, use list_tickets.'
+};
+
+function optionalInt(args, field) {
+  if (args[field] === undefined || args[field] === null) return undefined;
+  return parseIntStrict(args[field], field, { hint: INT_FIELD_HINTS[field] });
+}
+
 async function execute(args, { api }) {
-  requireField(args, 'ticket_number');
-  requireField(args, 'date');
-  requireField(args, 'init_time');
-  requireField(args, 'end_time');
-  requireField(args, 'description');
+  // Só dígitos: o número vira path param (`/tickets/{n}/appointments`), "1/../2" ou "1?x=1" desviariam o POST.
+  const ticket_number = requireTicketNumber(args);
+  requireField(args, 'date', null, { hint: 'Informe date com a data do apontamento no formato YYYY-MM-DD (ex: "2026-11-24").' });
+  requireField(args, 'init_time', null, { hint: 'Informe init_time com a hora de início no formato HH:MM (ex: "09:00").' });
+  requireField(args, 'end_time', null, { hint: 'Informe end_time com a hora de término no formato HH:MM (ex: "10:30").' });
+  requireField(args, 'description', null, { hint: 'Informe description com o texto que descreve o trabalho realizado.' });
 
   const {
-    ticket_number,
     date,
     init_time,
     end_time,
@@ -420,30 +435,14 @@ async function execute(args, { api }) {
   } = args;
 
   // --- Parsear inteiros estritos ---
-  let attendance, attendance_kind, contract_rider_id, loose_service_id, shift_id, shift_owner_ticket_number;
-
-  try {
-    if (args.attendance !== undefined && args.attendance !== null) {
-      attendance = parseIntStrict(args.attendance, 'attendance');
-    }
-    if (args.attendance_kind !== undefined && args.attendance_kind !== null) {
-      attendance_kind = parseIntStrict(args.attendance_kind, 'attendance_kind');
-    }
-    if (args.contract_rider_id !== undefined && args.contract_rider_id !== null) {
-      contract_rider_id = parseIntStrict(args.contract_rider_id, 'contract_rider_id');
-    }
-    if (args.loose_service_id !== undefined && args.loose_service_id !== null) {
-      loose_service_id = parseIntStrict(args.loose_service_id, 'loose_service_id');
-    }
-    if (args.shift_id !== undefined && args.shift_id !== null) {
-      shift_id = parseIntStrict(args.shift_id, 'shift_id');
-    }
-    if (args.shift_owner_ticket_number !== undefined && args.shift_owner_ticket_number !== null) {
-      shift_owner_ticket_number = parseIntStrict(args.shift_owner_ticket_number, 'shift_owner_ticket_number');
-    }
-  } catch (e) {
-    return errorResponse(`**❌ Parâmetro inválido**\n\n${e.message}`);
-  }
+  // ValidationError do parseIntStrict sobe ao withValidationResponse do export e volta
+  // como "Problema / Como resolver" (antes era capturado aqui como "Parâmetro inválido").
+  const attendance = optionalInt(args, 'attendance');
+  const attendance_kind = optionalInt(args, 'attendance_kind');
+  let contract_rider_id = optionalInt(args, 'contract_rider_id');
+  let loose_service_id = optionalInt(args, 'loose_service_id');
+  let shift_id = optionalInt(args, 'shift_id');
+  const shift_owner_ticket_number = optionalInt(args, 'shift_owner_ticket_number');
 
   // Campos que a resolucao por nome nao altera — compartilhados pelas duas passadas
   // de validacao cross-field (pre-resolucao e pos-resolucao).
@@ -552,13 +551,9 @@ async function execute(args, { api }) {
     const hadLooseService = !!loose_service_id;
     return textResponse(formatCreatedAppointment(appointment, ticket_number, hadLooseService, resolved));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao criar apontamento**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao criar apontamento no ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, formatCreatedAppointment };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar apontamento', execute), formatCreatedAppointment };

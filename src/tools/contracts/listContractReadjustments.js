@@ -24,12 +24,12 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, extractApiErrorCode, apiFailureResponse, internalErrorResponse, formatApiErrorDetail } = require('../_shared/errors');
+const { errorResponse, extractApiErrorCode, apiFailureResponse, toolErrorResponse, withValidationResponse, formatApiErrorDetail } = require('../_shared/errors');
 const {
   footer, pagination, currencyBRL, appendWithinBudget, renderWithinBudget, continuationLine, RESPONSE_ITEM_BUDGET
 } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
-const { parseIntStrict } = require('../_shared/validators');
+const { parseIntStrict, ValidationError } = require('../_shared/validators');
 const { escapeCell } = require('../_shared/markdown');
 const { contractsLicenseErrorResponse, contractApiErrorResponse, pageBeyondEndMessage } = require('../_shared/contractShared');
 
@@ -46,6 +46,11 @@ function contractTypeLabel(contractType) {
 const OFFSET_MIN = 1;
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 200;
+const LIMIT_HINT = 'Informe limit como número inteiro de 1 a 200.';
+const OFFSET_HINT = 'Informe offset como o número da página: inteiro a partir de 1.';
+const DATE_HINT = 'Informe date como uma data existente no formato YYYY-MM-DD (ex: "2026-11-30").';
+const CLIENT_IDS_HINT = 'Informe client_ids com IDs de cliente separados por vírgula (ex: "982,2"). Para achar os IDs, use search_client (por nome) ou list_clients.';
+const CONTRACT_TYPE_HINT = 'Informe contract_type_id com o ID do tipo de contrato (inteiro positivo). Para achar o ID, use list_contract_types.';
 const LIMIT_DEFAULT = 20;
 // Teto por linha para a lista de itens/membros de um contrato/grupo.
 const ROW_LIST_BUDGET = 1500;
@@ -97,17 +102,17 @@ function isRealDate(y, m, d) {
 }
 
 function validateDate(date) {
-  if (date === undefined || date === null || date === '') throw new Error('date é obrigatório (formato YYYY-MM-DD)');
+  if (date === undefined || date === null || date === '') throw new ValidationError('date é obrigatório (formato YYYY-MM-DD)', { hint: DATE_HINT });
   const match = DATE_PATTERN.exec(String(date));
-  if (!match) throw new Error('date deve estar no formato YYYY-MM-DD (ex: "2026-11-30")');
-  if (!isRealDate(match[1], match[2], match[3])) throw new Error('date deve ser uma data real (YYYY-MM-DD)');
+  if (!match) throw new ValidationError('date deve estar no formato YYYY-MM-DD (ex: "2026-11-30")', { hint: DATE_HINT });
+  if (!isRealDate(match[1], match[2], match[3])) throw new ValidationError('date deve ser uma data real (YYYY-MM-DD)', { hint: DATE_HINT });
   return String(date);
 }
 
 function validateClientIds(value) {
   const ids = String(value).split(',').map(s => s.trim());
   if (ids.some(id => !CSV_INT_PATTERN.test(id))) {
-    throw new Error('client_ids deve ser uma lista de IDs inteiros separados por vírgula (ex: "982,2")');
+    throw new ValidationError('client_ids deve ser uma lista de IDs inteiros separados por vírgula (ex: "982,2")', { hint: CLIENT_IDS_HINT });
   }
   return ids.join(',');
 }
@@ -118,18 +123,18 @@ function buildFilters(args) {
     filters.client_ids = validateClientIds(args.client_ids);
   }
   if (args.contract_type_id !== undefined && args.contract_type_id !== null) {
-    const typeId = parseIntStrict(args.contract_type_id, 'contract_type_id');
-    if (typeId < 1) throw new Error('contract_type_id deve ser um número inteiro positivo');
+    const typeId = parseIntStrict(args.contract_type_id, 'contract_type_id', { hint: CONTRACT_TYPE_HINT });
+    if (typeId < 1) throw new ValidationError('contract_type_id deve ser um número inteiro positivo', { hint: CONTRACT_TYPE_HINT });
     filters.contract_type_id = typeId;
   }
   filters.limit = LIMIT_DEFAULT;
   if (args.limit !== undefined) {
-    const n = parseIntStrict(args.limit, 'limit');
-    if (n < LIMIT_MIN) throw new Error('limit deve ser um número inteiro válido');
+    const n = parseIntStrict(args.limit, 'limit', { hint: LIMIT_HINT });
+    if (n < LIMIT_MIN) throw new ValidationError('limit deve ser um número inteiro válido', { hint: LIMIT_HINT });
     filters.limit = Math.min(n, LIMIT_MAX);
   }
   filters.offset = OFFSET_MIN;
-  if (args.offset !== undefined) filters.offset = Math.max(parseIntStrict(args.offset, 'offset'), OFFSET_MIN);
+  if (args.offset !== undefined) filters.offset = Math.max(parseIntStrict(args.offset, 'offset', { hint: OFFSET_HINT }), OFFSET_MIN);
   return filters;
 }
 
@@ -268,8 +273,9 @@ async function execute(args, { api, verbosity }) {
       offset: filters.offset, limit: filters.limit, total: response.total, date: filters.date
     }, verbosity));
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao consultar o quadro de reajuste**', error);
+    return toolErrorResponse('Erro ao consultar o quadro de reajuste', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatReadjustments };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao consultar o quadro de reajuste', execute), format: formatReadjustments };

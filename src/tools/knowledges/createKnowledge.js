@@ -10,9 +10,11 @@
  */
 
 const { textResponse, createdRef } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireField, ValidationError } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
+
+const FOLDER_IDS_HINT = 'Informe knowledge_folder_ids com ao menos 1 ID de pasta (ex: [12, 34]). Para achar os IDs, use list_knowledge_folders.';
 
 const OPTIONAL_FIELDS = [
   'tags',
@@ -40,7 +42,7 @@ const schema = {
         type: 'array',
         items: { type: 'number' },
         minItems: 1,
-        description: 'IDs das pastas de conhecimento onde o artigo sera publicado (obrigatorio, ao menos 1). Exemplo: [12, 34].'
+        description: 'IDs das pastas de conhecimento onde o artigo sera publicado (obrigatorio, ao menos 1). Para achar os IDs, use list_knowledge_folders. Exemplo: [12, 34].'
       },
       tags: {
         type: 'array',
@@ -73,12 +75,12 @@ const schema = {
 
 async function execute(args, { api }) {
   try {
-    requireField(args, 'title');
-    requireField(args, 'description');
-    requireField(args, 'knowledge_folder_ids');
+    requireField(args, 'title', null, { hint: 'Informe title com o título do conhecimento.' });
+    requireField(args, 'description', null, { hint: 'Informe description com o corpo do conhecimento, em Markdown ou HTML.' });
+    requireField(args, 'knowledge_folder_ids', null, { hint: FOLDER_IDS_HINT });
 
     if (!Array.isArray(args.knowledge_folder_ids) || args.knowledge_folder_ids.length === 0) {
-      throw new Error('knowledge_folder_ids deve ser um array com ao menos 1 ID de pasta');
+      throw new ValidationError('knowledge_folder_ids deve ser um array com ao menos 1 ID de pasta', { hint: FOLDER_IDS_HINT });
     }
 
     const body = {
@@ -131,11 +133,11 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao criar conhecimento "${args.title}"**`,
-      error
-    );
+    // Título vem do input: `createdRef` achata numa linha e tira marcação Markdown/aspas;
+    // sem título (a validação pode falhar justamente por isso), não interpola `undefined`.
+    return toolErrorResponse(`Erro ao criar conhecimento${createdRef(undefined, args.title)}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao criar conhecimento', execute) };

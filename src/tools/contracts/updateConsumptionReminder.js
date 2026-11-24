@@ -12,7 +12,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const {
   REMINDER_ALERT_SCOPES, REMINDER_OWNER_SCHEMA_PROPS, resolveReminderOwner, buildReminderBody,
   requirePositiveIdField, reminderValidationResponse, reminderApiErrorResponse, formatReminderSaved
@@ -72,8 +72,9 @@ async function execute(args, { api }) {
       { percentagesSent: body.percentages !== undefined }
     ));
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar o lembrete #${reminderId} do ${owner.label}**`, error);
+    return toolErrorResponse(`Erro ao atualizar o lembrete #${reminderId} do ${owner.label}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar lembrete de consumo', execute) };

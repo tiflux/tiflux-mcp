@@ -38,7 +38,12 @@ const REQUIRED_FIELD_HINTS = {
   requestor_id: 'Informe requestor_id com o ID do solicitante. Para achar o ID, use list_requestors (com o client_id) ou search_requestor.',
   // Nos slices de endereço e contato o parâmetro se chama `id`: eles passam estas dicas explicitamente.
   address_id: 'Informe o ID do endereço do cliente. Para achar o ID, use list_client_addresses com o client_id.',
-  contact_id: 'Informe o ID do contato do cliente. Para achar o ID, use list_client_contacts com o client_id.'
+  contact_id: 'Informe o ID do contato do cliente. Para achar o ID, use list_client_contacts com o client_id.',
+  contract_id: 'Informe contract_id com o ID do contrato (inteiro positivo). Para achar o ID, use list_contracts (linha sem "· grupo").',
+  contract_group_id: 'Informe contract_group_id com o ID do grupo de contrato (inteiro positivo). Para achar o ID, use list_contracts (linha "· grupo").',
+  knowledge_id: 'Informe knowledge_id com o ID do conhecimento. Para achar o ID, use list_knowledges.',
+  folder_id: 'Informe folder_id com o ID da pasta de conhecimento. Para achar o ID, use list_knowledge_folders.',
+  reminder_id: 'Informe reminder_id com o ID do lembrete de consumo (inteiro positivo). Para achar o ID, use list_consumption_reminders com o dono do lembrete (contract_id ou contract_group_id).'
 };
 
 function requireField(args, field, message = null, { hint } = {}) {
@@ -88,4 +93,18 @@ function normalizeTicketNumber(value) {
   return /^\d+$/.test(cleaned) ? cleaned : null;
 }
 
-module.exports = { REQUIRED_FIELD_HINTS, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber };
+/**
+ * requireField + normalizeTicketNumber: o `ticket_number` vira path param na URL,
+ * então valor malformado ("1/../2", "1?x=1", objeto) lança ValidationError com a
+ * dica padrão em vez de seguir para a API. Devolve a string só-dígitos.
+ */
+function requireTicketNumber(args, field = 'ticket_number') {
+  requireField(args, field);
+  const normalized = normalizeTicketNumber(args[field]);
+  if (!normalized) {
+    throw new ValidationError(`${field} deve ser só o número do ticket (ex: "12345" ou "#12345")`, { hint: REQUIRED_FIELD_HINTS.ticket_number });
+  }
+  return normalized;
+}
+
+module.exports = { REQUIRED_FIELD_HINTS, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber, requireTicketNumber };

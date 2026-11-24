@@ -14,7 +14,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { renderList, renderWithinBudget, currencyBRL, row, pagination, listVerbosity, cutCountLabel, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { durationMinutes } = require('./appointmentMath');
 const { compactValorizationCells, riderLabel } = require('./valorizationCompact');
@@ -280,8 +280,9 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
 
     return textResponse(result + notices);
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao listar apontamentos**', error);
+    return toolErrorResponse('Erro ao listar apontamentos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatAppointmentsGlobalList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar apontamentos', execute), format: formatAppointmentsGlobalList };

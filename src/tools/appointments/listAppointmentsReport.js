@@ -15,7 +15,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { currencyBRL, footer, money, row } = require('../_shared/format');
 const { durationMinutes, formatMinutes } = require('./appointmentMath');
 const {
@@ -346,8 +346,9 @@ async function execute(args, { api, verbosity }) {
     const footerStr = footer(v);
     return textResponse(reportText + contractNotice + (footerStr ? `\n${footerStr}` : ''));
   } catch (error) {
-    return internalErrorResponse('**❌ Erro interno ao gerar relatório de apontamentos**', error);
+    return toolErrorResponse('Erro ao gerar relatório de apontamentos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, formatReport, durationMinutes, formatMinutes };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao gerar relatório de apontamentos', execute), formatReport, durationMinutes, formatMinutes };

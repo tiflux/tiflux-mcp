@@ -27,9 +27,9 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse, extractApiErrorCode, errorResponse } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse, apiFailureResponse, extractApiErrorCode, errorResponse } = require('../_shared/errors');
 const { footer, currencyBRL, truncate, appendWithinBudget, dateTime, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
-const { parseIntStrict } = require('../_shared/validators');
+const { parseIntStrict, ValidationError } = require('../_shared/validators');
 const { escapeCell } = require('../_shared/markdown');
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
@@ -86,7 +86,9 @@ function resolveTarget(args) {
   const hasContract = args.contract_id !== undefined && args.contract_id !== null;
   const hasGroup = args.contract_group_id !== undefined && args.contract_group_id !== null;
   if (hasContract === hasGroup) {
-    throw new Error('Informe exatamente um entre contract_id e contract_group_id');
+    throw new ValidationError('Informe exatamente um entre contract_id e contract_group_id', {
+      hint: 'Envie só contract_id (linha sem "· grupo" de list_contracts) ou só contract_group_id (linha "· grupo"), nunca os dois nem nenhum. Para achar o ID, use list_contracts.'
+    });
   }
   if (hasContract) {
     const id = requirePositiveIdField(args, 'contract_id');
@@ -98,8 +100,9 @@ function resolveTarget(args) {
 
 function resolveEventsLimit(value) {
   if (value === undefined || value === null) return EVENTS_LIMIT_DEFAULT;
-  const n = parseIntStrict(value, 'events_limit');
-  if (n < EVENTS_LIMIT_MIN) throw new Error('events_limit deve ser um número inteiro entre 1 e 200');
+  const hint = `Informe events_limit como número inteiro de ${EVENTS_LIMIT_MIN} a ${EVENTS_LIMIT_MAX} (padrão ${EVENTS_LIMIT_DEFAULT}), ou omita o campo.`;
+  const n = parseIntStrict(value, 'events_limit', { hint });
+  if (n < EVENTS_LIMIT_MIN) throw new ValidationError('events_limit deve ser um número inteiro entre 1 e 200', { hint });
   return Math.min(n, EVENTS_LIMIT_MAX);
 }
 
@@ -319,8 +322,20 @@ async function execute(args, { api, verbosity }) {
     }
     return textResponse(formatContractHistory(result, { label: target.label, eventsLimit }, verbosity));
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao buscar o histórico do ${target.label}**`, error);
+    return toolErrorResponse(`Erro ao buscar o histórico do ${target.label}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatContractHistory, summarizeRiders };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+// O título segue o parâmetro informado: só `contract_group_id` → "grupo de contrato".
+function validationTitle(args) {
+  const has = value => value !== undefined && value !== null;
+  const onlyGroup = has(args?.contract_group_id) && !has(args?.contract_id);
+  return `Erro ao buscar o histórico do ${onlyGroup ? 'grupo de contrato' : 'contrato'}`;
+}
+
+function executeWithValidation(args, ctx) {
+  return withValidationResponse(validationTitle(args), execute)(args, ctx);
+}
+
+module.exports = { name: schema.name, schema, execute: executeWithValidation, format: formatContractHistory, summarizeRiders };

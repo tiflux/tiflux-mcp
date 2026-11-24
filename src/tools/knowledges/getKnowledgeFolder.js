@@ -12,8 +12,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { apiFailureResponse, internalErrorResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { escapeCell } = require('../_shared/markdown');
 
 const schema = {
@@ -72,7 +72,7 @@ function format(folder) {
 }
 
 async function execute(args, { api }) {
-  const folder_id = requireIntField(args, 'folder_id');
+  const folder_id = requireIntField(args, 'folder_id', null, { hint: REQUIRED_FIELD_HINTS.folder_id });
 
   try {
     const response = await api.getKnowledgeFolder(folder_id);
@@ -98,11 +98,9 @@ async function execute(args, { api }) {
 
     return textResponse(format(response.data));
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao buscar pasta de conhecimento #${folder_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar pasta de conhecimento #${folder_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar pasta de conhecimento', execute), format };

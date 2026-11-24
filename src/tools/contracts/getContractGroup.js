@@ -26,7 +26,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse, apiFailureResponse, extractApiErrorCode } = require('../_shared/errors');
 const { footer, currencyBRL, truncate, appendWithinBudget, dateOnly } = require('../_shared/format');
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
@@ -186,11 +186,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatContractGroup(response.data, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar grupo de contrato #${contract_group_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar grupo de contrato #${contract_group_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatContractGroup };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar grupo de contrato', execute), format: formatContractGroup };

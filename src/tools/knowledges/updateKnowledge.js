@@ -34,8 +34,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, internalErrorResponse, apiFailureResponse } = require('../_shared/errors');
-const { requireIntField } = require('../_shared/validators');
+const { errorResponse, apiFailureResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireIntField, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 
 const UPDATABLE_FIELDS = [
@@ -139,7 +139,7 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const knowledge_id = requireIntField(args, 'knowledge_id');
+  const knowledge_id = requireIntField(args, 'knowledge_id', null, { hint: REQUIRED_FIELD_HINTS.knowledge_id });
 
   // Montar body apenas com os campos informados (exceto knowledge_id)
   const body = {};
@@ -241,11 +241,9 @@ async function execute(args, { api }) {
 
     return textResponse(text);
   } catch (error) {
-    return internalErrorResponse(
-      `**Erro interno ao atualizar conhecimento #${knowledge_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao atualizar conhecimento #${knowledge_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar conhecimento', execute) };

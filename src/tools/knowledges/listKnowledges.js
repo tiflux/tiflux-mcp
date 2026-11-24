@@ -13,7 +13,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { pagination, dateOnly } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -110,12 +110,9 @@ async function execute(args, { api, verbosity }) {
       verbosity
     }));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar conhecimentos**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse('Erro ao listar conhecimentos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatKnowledgesList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar conhecimentos', execute), format: formatKnowledgesList };

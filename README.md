@@ -294,7 +294,7 @@ Exemplo de erro da API com dica (mesa que exige prioridade):
 **Como resolver:** A mesa exige prioridade: chame list_desk_priorities com o desk_id e informe priority_id.
 ```
 
-As linhas `**Código:**` e `**Mensagem:**` não mudam de formato. Hoje a dica automática cobre as exigências de mesa na criação e na atualização de ticket (prioridade, item de catálogo e solicitante). O formato `Problema` / `Como resolver` está sendo levado a todas as ferramentas por etapas. As de ticket, comunicação interna, cliente (incluindo endereços e contatos) e solicitante já o usam quando falta um parâmetro obrigatório; nas demais, a falta do parâmetro ainda volta como erro de protocolo, sem dica. Nas ferramentas que já usam o formato, sempre que existe uma ferramenta que descobre o valor, a dica diz qual é: sem `ticket_number` aponta `list_tickets`; sem `client_id`, `search_client` ou `list_clients`; sem `requestor_id`, `list_requestors` ou `search_requestor`; sem o `id` de um endereço ou contato, `list_client_addresses` ou `list_client_contacts`; e `entities` vazio em `update_client_entities`/`update_requestor_entities`, `list_entities` e `list_entity_fields`. Parâmetro presente mas malformado só recebe esse formato onde a ferramenta confere o valor antes de chamar a API (por exemplo, `delete_requestor` recusa ID que não seja inteiro positivo); nas demais, o valor segue para a API e a resposta vem como erro da API (`Código`/`Mensagem`). Ficam de fora, com mensagem própria, as validações específicas de `list_tickets`, `get_tickets_comparison`, `get_tickets_feedback_report`, `merge_ticket` e `search_requestor` (que pede ao menos um filtro), e checagens pontuais como limite de itens ou de anexos.
+As linhas `**Código:**` e `**Mensagem:**` não mudam de formato. Hoje a dica automática cobre as exigências de mesa na criação e na atualização de ticket (prioridade, item de catálogo e solicitante). O formato `Problema` / `Como resolver` está sendo levado a todas as ferramentas por etapas. As de ticket, comunicação interna, cliente (incluindo endereços e contatos), solicitante, apontamento, contrato (incluindo grupos e lembretes de consumo) e base de conhecimento já o usam quando falta um parâmetro obrigatório; nas demais, a falta do parâmetro ainda volta como erro de protocolo, sem dica. Nas ferramentas que já usam o formato, sempre que existe uma ferramenta que descobre o valor, a dica diz qual é: sem `ticket_number` aponta `list_tickets`; sem `client_id`, `search_client` ou `list_clients`; sem `requestor_id`, `list_requestors` ou `search_requestor`; sem o `id` de um endereço ou contato, `list_client_addresses` ou `list_client_contacts`; sem `contract_id` ou `contract_group_id`, `list_contracts` (o grupo é a linha "· grupo"); sem `knowledge_id`, `list_knowledges`; sem `folder_id` ou `knowledge_folder_ids`, `list_knowledge_folders`; sem `reminder_id`, `list_consumption_reminders`; e `entities` vazio em `update_client_entities`/`update_requestor_entities`, `list_entities` e `list_entity_fields`. Parâmetro presente mas malformado só recebe esse formato onde a ferramenta confere o valor antes de chamar a API (por exemplo, `delete_requestor` e as ferramentas de contrato recusam ID que não seja inteiro positivo, com a mesma dica do ID ausente; `create_appointment` recusa `attendance`, `attendance_kind` e IDs de valorização que não sejam inteiros; `create_appointment` e `list_appointments` recusam `ticket_number` que não seja só o número, com ou sem `#`; datas, `limit` e `events_limit` fora do formato nas ferramentas de contrato também saem assim); nas demais, o valor segue para a API e a resposta vem como erro da API (`Código`/`Mensagem`). Ficam de fora, com mensagem própria, as validações específicas de `list_tickets`, `get_tickets_comparison`, `get_tickets_feedback_report`, `merge_ticket`, `search_requestor` (que pede ao menos um filtro), `list_appointments_global` e `list_appointments_report` (período obrigatório e filtros), as regras de valorização do `create_appointment` ("Regra de negócio violada"), o título obrigatório do `create_knowledge_folder`, o "nenhum campo para atualizar" de `update_contract`, `update_knowledge`, `update_knowledge_folder` e `update_consumption_reminder`, e os percentuais/e-mails dos lembretes de consumo, além de checagens pontuais como limite de itens ou de anexos.
 
 **Sucesso de criação:** as ferramentas `create_*` trazem o identificador do que foi criado já na primeira linha (ex.: `**✅ Ticket #103395 criado com sucesso!**`, `**✅ Comunicação interna #7001 criada com sucesso no ticket #103395!**`). Assim, várias criações em sequência ficam distinguíveis mesmo para quem mostra só a primeira linha.
 
@@ -2144,7 +2144,7 @@ Remove an internal communication from a ticket in Tiflux.
 Create a new appointment (work-hour record) on a specific ticket. Supports both non-valued (simple) and valued appointments (attended externally/remotely/internally, with contract or loose service billing, optional travel shift, guarantee flag, and manual value).
 
 **Parameters (required):**
-- `ticket_number` (string, required): Ticket number where the appointment will be created
+- `ticket_number` (string, required): Ticket number where the appointment will be created (digits only; `"#123"` is accepted). To find the number, use `list_tickets`.
 - `date` (string, required): Appointment date in `YYYY-MM-DD` format. Future dates are not allowed.
 - `init_time` (string, required): Start time in `HH:MM` format (e.g. `"09:00"`, `"14:30"`)
 - `end_time` (string, required): End time in `HH:MM` format. Must be greater than or equal to `init_time`.
@@ -2193,6 +2193,8 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 >
 > Note: `attendance` and `attendance_kind` remain optional in the schema because desks _without_ valorization reject them at the API level — the tool cannot know the desk's configuration before the API call.
 
+**New in v2.69.0 — actionable validation errors:** a malformed integer in `attendance`, `attendance_kind`, `contract_rider_id`, `loose_service_id`, `shift_id` or `shift_owner_ticket_number` now answers with the title `**❌ Erro ao criar apontamento**` followed by `**Problema:**` and `**Como resolver:**` (before: `**❌ Parâmetro inválido**` with the message below it). A missing `ticket_number`, `date`, `init_time`, `end_time` or `description` uses the same format. `Regra de negócio violada` and the name-resolution errors are unchanged. See [Formato de erros](#formato-de-erros).
+
 **Returns:** Confirmation of the created appointment (ID, date, time range, description, attendant). When resolved by ID or by name, the confirmation also echoes back the contract/loose service/shift that was actually used — e.g. `**Contrato:** Contrato de Licença de Uso (#88558, aditivo 266123)` when resolved by name, or `**Contrato:** aditivo 266123` when passed directly by ID. A field that wasn't used for the appointment shows no line at all.
 
 **Example (valued appointment — loose service):**
@@ -2214,7 +2216,7 @@ Create a new appointment (work-hour record) on a specific ticket. Supports both 
 List appointments (work-hour records) of a specific ticket with optional filters. When available, each appointment card includes valorization details (attendance type, contract or loose service, contract rider, travel shift, value) and geolocation entries.
 
 **Parameters:**
-- `ticket_number` (string, required): Ticket number to list appointments from
+- `ticket_number` (string, required): Ticket number to list appointments from (digits only; `"#123"` is accepted). To find the number, use `list_tickets`.
 - `user_id` (number, optional): Filter by the ID of the user who made the appointment
 - `start_date` (string, optional): Return appointments from this date (`YYYY-MM-DD`)
 - `end_date` (string, optional): Return appointments up to this date (`YYYY-MM-DD`)
@@ -3158,7 +3160,7 @@ Create a new knowledge base article. Requires the "Gerenciar conhecimento" permi
 **Required fields:**
 - `title` (string): Article title.
 - `description` (string): Article body in Markdown or HTML. Example: `"## Section\n\n- Step 1\n- Step 2"`.
-- `knowledge_folder_ids` (array of numbers, min 1): IDs of the folders where the article will be published. Example: `[12, 34]`.
+- `knowledge_folder_ids` (array of numbers, min 1): IDs of the folders where the article will be published. To find the IDs, use `list_knowledge_folders`. Example: `[12, 34]`.
 
 **Optional fields:**
 - `tags` (array of strings): Tags for the article. Tags must not contain commas. Example: `["VPN", "remote access"]`.
@@ -3427,6 +3429,10 @@ The body only carries `percentages`/`emails`/`alert_scope` — the API rejects a
 ```json
 { "contract_id": 82657, "percentages": [50, 80], "emails": ["gestor@cliente.com"] }
 ```
+
+**Returns:** the first line carries the ID of the new reminder and its owner (`**✅ Lembrete de consumo #13 criado com sucesso no contrato #82657!**`), followed by the owner and the reminder as stored by the API (scope, percentages, e-mails). Use that ID in `update_consumption_reminder`. Without exactly one owner (`contract_id` or `contract_group_id`), the tool answers with `Problema` / `Como resolver` (pointing to `list_contracts`) and calls nothing.
+
+**New in v2.69.0:** the success message starts with the reminder ID, in the same shape as the other `create_*` tools: `**✅ Lembrete de consumo #13 criado com sucesso no contrato #82657!**` (before: `**✅ Lembrete de consumo criado no contrato #82657**`). When the API returns no ID, the line has no `#<id>`.
 
 ### update_consumption_reminder
 Update a consumption reminder of a contract (`contract_id`) or group (`contract_group_id`) — exactly one owner, plus `reminder_id` (from `list_consumption_reminders`). Partial: only the fields you pass change, and **lists replace the current ones** (to add an e-mail, send the full list). Same fields and validation as `create_consumption_reminder`; with none of the three fields, the tool returns a local error without calling the API.

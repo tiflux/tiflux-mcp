@@ -6,8 +6,8 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireTicketNumber } = require('../_shared/validators');
 const { footer, pagination, currencyBRL, renderWithinBudget, listVerbosity, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { ATTENDANCE_LABELS, ATTENDANCE_KIND_LABELS } = require('./appointmentFilters');
@@ -21,7 +21,7 @@ const schema = {
     properties: {
       ticket_number: {
         type: 'string',
-        description: 'Número do ticket para listar os apontamentos'
+        description: 'Número do ticket para listar os apontamentos (só dígitos; "#123" é aceito). Para achar o número, use list_tickets.'
       },
       user_id: {
         type: 'number',
@@ -148,9 +148,9 @@ function formatAppointmentsList(ticket_number, appointments, offset, limit, verb
 }
 
 async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }) {
-  const { ticket_number, user_id, start_date, end_date, offset = 1, limit = 20 } = args;
+  const { user_id, start_date, end_date, offset = 1, limit = 20 } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const response = await api.listAppointments(ticket_number, {
@@ -186,13 +186,9 @@ async function execute(args, { api, verbosity: ctxVerbosity, verbosityExplicit }
     const { verbosity, notice: autoCompactNotice } = listVerbosity({ verbosity: ctxVerbosity, verbosityExplicit }, appointments.length);
     return textResponse(formatAppointmentsList(ticket_number, appointments, offset, limit, verbosity, autoCompactNotice));
   } catch (error) {
-    return errorResponse(
-      `**❌ Erro interno ao listar apontamentos**\n\n` +
-      `**Ticket:** #${ticket_number}\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexão e configurações da API.*`
-    );
+    return toolErrorResponse(`Erro ao listar apontamentos do ticket #${ticket_number}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatAppointmentsList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar apontamentos', execute), format: formatAppointmentsList };

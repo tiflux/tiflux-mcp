@@ -27,8 +27,9 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { internalErrorResponse, apiFailureResponse, extractApiErrorCode, formatApiErrorDetail } = require('../_shared/errors');
+const { toolErrorResponse, withValidationResponse, apiFailureResponse, extractApiErrorCode, formatApiErrorDetail } = require('../_shared/errors');
 const { footer, currencyBRL } = require('../_shared/format');
+const { ValidationError } = require('../_shared/validators');
 const { modalityLabel, closingPeriodLabel } = require('../_shared/contractModality');
 const {
   contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse,
@@ -57,6 +58,8 @@ const schema = {
 const BASE_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** Ano/mes/dia formam uma data real (rejeita ex.: 2026-02-30). */
+const BASE_DATE_HINT = 'Informe base_date como uma data existente no formato YYYY-MM-DD (ex: "2026-11-30"), ou omita o campo para usar a data de hoje.';
+
 function isRealDate(y, m, d) {
   const dt = new Date(Date.UTC(y, m - 1, d));
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
@@ -70,9 +73,9 @@ function isRealDate(y, m, d) {
 function validateBaseDate(value) {
   if (value === undefined) return undefined;
   const match = BASE_DATE_PATTERN.exec(value);
-  if (!match) throw new Error('base_date deve estar no formato YYYY-MM-DD');
+  if (!match) throw new ValidationError('base_date deve estar no formato YYYY-MM-DD', { hint: BASE_DATE_HINT });
   const [, y, mo, d] = match.map(Number);
-  if (!isRealDate(y, mo, d)) throw new Error('base_date deve ser uma data real (YYYY-MM-DD)');
+  if (!isRealDate(y, mo, d)) throw new ValidationError('base_date deve ser uma data real (YYYY-MM-DD)', { hint: BASE_DATE_HINT });
   return value;
 }
 
@@ -279,11 +282,9 @@ async function execute(args, { api, verbosity }) {
 
     return textResponse(formatContractUsage(response.data, base_date, verbosity));
   } catch (error) {
-    return internalErrorResponse(
-      `**❌ Erro interno ao buscar consumo do contrato #${contract_id}**`,
-      error
-    );
+    return toolErrorResponse(`Erro ao buscar consumo do contrato #${contract_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatContractUsage };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao buscar consumo do contrato', execute), format: formatContractUsage };

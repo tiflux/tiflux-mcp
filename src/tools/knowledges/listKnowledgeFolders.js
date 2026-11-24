@@ -10,7 +10,7 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { pagination, truncate } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { parseIntStrict } = require('../_shared/validators');
@@ -20,6 +20,8 @@ const { parseIntStrict } = require('../_shared/validators');
 const OFFSET_MIN = 1;
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 200;
+const LIMIT_HINT = 'Informe limit como número inteiro de 1 a 200.';
+const OFFSET_HINT = 'Informe offset como o número da página: inteiro a partir de 1.';
 
 const schema = {
   name: 'list_knowledge_folders',
@@ -85,10 +87,10 @@ async function execute(args, { api, verbosity }) {
 
   if (search !== undefined) filters.search = search;
   if (limit !== undefined) {
-    filters.limit = Math.min(Math.max(parseIntStrict(limit, 'limit'), LIMIT_MIN), LIMIT_MAX);
+    filters.limit = Math.min(Math.max(parseIntStrict(limit, 'limit', { hint: LIMIT_HINT }), LIMIT_MIN), LIMIT_MAX);
   }
   if (offset !== undefined) {
-    filters.offset = Math.max(parseIntStrict(offset, 'offset'), OFFSET_MIN);
+    filters.offset = Math.max(parseIntStrict(offset, 'offset', { hint: OFFSET_HINT }), OFFSET_MIN);
   }
 
   try {
@@ -111,12 +113,9 @@ async function execute(args, { api, verbosity }) {
       verbosity
     }));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar pastas de conhecimento**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse('Erro ao listar pastas de conhecimento', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatKnowledgeFoldersList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar pastas de conhecimento', execute), format: formatKnowledgeFoldersList };

@@ -48,10 +48,10 @@
 
 const { textResponse } = require('../_shared/response');
 const { contractsLicenseErrorResponse, contractApiErrorResponse, contractsAccessDeniedResponse, pageBeyondEndMessage } = require('../_shared/contractShared');
-const { errorResponse, extractApiErrorCode } = require('../_shared/errors');
+const { errorResponse, toolErrorResponse, withValidationResponse, extractApiErrorCode } = require('../_shared/errors');
 const { footer, pagination, currencyBRL, appendWithinBudget, continuationLine, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
-const { parseIntStrict } = require('../_shared/validators');
+const { parseIntStrict, ValidationError } = require('../_shared/validators');
 const { modalityLabel } = require('../_shared/contractModality');
 const { escapeCell } = require('../_shared/markdown');
 
@@ -60,6 +60,8 @@ const { escapeCell } = require('../_shared/markdown');
 const OFFSET_MIN = 1;
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 200;
+const LIMIT_HINT = 'Informe limit como número inteiro de 1 a 200.';
+const OFFSET_HINT = 'Informe offset como o número da página: inteiro a partir de 1.';
 
 const STATUS_LABELS = {
   actives: 'Ativo',
@@ -267,12 +269,12 @@ async function execute(args, { api, verbosity }) {
   if (contract_type_ids !== undefined) filters.contract_type_ids = contract_type_ids;
   if (status !== undefined) filters.status = status;
   if (limit !== undefined) {
-    const n = parseIntStrict(limit, 'limit');
-    if (n < LIMIT_MIN) throw new Error('limit deve ser um número inteiro válido');
+    const n = parseIntStrict(limit, 'limit', { hint: LIMIT_HINT });
+    if (n < LIMIT_MIN) throw new ValidationError('limit deve ser um número inteiro válido', { hint: LIMIT_HINT });
     filters.limit = Math.min(n, LIMIT_MAX);
   }
   if (offset !== undefined) {
-    filters.offset = Math.max(parseIntStrict(offset, 'offset'), OFFSET_MIN);
+    filters.offset = Math.max(parseIntStrict(offset, 'offset', { hint: OFFSET_HINT }), OFFSET_MIN);
   }
   // include_details e rendering-only — nunca repassado a API
 
@@ -315,12 +317,9 @@ async function execute(args, { api, verbosity }) {
     const effectiveOffset = filters.offset || OFFSET_MIN;
     return textResponse(formatContractsList(contracts, effectiveOffset, effectiveLimit, verbosity, include_details, response.total));
   } catch (error) {
-    return errorResponse(
-      `**Erro interno ao listar contratos**\n\n` +
-      `**Erro:** ${error.message}\n\n` +
-      `*Verifique sua conexao e configuracoes da API.*`
-    );
+    return toolErrorResponse('Erro ao listar contratos', error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, format: formatContractsList };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar contratos', execute), format: formatContractsList };

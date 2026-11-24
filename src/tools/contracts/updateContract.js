@@ -29,7 +29,7 @@
 
 const { textResponse } = require('../_shared/response');
 const {
-  errorResponse, internalErrorResponse, apiFailureResponse,
+  errorResponse, toolErrorResponse, withValidationResponse, apiFailureResponse,
   extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail
 } = require('../_shared/errors');
 const { dateTime } = require('../_shared/format');
@@ -229,8 +229,9 @@ async function execute(args, { api }) {
     if (response.error) return apiErrorResult(contract_id, response);
     return textResponse(formatUpdated(contract_id, body, response.data));
   } catch (error) {
-    return internalErrorResponse(`**❌ Erro interno ao atualizar contrato #${contract_id}**`, error);
+    return toolErrorResponse(`Erro ao atualizar contrato #${contract_id}`, error);
   }
 }
 
-module.exports = { name: schema.name, schema, execute, UPDATABLE_FIELDS };
+// Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao atualizar contrato', execute), UPDATABLE_FIELDS };
