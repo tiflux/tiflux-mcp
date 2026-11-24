@@ -240,7 +240,7 @@ Clientes MCP (Claude Code, claude.ai) recusam resultados de ferramenta acima de 
 
 | Limite | Quando vale | O que acontece |
 |--------|-------------|----------------|
-| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`), `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_ticket_extra_values`, `list_ticket_internal_costs` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
+| **`compact` automático** | Página com **mais de 50 itens retornados** e **sem verbosidade explícita** (nem header `x-tiflux-verbosity`, nem env `TIFLUX_MCP_VERBOSITY`). Conta o que a API devolveu, não o `limit` pedido: `limit: 100` que devolve 9 itens segue `rich`, sem aviso | A resposta sai em `compact`, com a linha final `(formato compacto aplicado automaticamente pelo volume; envie x-tiflux-verbosity: rich (ou TIFLUX_MCP_VERBOSITY=rich no SDK) para forçar o formato completo)`. Vale para `list_tickets` (fora `group_by`: `day`/`week`/`month`/`desk` nunca trocam de formato; as agregações por dimensão e por período × responsável trocam para `compact`, com a mesma linha de aviso, só quando o `rich` passaria do teto de ~40k — ver "Response ceiling" em `list_tickets`), `list_appointments`, `list_appointments_global`, `get_billings_history`, `list_ticket_extra_values`, `list_ticket_internal_costs` e a lista (`include_list`) de `get_tickets_feedback_report`/`get_chats_feedback_report`. Não vale para `list_chat_messages`, `list_inbox_chats`, `list_my_chats`, `list_in_attendance_chats`, `list_archived_chats` nem `get_ticket_histories`: o formato deles não muda com a verbosidade, então seguem no formato de sempre (sem a linha de aviso), só com o teto de ~40k. |
 | **Teto de ~40k caracteres** | As mesmas listagens, em qualquer modo | A lista é cortada no fim de um item e a linha de corte substitui o bloco de paginação, com o `offset`/`limit` exatos para continuar (ver [Dicas](#dicas-para-reduzir-consumo-de-tokens)). |
 | **Rede global de ~60k caracteres** | Qualquer ferramenta | O texto é cortado no último parágrafo que cabe, com o aviso `…resposta cortada em ~60k caracteres — reduza limit ou refine o recorte.` (`isError` não muda). |
 
@@ -541,7 +541,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `is_closed` (boolean, optional): Legacy status flag. Prefer `filter_by` for more granular control. `is_closed: true` = only closed; `is_closed: false` = only open.
 - `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Under `date_type="solved_in_time"`, "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
 - `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (**closing date** — also recorded on cancellation; cleared again on reopen). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
-- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk. Returns `{ group_by, date_type, total, buckets: [{period, count}] }`. Use for comparison/trend (e.g., "opened per day this week") or per-desk breakdowns. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).** The window's labels use the calendar of the offset `start_datetime` was written in (`-03:00` → Brasília; `Z`/plain date → UTC), so no out-of-range row appears at the edges.
+- `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. One of 11 exact values: `day`, `week`, `month`, `desk`, `responsible`, `stage`, `client`, `status`, `day,responsible`, `week,responsible`, `month,responsible` (no space after the comma — the API validates the exact string). "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk; "responsible"/"stage"/"client"/"status" group by that dimension; "<period>,responsible" crosses period × responsible in **a single call, for any number of people** (do not filter by `responsible_ids` nor call once per person). The API returns `{ group_by, date_type, total, buckets }` — bucket shapes and the rendered output are described in "`group_by` by dimension and by period × responsible" below. Use for comparison/trend (e.g., "opened per day this week"), per-desk breakdowns, rankings ("who closed the most") and team-performance tables. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).** The window's labels use the calendar of the offset `start_datetime` was written in (`-03:00` → Brasília; `Z`/plain date → UTC), so no out-of-range row appears at the edges.
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
 - `start_datetime` (string, optional): Start date/time filter in ISO 8601 format (e.g., "2024-05-15T00:00:00Z"). Filters tickets with date >= start_datetime
 - `end_datetime` (string, optional): End date/time filter in ISO 8601 format (e.g., "2024-05-15T23:59:59Z"). Filters tickets with date <= end_datetime
@@ -561,6 +561,8 @@ List tickets with filtering options. Catalog and priority are automatically show
 | User question | Recommended call |
 |---|---|
 | "closed per month in desk X" | `desk_name` + `date_type="solved_in_time"` + `filter_by="closed"` + `group_by="month"` |
+| "closed per week × responsible in the last 3 months in desk X" | `desk_name` + `date_type="solved_in_time"` + `filter_by="closed"` + `group_by="week,responsible"` + period — one call, any number of people |
+| "open tickets per stage in desk X" | `desk_name` + `filter_by="open"` + `group_by="stage"` |
 | "opened today in desk X" | `desk_name` + `date_type="created_at"` + `filter_by="all"` + period |
 | "cancelled in the period" | `filter_by="canceled"` + `date_type="solved_in_time"` + `desk_name` — the period alone would be accepted, but for cancelled tickets ask for the desk if the user did not give one |
 | "João's tickets" (person who opened them) | `requestor_email` or `requestor_ids` |
@@ -593,6 +595,47 @@ When the ticket is closed or cancelled (`sla_info.solved_in_time` present), the 
 ```
 
 **Weekly `group_by`:** buckets show the week dates, e.g. `2026-W33 (10/08–16/08):5` in `compact` and `| 2026-W33 (10/08–16/08) | 5 |` in `rich` (ISO Monday–Sunday).
+
+**`group_by` by dimension and by period × responsible (new in v2.67.0 — requires the API release that accepts these values; an older API answers `422` with its own message):**
+
+| `group_by` | API bucket | Notes |
+|---|---|---|
+| `day` / `week` / `month` | `{ period, count }` | unchanged |
+| `desk` | `{ period: <desk name>, count }` | unchanged |
+| `responsible` | `{ period: <name>, responsible_id, count }` | `period`/`responsible_id` = `null` → tickets without a responsible, shown as `(sem responsável)` |
+| `client` | `{ period: <name>, client_id, count }` | |
+| `stage` | `{ period: <stage name>, stage_id, desk: <desk name>, count }` | stages are per desk: the same name in two desks = two rows |
+| `status` | `{ period: <status name>, status_id, desk, count }` | statuses are per desk too |
+| `day,responsible` / `week,responsible` / `month,responsible` | `{ period: 'YYYY-MM-DD' \| 'IYYY-Www' \| 'YYYY-MM', responsible: <name>, responsible_id, count }` | only pairs with tickets (no zeros); `date_type` works as in the temporal modes |
+
+- **Dimensions** (`responsible`, `stage`, `client`, `status`) are sorted by **count, descending** (ties by name); `stage`/`status` with more than one desk in the result are sorted by desk and then by count. The group key is the **ID**: namesakes stay on separate rows and are never summed by name. Default stage/status names come as the API returns them (e.g. "Opened", "Closed"). The title has no date-axis suffix (same as `desk`); the date axis is in the applied-filters block.
+  - `rich`: `| Responsável | ID | Quantidade |` (`client`: `| Cliente | ID | Quantidade |`); `stage`/`status`: `| Estágio | Mesa | ID | Quantidade |`. Use the ID to drill down with `responsible_ids` / `stage_ids` / `client_ids`.
+  - `compact`: `Contagem por responsável (total 48): Bruno Lima #456:40 · Ana Souza #123:5 · (sem responsável):3`; `stage`/`status`: `Em andamento [Suporte] #789:12`.
+- **Period × responsible**: one row per `responsible_id` (a bucket without ID is keyed by the responsible's name, so different people are never summed; no ID and no name = `(sem responsável)`), sorted by total descending. With `start_datetime`/`end_datetime`, the columns are every period of the window (a period with no ticket is a column of zeros); without them, only the periods returned.
+  - `rich`, up to 16 periods (13 weeks of a quarter, 12 months of a year): pivot table `| Responsável | 2026-W36 (31/08–06/09) | … | Total |`, one row per person (`Ana Souza #123`), absent cells as `0`, and a final `| **Total** |` row.
+  - `rich` with more than 16 periods (e.g. `day,responsible` over a quarter) and `compact` always: a `Períodos:` line with every label of the window (weeks with their dates) followed by one line per person with only the non-zero periods — `Ana Souza #123 (total 40): 2026-W44:3 · 2026-W45:5` (a period missing from the person's line = 0). When the window has too many periods for the line (~6k characters, e.g. more than ~460 days), the list is abbreviated and ends with `… +N períodos omitidos da lista (até <last period>)`; each person's line still carries every period with tickets. In `rich`, a notice suggests a coarser granularity (`week,responsible` / `month,responsible`) or a smaller window.
+- **Response ceiling**: the API returns every group without pagination, so the whole output (header, `Períodos:` line and rows) is kept within ~40k characters, cut on a row boundary, and ends with `… +N grupos não exibidos, somando X tickets (total geral T)` (`responsáveis` instead of `grupos` in period × responsible) — shown + not shown always equals the total. Names coming from the API are flattened to a single line and, in the `compact` and per-line formats, a `·` inside a name is escaped as `\·`, so a name can never forge an entry. A `rich` output that would exceed the ceiling without an explicit verbosity switches to `compact` first (with the automatic-compact notice); an explicit `rich` is only cut.
+
+**Example — closed per week × responsible, last 3 months (one call):**
+```json
+{
+  "desk_name": "Suporte",
+  "date_type": "solved_in_time",
+  "filter_by": "closed",
+  "group_by": "week,responsible",
+  "start_datetime": "2026-09-01T00:00:00-03:00",
+  "end_datetime": "2026-11-30T23:59:59-03:00"
+}
+```
+
+**Example — open tickets per stage:**
+```json
+{
+  "desk_name": "Suporte",
+  "filter_by": "open",
+  "group_by": "stage"
+}
+```
 
 **Volume guard:** When the total (`X-Total-Items`) exceeds 500 tickets in a regular listing (without `group_by`), the response appends an instruction not to paginate for analysis — use `group_by` or `get_tickets_comparison` instead. This threshold is set at 500 in `LIST_TOTAL_WARN_THRESHOLD`.
 
@@ -4542,7 +4585,7 @@ List the attendant groups (technical groups) linked to a permission group.
 
 The MCP server integrates with the following Tiflux API v2 endpoints:
 
-- `GET /tickets` - List tickets (filters incl. `search`, `update_start_datetime`/`update_end_datetime`, `sla_expiring_before`, `group_by`; each item carries `sla_info` with the SLA deadlines)
+- `GET /tickets` - List tickets (filters incl. `search`, `update_start_datetime`/`update_end_datetime`, `sla_expiring_before`, `group_by` — by period, desk, responsible, stage, client, status and period × responsible; each item carries `sla_info` with the SLA deadlines)
 - `GET /tickets/{id}` - Retrieve ticket details
 - `POST /tickets` - Create new tickets (supports multipart with file attachments via `files_base64`; `requestor_id` body field links existing requestor)
 - `PUT /tickets/{id}` - Update existing tickets (supports `requestor_id` to change the ticket's requestor; `followers` replaces the full list; `stopped`/`stop_answer` pause or resume the SLA; `ticket_reference_number` sets the parent ticket; `client_id` is never sent — the API rejects it)
@@ -4557,7 +4600,7 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `POST /tickets/{ticket_number}/client-answers` - Create an answer on behalf of the client (`create_client_answer`). Multipart: `name`, `author_name`, `files[]` (up to 10, 25MB each). Administrators only.
 - `DELETE /ticket_answers/{ticket_answer_id}/files/{id}` - Remove a file from a ticket answer (`delete_ticket_answer_file`)
 - `GET /tickets/{ticket_number}/histories` - Get ticket event history (timeline) with optional filters
-- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; every `*_ids` filter accepts at most 15 IDs without duplicates — the MCP dedups and cuts with a warning; `requestor_email` is compared exactly, so the MCP sends it in lowercase; response includes `services_catalog` and `priority` per ticket). Also supports `group_by` (values: day/week/month/desk) for aggregated counts — returns `{ group_by, date_type, total, buckets: [{period, count}] }` instead of a ticket list. **Note:** `group_by` and the aggregated response shape are not documented in the public Swagger as of 2026-06-30; the feature was added in api_rails ticket #96694 and is live in production. Used internally by `get_tickets_comparison` (2 calls per invocation) and `list_tickets` (with `group_by` param). A documentation request has been registered with the API team.
+- `GET /tickets` - List tickets with filters (supports `requestor_ids`, `requestor_email`, `services_catalogs_item_ids`, `priority_ids` query params; every `*_ids` filter accepts at most 15 IDs without duplicates — the MCP dedups and cuts with a warning; `requestor_email` is compared exactly, so the MCP sends it in lowercase; response includes `services_catalog` and `priority` per ticket). Also supports `group_by` for aggregated counts — 11 exact values: `day`, `week`, `month`, `desk`, `responsible`, `stage`, `client`, `status`, `day,responsible`, `week,responsible`, `month,responsible` — and returns `{ group_by, date_type, total, buckets: [...] }` instead of a ticket list. Buckets are `{period, count}` for `day`/`week`/`month`/`desk`; the dimension buckets also carry the ID (`responsible_id`, `client_id`, `stage_id`, `status_id`), `stage`/`status` carry the `desk` too, and period × responsible carries `responsible` + `responsible_id` (see "`group_by` by dimension and by period × responsible" under `list_tickets`). **Note:** `group_by` and the aggregated response shape are not documented in the public Swagger as of 2026-11-23; the feature was added in api_rails ticket #96694 and is live in production for `day`/`week`/`month`/`desk`; the dimension and period × responsible values require the API release that accepts them (an older API answers `422`). Used internally by `get_tickets_comparison` (2 calls per invocation, which still accepts only `day`/`week`/`month`/`desk`) and `list_tickets` (with `group_by` param). A documentation request has been registered with the API team.
 - `GET /clients` - Search/list clients (`search_client`, `list_clients`, and `client_name` auto-resolve in `list_tickets` and `create_ticket`)
 - `GET /clients/{id}` - Get client details (`get_client`)
 - `POST /clients` - Create a new client (`create_client`)

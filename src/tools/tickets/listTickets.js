@@ -43,6 +43,9 @@ const { diagnoseZero } = require('../_shared/zeroDiagnostics');
 const { zeroFillTemporalBuckets, isoWeekRangeLabel } = require('../_shared/temporalBuckets');
 const { slugToNumber, validSlugs } = require('./createdByWayOf');
 const {
+  GROUP_BY_VALUES, groupByLabel, groupByKind, hasDateAxis, renderDimension, renderPeriodResponsible
+} = require('./groupByRender');
+const {
   MAX_FILTER_IDS, capFilterIds, capIdFilters, normalizeRequestorEmails, clampListLimit, resolveStageAcrossDesks
 } = require('./ticketListFilters');
 
@@ -372,8 +375,7 @@ function buildFilterEntries(opts) {
 
   // Agrupamento
   if (group_by) {
-    const groupLabel = { day: 'dia', week: 'semana', month: 'mês', desk: 'mesa' }[group_by] || group_by;
-    entries.push({ label: 'Agrupamento', value: groupLabel, origin: 'informado' });
+    entries.push({ label: 'Agrupamento', value: groupByLabel(group_by), origin: 'informado' });
   }
 
   // SLA
@@ -396,6 +398,8 @@ const schema = {
 
 **Receitas:**
 - fechados por mês na mesa X → desk_name + date_type="solved_in_time" + filter_by="closed" + group_by="month"
+- fechados por semana × responsável nos últimos 3 meses na mesa X → desk_name + date_type="solved_in_time" + filter_by="closed" + group_by="week,responsible" + período (UMA chamada, qualquer nº de pessoas)
+- abertos por estágio na mesa X → desk_name + filter_by="open" + group_by="stage"
 - abertos hoje na mesa X → desk_name + date_type="created_at" + filter_by="all" + período
 - cancelados no período → filter_by="canceled" + date_type="solved_in_time" + desk_name (mesmo com período, pergunte a mesa se não vier)
 - tickets de um catálogo → catalog_query="infraestrutura" + desk_name
@@ -434,8 +438,8 @@ const schema = {
       },
       group_by: {
         type: 'string',
-        enum: ['day', 'week', 'month', 'desk'],
-        description: 'Agrupa a CONTAGEM de tickets em vez de listar. "day"/"week"/"month" agrupam por período (combine com date_type + start/end) para comparação/tendência. "desk" agrupa por mesa (ex: "tickets em aberto por mesa", "mesas com SLA em risco"). Retorna um resumo com a quantidade por grupo, não a lista. Períodos sem tickets aparecem com contagem 0 quando start/end são informados (day/month).'
+        enum: GROUP_BY_VALUES,
+        description: 'Agrupa a CONTAGEM de tickets em vez de listar (resumo com a quantidade por grupo, não a lista). "day"/"week"/"month" agrupam por período (combine com date_type + start/end) para comparação/tendência; períodos sem tickets aparecem com contagem 0 quando start/end são informados. "desk" agrupa por mesa (ex: "tickets em aberto por mesa", "mesas com SLA em risco"). "responsible", "stage", "client" e "status" agrupam por responsável, estágio, cliente e status, ordenados da maior contagem para a menor; cada grupo traz o ID para seguir com responsible_ids/stage_ids/client_ids, tickets sem responsável saem como "(sem responsável)" e homônimos ficam em linhas separadas (pelo ID). "stage" e "status" são por mesa: o mesmo nome em mesas diferentes sai em linhas diferentes, com a mesa. "day,responsible", "week,responsible" e "month,responsible" (string exata, sem espaço) cruzam período × responsável numa ÚNICA chamada, para qualquer número de pessoas — não filtre por responsible_ids nem chame uma vez por pessoa; a saída é uma tabela pessoa × período (até 16 períodos) ou, no compact e em janelas maiores, uma linha "Períodos:" com a janela inteira (abreviada com "… +N períodos omitidos da lista" quando há períodos demais) e uma linha por pessoa só com os períodos que têm ticket (período ausente = 0). Um "·" dentro de um nome sai escapado como "\\·". Com muitos grupos, a saída é cortada e a última linha diz quantos grupos e quantos tickets ficaram de fora.'
       },
       sla_expiring_before: {
         type: 'string',
@@ -481,16 +485,18 @@ async function renderEmptyGroupBy({ api, filters, filtersBlock, unitLabel, dtSuf
 
 /**
  * Modo agregado (group_by): API retorna { group_by, date_type, total, buckets } em vez de lista.
+ * Despachante: day/week/month/desk (renderSimpleGroupBy, saida de sempre), dimensao
+ * (responsible/stage/client/status) e periodo × responsavel — os dois ultimos em groupByRender.js.
  * Extraido do execute (complexidade cognitiva); comportamento identico nos 2 modos.
  */
-async function renderGroupByResponse({ api, response, filters, filterEntries, filterWarnings = [], group_by, date_type, start_datetime, end_datetime, filterByAssumed, v }) {
+async function renderGroupByResponse({ api, response, filters, filterEntries, filterWarnings = [], group_by, date_type, start_datetime, end_datetime, filterByAssumed, v, verbosityExplicit }) {
   const payload = response.data || {};
   const buckets = Array.isArray(payload.buckets) ? payload.buckets : [];
   const agg = response.total ?? payload.total ?? buckets.reduce((s, b) => s + (b.count || 0), 0);
-  const isDesk = group_by === 'desk';
-  const unitLabel = { day: 'dia', week: 'semana', month: 'mês', desk: 'mesa' }[group_by] || group_by;
-  const colLabel = isDesk ? 'Mesa' : 'Período';
-  const dtSuffix = isDesk ? '' : ` (data de ${(payload.date_type || date_type) === 'solved_in_time' ? 'fechamento/resolução' : 'criação'})`;
+  const unitLabel = groupByLabel(group_by);
+  const dtSuffix = hasDateAxis(group_by)
+    ? ` (data de ${(payload.date_type || date_type) === 'solved_in_time' ? 'fechamento/resolução' : 'criação'})`
+    : '';
 
   const warningLines = filterWarnings.map(w => `⚠️ ${w}`).join('\n');
   const filtersBlock = [renderAppliedFilters(filterEntries, v), warningLines].filter(Boolean).join('\n');
@@ -499,29 +505,43 @@ async function renderGroupByResponse({ api, response, filters, filterEntries, fi
     return renderEmptyGroupBy({ api, filters, filtersBlock, unitLabel, dtSuffix, filterByAssumed, v });
   }
 
+  const assumption = filterByAssumed
+    ? `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n\n`
+    : '';
+  const common = { buckets, groupBy: group_by, unitLabel, dtSuffix, agg, filtersBlock, assumption, v };
+  const kind = groupByKind(group_by);
+  if (kind === 'dimension') {
+    return textResponse(renderDimension({ ...common, verbosityExplicit }));
+  }
+  if (kind === 'period_responsible') {
+    return textResponse(renderPeriodResponsible({
+      ...common, startDatetime: start_datetime, endDatetime: end_datetime, verbosityExplicit
+    }));
+  }
+  return textResponse(renderSimpleGroupBy({ ...common, start_datetime, end_datetime }));
+}
+
+// day/week/month/desk: uma coluna de rotulo + contagem, na ordem da API.
+function renderSimpleGroupBy({ buckets, groupBy, unitLabel, dtSuffix, agg, filtersBlock, assumption, start_datetime, end_datetime, v }) {
   // Zero-fill temporal buckets quando start/end informados e ao menos 1 bucket.
   // Vale nos 2 modos: bucket ausente e indistinguivel de "nao retornado" e o modelo
   // pode narrar tendencia errada a partir do buraco.
   // Semana sai com as datas (`2026-W33 (10/08–16/08)`): o modelo nao converte sozinho.
-  const displayBuckets = zeroFillTemporalBuckets(buckets, start_datetime, end_datetime, group_by)
-    .map(b => (group_by === 'week' ? { ...b, period: isoWeekRangeLabel(b.period) } : b));
+  const displayBuckets = zeroFillTemporalBuckets(buckets, start_datetime, end_datetime, groupBy)
+    .map(b => (groupBy === 'week' ? { ...b, period: isoWeekRangeLabel(b.period) } : b));
 
   if (v === 'compact') {
     const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
     const line = displayBuckets.map(b => `${b.period}:${b.count}`).join(' · ');
-    return textResponse(`Contagem por ${unitLabel} (total ${agg}): ${line}${filtersLine}`);
+    return `Contagem por ${unitLabel} (total ${agg}): ${line}${filtersLine}`;
   }
 
-  let out = '';
-  if (filterByAssumed) {
-    out += `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n\n`;
-  }
-  out += `**📊 Tickets por ${unitLabel}**${dtSuffix} — total: ${agg}\n\n`;
+  let out = `${assumption}**📊 Tickets por ${unitLabel}**${dtSuffix} — total: ${agg}\n\n`;
   if (filtersBlock) out += `${filtersBlock}\n`;
-  out += `| ${colLabel} | Quantidade |\n|---|---|\n`;
+  out += `| ${groupBy === 'desk' ? 'Mesa' : 'Período'} | Quantidade |\n|---|---|\n`;
   displayBuckets.forEach(b => { out += `| ${b.period} | ${b.count} |\n`; });
   const footerStr = footer(v);
-  return textResponse(footerStr ? `${out}\n${footerStr}` : out);
+  return footerStr ? `${out}\n${footerStr}` : out;
 }
 
 async function execute(args, { api, verbosity, verbosityExplicit }) {
@@ -886,7 +906,7 @@ async function execute(args, { api, verbosity, verbosityExplicit }) {
 
     // Modo agregado: API retorna { group_by, date_type, total, buckets } em vez de lista.
     if (group_by) {
-      return await renderGroupByResponse({ api, response, filters, filterEntries, filterWarnings, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v });
+      return await renderGroupByResponse({ api, response, filters, filterEntries, filterWarnings, group_by, date_type, start_datetime, end_datetime, filterByAssumed, v, verbosityExplicit });
     }
 
     const tickets = response.data || [];
