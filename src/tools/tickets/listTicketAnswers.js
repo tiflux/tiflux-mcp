@@ -8,7 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 const { stripHtml } = require('../_shared/markdown');
 const { footer, pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -73,9 +73,9 @@ function formatAnswersList(ticketNumber, answers, offset, limit, verbosity) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const { ticket_number, offset = 1, limit = 20 } = args;
+  const { offset = 1, limit = 20 } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const response = await api.listTicketAnswers(ticket_number, offset, limit);

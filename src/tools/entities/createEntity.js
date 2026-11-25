@@ -204,7 +204,8 @@ function validationResponse(detail, applied_in) {
 }
 
 function failureResponse(response, applied_in) {
-  const detail = extractApiErrorDetail(response);
+  // 404: o transporte agora expoe `detail` de topo (v2.71.0); aqui o 404 segue no apiFailureResponse (Código/Mensagem).
+  const detail = response.status === 404 ? undefined : extractApiErrorDetail(response);
   if (response.status === 403) return forbiddenResponse(response, detail, applied_in);
   return validationResponse(detail, applied_in) || apiFailureResponse(
     `**❌ Erro ao criar campo personalizado**`,

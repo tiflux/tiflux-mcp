@@ -7,13 +7,14 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber, requirePathIdField } = require('../_shared/validators');
+const { isTicketNotFoundDetail, notFoundDetailText, TICKET_NOT_FOUND_HINT } = require('../_shared/ticketSubresourceErrors');
 const { stripHtml } = require('../_shared/markdown');
 const { footer, dateTime } = require('../_shared/format');
 
 const schema = {
   name: 'get_ticket_answer',
-  description: 'Obter o detalhe completo de uma resposta específica de um ticket, incluindo arquivos anexados',
+  description: 'Obter o detalhe completo de uma resposta específica de um ticket, incluindo os arquivos anexados com o ID de cada um (o file_id de delete_ticket_answer_file).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -31,21 +32,29 @@ const schema = {
 };
 
 async function execute(args, { api, verbosity }) {
-  const { ticket_number, answer_id } = args;
-
-  requireField(args, 'ticket_number');
-  requireField(args, 'answer_id', null, { hint: 'Informe answer_id com o ID da resposta. Para achar o ID, use list_ticket_answers com o ticket_number.' });
+  const ticket_number = requireTicketNumber(args);
+  const answer_id = requirePathIdField(args, 'answer_id', { hint: 'Informe answer_id com o ID da resposta. Para achar o ID, use list_ticket_answers com o ticket_number.' });
 
   try {
     const response = await api.getTicketAnswer(ticket_number, answer_id);
 
     if (response.error) {
       if (response.status === 404) {
+        // H22: o detail do 404 diz se faltou o ticket ou a resposta (ex.: "answer was deleted").
+        if (isTicketNotFoundDetail(response)) {
+          return errorResponse(
+            `**🔍 Ticket #${ticket_number} não encontrado**\n\n` +
+            `**Como resolver:** ${TICKET_NOT_FOUND_HINT}`
+          );
+        }
+        const detail = notFoundDetailText(response);
         return errorResponse(
           `**❌ Resposta não encontrada**\n\n` +
           `**Ticket:** #${ticket_number}\n` +
-          `**Resposta ID:** ${answer_id}\n\n` +
-          `*A resposta informada não existe ou foi removida. Verifique o ID e tente novamente.*`
+          `**Resposta ID:** ${answer_id}\n` +
+          (detail ? `**Detalhes:** ${detail}\n` : '') +
+          `\n*A resposta informada não existe ou foi removida. Verifique o ID e tente novamente.*\n\n` +
+          `**Como resolver:** Use list_ticket_answers com o ticket_number para ver os IDs das respostas.`
         );
       }
       return errorResponse(
@@ -80,7 +89,9 @@ async function execute(args, { api, verbosity }) {
         const fileUrl = file.url && /^https?:\/\//i.test(file.url)
           ? `\n   🔗 [Download](${file.url})`
           : '';
-        filesSection += `\n${idx + 1}. **${fileName}**${fileSize}${fileType}${fileUrl}`;
+        // A4: o ID do anexo e o file_id aceito por delete_ticket_answer_file.
+        const fileId = file.id !== undefined && file.id !== null ? ` (ID: ${file.id})` : '';
+        filesSection += `\n${idx + 1}. **${fileName}**${fileId}${fileSize}${fileType}${fileUrl}`;
       });
     }
 

@@ -17,8 +17,10 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, toolErrorResponse, apiFailureResponse, withValidationResponse } = require('../_shared/errors');
-const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
+const {
+  errorResponse, toolErrorResponse, apiFailureResponse, withValidationResponse, extractApiErrorDetail, apiRejectionTail
+} = require('../_shared/errors');
+const { ValidationError, parseIntStrict, requireTicketNumber } = require('../_shared/validators');
 const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveResponsibleName } = require('../_shared/userResolver');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
@@ -175,7 +177,20 @@ function ticketReadError(ticketNumber, ticketResp, fields) {
 }
 
 /** Mapeia erro da API no PUT para a resposta MCP. */
-function updateFailureResponse({ response, ticketNumber, deskRef, clientId, stopFieldsSent }) {
+function updateFailureResponse({ response, ticketNumber, deskRef, deskId, clientId, stopFieldsSent }) {
+  // 404 cujo detail aponta a mesa (desk_id "Not Found!"): o ticket existe, a mesa de destino nao (H22b).
+  const deskNotFound = response.status === 404 ? extractApiErrorDetail(response)?.desk_id : undefined;
+  if (deskNotFound) {
+    return errorResponse(
+      `**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n` +
+      `**Mesa ${deskId ?? deskRef ?? ''} não encontrada**\n\n` +
+      // Código/Mensagem ficam (contrato de saída): o Prisma traduz a ação que falhou a partir de `Mensagem:`.
+      `**Código:** 404\n**Mensagem:** ${response.error || 'Recurso não encontrado'}\n\n` +
+      `**Detalhes:** desk_id: ${[deskNotFound].flat().join(', ')}\n\n` +
+      `**Como resolver:** Use list_desks (ou desk_name) para achar o ID da mesa de destino e repita a chamada.`
+    );
+  }
+
   const friendlyError = mapTransferError422(response.error, deskRef);
   if (friendlyError) {
     return errorResponse(`**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n${friendlyError}`);
@@ -204,15 +219,14 @@ function updateFailureResponse({ response, ticketNumber, deskRef, clientId, stop
     );
   }
 
-  return apiFailureResponse(
-    `**❌ Erro ao atualizar ticket #${ticketNumber}**`,
-    response,
-    '*Verifique se o ticket existe e se você tem permissão para editá-lo.*',
-    { hints: true }
-  );
+  // 422: o ticket existe e a regra de negocio barrou; a cauda mostra o `detail` (H22b).
+  const tail = response.status === 422
+    ? apiRejectionTail(response, 'O TiFlux recusou a alteração pelos motivos acima.')
+    : '*Verifique se o ticket existe e se você tem permissão para editá-lo.*';
+  return apiFailureResponse(`**❌ Erro ao atualizar ticket #${ticketNumber}**`, response, tail, { hints: true });
 }
 
-/** "#123" (formato que o MCP exibe) → "123". Outros valores passam intactos para a validacao estrita. */
+/** "#123" (formato que o MCP exibe) → "123" em ticket_reference_number. Outros valores passam intactos para a validacao estrita. */
 function stripHash(value) {
   return typeof value === 'string' ? value.trim().replace(/^#/, '') : value;
 }
@@ -224,7 +238,6 @@ function stripHash(value) {
  */
 function normalizeArgs(args) {
   const out = { ...args };
-  if (out.ticket_number !== undefined) out.ticket_number = stripHash(out.ticket_number);
   if (out.ticket_reference_number !== undefined) {
     const ref = stripHash(out.ticket_reference_number);
     out.ticket_reference_number = ref === 'null' ? null : ref;
@@ -255,7 +268,6 @@ function validateStopFields(stopped, stopAnswer) {
 async function execute(rawArgs, { api }) {
   const args = normalizeArgs(rawArgs);
   const {
-    ticket_number,
     title,
     description,
     client_id,
@@ -279,9 +291,9 @@ async function execute(rawArgs, { api }) {
     ticket_reference_number
   } = args;
 
-  requireField(args, 'ticket_number');
-  // ticket_number vai cru ao path do PUT: "1/cancel" ou "../desks/1" mirariam outro endpoint de escrita.
-  parseIntStrict(ticket_number, 'ticket_number');
+  // ticket_number vira path param do PUT: "1/cancel" ou "../desks/1" mirariam outro endpoint de escrita.
+  // requireTicketNumber aceita "#123" e recusa o resto com a dica padrao (list_tickets).
+  const ticket_number = requireTicketNumber(args);
   // Estrito: parseInt('#123') = NaN viraria null no JSON e DESVINCULARIA o ticket pai em silencio.
   if (!isNil(ticket_reference_number)) parseIntStrict(ticket_reference_number, 'ticket_reference_number');
   validateStopFields(stopped, stop_answer);
@@ -478,7 +490,7 @@ async function execute(rawArgs, { api }) {
       const deskRef = (plan.desk && plan.desk.name) || (finalDeskId ? `ID ${finalDeskId}` : null);
       const stopFieldsSent = stopped !== undefined || stop_answer !== undefined || ticket_reference_number !== undefined;
       return updateFailureResponse({
-        response, ticketNumber: ticket_number, deskRef, clientId: client_id, stopFieldsSent
+        response, ticketNumber: ticket_number, deskRef, deskId: updateData.desk_id, clientId: client_id, stopFieldsSent
       });
     }
 

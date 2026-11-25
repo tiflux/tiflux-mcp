@@ -12,7 +12,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { ValidationError, requireField } = require('../_shared/validators');
+const { ValidationError, requireTicketNumber } = require('../_shared/validators');
 const { resolveEntities, formatUpdatedFields, buildEntitiesSchema } = require('../_shared/entityFieldResolver');
 
 const PARTIAL_STATUS = 207;
@@ -103,9 +103,9 @@ function partialUpdateResponse(ticketNumber, sent, detail) {
 }
 
 async function execute(args, { api }) {
-  const { ticket_number, entities } = args;
+  const { entities } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   if (!entities || !Array.isArray(entities) || entities.length === 0) {
     throw new ValidationError('entities é obrigatório e deve ser um array com pelo menos 1 campo', {

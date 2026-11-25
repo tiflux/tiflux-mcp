@@ -8,11 +8,11 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 
 const schema = {
   name: 'reopen_ticket',
-  description: 'Reabrir um ticket fechado ou cancelado. O campo disapproval_reason é obrigatório ao reabrir um ticket pendente de revisão (reabertura por reprovação). Tickets faturados não podem ser reabertos.',
+  description: 'Reabrir um ticket fechado ou cancelado; o ticket volta ao 1º estágio da mesa. O campo disapproval_reason é obrigatório ao reabrir um ticket pendente de revisão (reabertura por reprovação) e, nesse caso, é registrado como resposta pública do ticket. Tickets faturados não podem ser reabertos.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -30,9 +30,9 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, disapproval_reason } = args;
+  const { disapproval_reason } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const response = await api.reopenTicket(ticket_number, disapproval_reason);
@@ -58,7 +58,10 @@ async function execute(args, { api }) {
     return textResponse(
       `**✅ Ticket #${ticket_number} reaberto com sucesso!**\n\n` +
       `**Mensagem:** ${response.data?.message || 'Ticket reaberto'}\n\n` +
-      `*O ticket foi reaberto e está disponível para atendimento novamente.*`
+      `*O ticket foi reaberto e voltou ao 1º estágio da mesa.*` +
+      (disapproval_reason
+        ? `\n\n*Em ticket pendente de revisão, o motivo informado (disapproval_reason) foi registrado como resposta pública do ticket (em ticket já revisado, a API não usa o motivo).*`
+        : '')
     );
   } catch (error) {
     return toolErrorResponse(`Erro ao reabrir ticket #${ticket_number}`, error);

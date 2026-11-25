@@ -137,6 +137,11 @@ const API_ERROR_HINTS = [
     hint: 'A mesa exige item de catálogo: chame search_catalog_item com o desk_id e informe services_catalogs_item_id.'
   },
   {
+    // Texto confirmado no api_rails (locale service_desk/ticket.stage_id.cant_update_to_first_stage).
+    pattern: /Can't update ticket to first stage/i,
+    hint: 'A API não move o ticket para o 1º estágio por update: escolha outro estágio (search_stage) ou transfira o ticket de mesa.'
+  },
+  {
     pattern: /Requestor e-mail can not be blank/i,
     hint: 'A mesa exige solicitante: informe requestor_email (ou requestor_name/requestor_id; use search_requestor).'
   }
@@ -183,8 +188,8 @@ function apiFailureResponse(title, response, tail = '', { hints = false } = {}) 
  * Extrai o `error_code` numerico do erro da API v2 a partir do shape real do
  * transporte.
  *
- * IMPORTANTE: `TiFluxAPI._convertErrorToResponse` NAO expoe o corpo parseado em
- * `response.data` — ele serializa o corpo bruto dentro da **string**
+ * IMPORTANTE: fora do 404, `TiFluxAPI._convertErrorToResponse` NAO expoe o corpo
+ * parseado — ele serializa o corpo bruto dentro da **string**
  * `response.error` (ex: `Erro HTTP 403: {"error_code":40301,...}`). Logo,
  * `response.data?.error_code` e sempre `undefined` em producao. Este helper
  * cobre os dois caminhos: `data.error_code` (se o transporte um dia passar a
@@ -195,6 +200,11 @@ function apiFailureResponse(title, response, tail = '', { hints = false } = {}) 
  */
 function extractApiErrorCode(response) {
   if (!response) return undefined;
+
+  // 404: o transporte expoe o corpo parseado como campo de topo (H22).
+  const top = response.errorCode;
+  if (typeof top === 'number' && Number.isFinite(top)) return top;
+  if (typeof top === 'string' && /^\d+$/.test(top.trim())) return Number(top.trim());
 
   const direct = response.data?.error_code;
   if (typeof direct === 'number' && Number.isFinite(direct)) return direct;
@@ -208,8 +218,8 @@ function extractApiErrorCode(response) {
 /**
  * Extrai o objeto `detail` do erro da API v2 a partir do shape real do transporte.
  *
- * IMPORTANTE: `TiFluxAPI._convertErrorToResponse` NAO expoe o corpo parseado em
- * `response.data` — ele serializa o corpo bruto dentro da **string** `response.error`.
+ * IMPORTANTE: no 404 o transporte expoe `response.detail` (campo de topo, H22); nos
+ * demais status ele serializa o corpo bruto dentro da **string** `response.error`.
  * O prefixo varia por status: em **422** e `Erro de validação: {...}`; nos demais
  * status e `Erro HTTP <status>: {...}` (ver `tiflux-api.js`). Logo,
  * `response.data?.detail` e sempre `undefined` em producao. Este helper e agnostico ao
@@ -221,6 +231,9 @@ function extractApiErrorCode(response) {
  */
 function extractApiErrorDetail(response) {
   if (!response) return undefined;
+
+  // 404: o transporte expoe o `detail` parseado como campo de topo (H22).
+  if (response.detail && typeof response.detail === 'object') return response.detail;
 
   if (response.data?.detail && typeof response.data.detail === 'object') {
     return response.data.detail;
@@ -255,9 +268,25 @@ function formatApiErrorDetail(response) {
   return lines.length ? `**Detalhes:**\n${lines.join('\n')}\n` : '';
 }
 
+/**
+ * Cauda de um 422 de escrita (fechar, cancelar, atualizar ticket): o bloco
+ * `**Detalhes:**` do `detail` da API seguido de uma frase que diz que o TiFlux
+ * recusou a operacao. Substitui a cauda "verifique se o ticket existe", que mente
+ * no 422 (o ticket existe; a regra de negocio e que barrou).
+ *
+ * @param {{error?: string, detail?: object}} response
+ * @param {string} reason - frase final sem Markdown (ex: "O TiFlux recusou o fechamento pelos motivos acima.")
+ * @returns {string}
+ */
+function apiRejectionTail(response, reason) {
+  const detail = formatApiErrorDetail(response);
+  const prefix = detail ? detail + '\n' : '';
+  return prefix + `*${reason}*`;
+}
+
 module.exports = {
   errorResponse, apiErrorResponse, internalErrorResponse, toolErrorResponse, withValidationResponse, apiFailureResponse,
   validationFailure,
   API_ERROR_HINTS, apiErrorHint,
-  extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail
+  extractApiErrorCode, extractApiErrorDetail, formatApiErrorDetail, apiRejectionTail
 };

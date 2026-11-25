@@ -8,7 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireField, requireTicketNumber } = require('../_shared/validators');
 const { footer, pagination, renderWithinBudget, cutCountLabel, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
@@ -131,9 +131,9 @@ async function execute(args, { api, verbosity }) {
   // Sem compact automatico aqui: o bloco de cada evento nao varia com a verbosidade
   // (so rodape e paginacao), entao o aviso "formato compacto aplicado" seria falso.
   // O teto de ~40k (renderWithinBudget) continua valendo.
-  const { ticket_number, offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
+  const { offset = 1, limit = 20, history_of, type_id_attr, operation } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
   requireField(args, 'history_of', null, { hint: 'Informe history_of: 0 para o histórico de estágios ou 1 para o de apontamentos.' });
 
   try {

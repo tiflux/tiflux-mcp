@@ -5,12 +5,17 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { apiFailureResponse, apiRejectionTail, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireTicketNumber } = require('../_shared/validators');
 
 const schema = {
   name: 'close_ticket',
-  description: 'Fechar um ticket específico no TiFlux',
+  description:
+    'Fechar um ticket específico no TiFlux. Pré-condições da API (a mesa decide quais valem): ' +
+    'ao menos um apontamento (a mais comum; registre com create_appointment); o ticket não pode estar no estágio inicial; ' +
+    'pode exigir responsável, item de catálogo e campos/checklist obrigatórios preenchidos (confira com get_ticket_checklists); ' +
+    'e ao menos uma resposta de atendente (create_ticket_answer; resposta registrada como cliente não conta). ' +
+    'Se a API recusar (422), o erro traz os motivos em "Detalhes".',
   inputSchema: {
     type: 'object',
     properties: {
@@ -21,20 +26,17 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number } = args;
-
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const response = await api.closeTicket(ticket_number);
 
     if (response.error) {
-      return errorResponse(
-        `**❌ Erro ao fechar ticket #${ticket_number}**\n\n` +
-        `**Código:** ${response.status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique se o ticket existe e se você tem permissão para fechá-lo.*`
-      );
+      // 422: o ticket existe e uma pre-condicao barrou; a cauda mostra o `detail` (H26).
+      const tail = response.status === 422
+        ? apiRejectionTail(response, 'O TiFlux recusou o fechamento pelos motivos acima.')
+        : '*Verifique se o ticket existe e se você tem permissão para fechá-lo.*';
+      return apiFailureResponse(`**❌ Erro ao fechar ticket #${ticket_number}**`, response, tail);
     }
 
     return textResponse(

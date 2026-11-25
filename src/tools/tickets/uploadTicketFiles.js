@@ -8,7 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireField, requireTicketNumber } = require('../_shared/validators');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
 
@@ -30,9 +30,9 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, files_base64 = [] } = args;
+  const { files_base64 = [] } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
   requireField(args, 'files_base64', null, { hint: 'Informe files_base64 como lista de { content, filename }, com content em base64.' });
 
   try {

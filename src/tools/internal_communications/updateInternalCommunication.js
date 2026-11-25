@@ -8,7 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireField, requireTicketNumber, requirePathIdField } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { stripHtml } = require('../_shared/markdown');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
@@ -31,10 +31,10 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, communication_id, text } = args;
+  const { text } = args;
 
-  requireField(args, 'ticket_number');
-  requireField(args, 'communication_id', null, { hint: 'Informe communication_id com o ID da comunicação interna. Para achar o ID, use list_internal_communications com o ticket_number.' });
+  const ticket_number = requireTicketNumber(args);
+  const communication_id = requirePathIdField(args, 'communication_id', { hint: 'Informe communication_id com o ID da comunicação interna. Para achar o ID, use list_internal_communications com o ticket_number.' });
   requireField(args, 'text', null, { hint: 'Informe em text o novo conteúdo da comunicação interna (aceita Markdown).' });
 
   try {

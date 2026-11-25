@@ -14,11 +14,15 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField, requireIntField } = require('../_shared/validators');
+const { requireIntField, requireTicketNumber } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 const { _formatField } = require('./getTicketChecklists');
 
 const RESOURCE_LABEL = 'checklist item';
+/** Onde achar checklist_id e index (A3): usado na validacao local e no 404 de checklist/indice. */
+const CHECKLIST_LOCATION_HINT =
+  'Use get_ticket_checklists com o ticket_number: o ID do checklist está entre parênteses no cabeçalho; ' +
+  'index é a posição do campo, começando em 0.';
 
 const schema = {
   name: 'update_ticket_checklist_item',
@@ -27,7 +31,8 @@ const schema = {
     'Use `get_ticket_checklists` antes para obter `checklist_id`, `index` e os ids das opções. ' +
     'Payload mutuamente exclusivo: `value` (text/textarea/value/radio, ou `null` para limpar) ' +
     'XOR `options` (checkbox — array de `{ id, checked }`). ' +
-    'Checklists sem `id` (não originados de modelo) e tickets fechados não podem ser atualizados.',
+    'Checklists sem `id` (não originados de modelo) e tickets fechados não podem ser atualizados. ' +
+    'Checklist ou índice inexistente volta com o detalhe da API (ex.: "field index 999 does not exist").',
   inputSchema: {
     type: 'object',
     properties: {
@@ -152,14 +157,12 @@ function formatUpdatedChecklist(ticketNumber, index, checklist) {
 }
 
 async function execute(args, { api }) {
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
   // checklist_id e index viram path params interpolados na URL (PUT /tickets/{n}/checklists/{id}/items/{index}):
   // validacao ESTRITA (requireIntField) para write op nunca mandar valor corrompido a API.
   // `index: 0` e legitimo — requireField trata 0 como presente e parseIntStrict aceita >= 0.
-  const checklist_id = requireIntField(args, 'checklist_id');
-  const index = requireIntField(args, 'index');
-
-  const { ticket_number } = args;
+  const checklist_id = requireIntField(args, 'checklist_id', null, { hint: CHECKLIST_LOCATION_HINT });
+  const index = requireIntField(args, 'index', null, { hint: CHECKLIST_LOCATION_HINT });
 
   // Validação do payload (value XOR options)
   const validationError = validatePayload(args);
@@ -180,6 +183,8 @@ async function execute(args, { api }) {
       return ticketSubresourceErrorResponse(response, ticket_number, {
         resourceLabel: RESOURCE_LABEL,
         action: 'atualizar',
+        // H36: 404 de checklist/indice inexistente mostra o detail ("field index 999 does not exist").
+        notFoundHint: CHECKLIST_LOCATION_HINT,
         validationHint:
           '*O atributo enviado é incompatível com o tipo do campo — ex: `value` não é aceito em campos `checkbox` ' +
           '(use `options`) e `options` não é aceito em campos de texto/radio (use `value`). ' +

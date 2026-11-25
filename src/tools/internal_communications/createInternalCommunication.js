@@ -14,7 +14,7 @@
 
 const { textResponse, createdRef } = require('../_shared/response');
 const { errorResponse, toolErrorResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireField, requireTicketNumber, normalizeTicketNumber } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB } = require('../_shared/fileValidation');
 const { dateTime } = require('../_shared/format');
@@ -46,7 +46,7 @@ const schema = {
 
 
 async function execute(args, { api }) {
-  const { ticket_number, text, files_base64 = [] } = args;
+  const { text, files_base64 = [] } = args;
 
   try {
     // Dentro do try: input invalido volta como "Problema / Como resolver" (toolErrorResponse),
@@ -54,6 +54,8 @@ async function execute(args, { api }) {
     requireField(args, 'ticket_number', null, {
       hint: 'Informe ticket_number com o número do ticket (ex: "12345"). Para achar o número, use list_tickets.'
     });
+    // Valor malformado ("1/x", "1?a=b") vira path param na URL: normaliza (aceita "#123") ou recusa local.
+    const ticket_number = requireTicketNumber(args);
     requireField(args, 'text', null, {
       hint: 'Informe em text o conteúdo da comunicação interna (aceita Markdown).'
     });
@@ -107,7 +109,8 @@ async function execute(args, { api }) {
       `*✅ Comunicação interna adicionada via API TiFlux*`
     );
   } catch (error) {
-    const where = ticket_number ? ` no ticket #${ticket_number}` : '';
+    const validNumber = normalizeTicketNumber(args.ticket_number);
+    const where = validNumber ? ` no ticket #${validNumber}` : '';
     return toolErrorResponse(`Erro ao criar comunicação interna${where}`, error);
   }
 }

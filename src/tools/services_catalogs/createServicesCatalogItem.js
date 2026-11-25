@@ -129,7 +129,8 @@ async function execute(args, { api }) {
     );
 
     if (response.error) {
-      const detail = extractApiErrorDetail(response);
+      // 404: o transporte agora expoe `detail` de topo (v2.71.0); aqui o 404 segue no apiFailureResponse (Código/Mensagem).
+      const detail = response.status === 404 ? undefined : extractApiErrorDetail(response);
       if (detail) {
         const fields = Object.entries(detail)
           .map(([field, msgs]) => `**\`${field}\`:** ${[msgs].flat().join(', ')}`)

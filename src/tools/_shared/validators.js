@@ -91,7 +91,8 @@ function parseIntStrict(value, field, { hint } = {}) {
   if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
     return Number.parseInt(value.trim(), 10);
   }
-  throw new ValidationError(`${field} deve ser um número inteiro válido`, { hint });
+  // Sem hint explicito, usa a dica padrao do campo (A1): o agente recebe "Como resolver" tambem no malformado.
+  throw new ValidationError(`${field} deve ser um número inteiro válido`, { hint: hint || REQUIRED_FIELD_HINTS[field] });
 }
 
 /** requireField + parseIntStrict num passo só (campo obrigatório e numérico). */
@@ -109,7 +110,7 @@ function requireIntField(args, field, message = null, { hint } = {}) {
  * @returns {string|null}
  */
 function normalizeTicketNumber(value) {
-  if (typeof value === 'number') return Number.isInteger(value) && value > 0 ? String(value) : null;
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
   if (typeof value !== 'string') return null;
   const cleaned = value.trim().replace(/^#/, '');
   return /^\d+$/.test(cleaned) ? cleaned : null;
@@ -125,6 +126,26 @@ function requireTicketNumber(args, field = 'ticket_number') {
   const normalized = normalizeTicketNumber(args[field]);
   if (!normalized) {
     throw new ValidationError(`${field} deve ser só o número do ticket (ex: "12345" ou "#12345")`, { hint: REQUIRED_FIELD_HINTS.ticket_number });
+  }
+  return normalized;
+}
+
+/**
+ * ID de sub-recurso que vira path param na URL (communication_id, answer_id,
+ * file_id...): requireField + inteiro positivo estrito. Aceita number inteiro >= 1
+ * ou string só-dígitos (bordas aparadas); qualquer outra coisa ("..", "abc",
+ * "1/../2", "0") lança ValidationError com a dica do campo, sem chamar a API —
+ * `encodeURIComponent` não neutraliza ".." (PUT /tickets/{n}/internal_communications/..
+ * resolveria para PUT /tickets/{n}/). Devolve a string só-dígitos.
+ */
+function requirePathIdField(args, field, { hint } = {}) {
+  requireField(args, field, null, { hint });
+  const value = args[field];
+  let normalized = null;
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) normalized = String(value);
+  if (typeof value === 'string' && /^\d+$/.test(value.trim()) && Number(value.trim()) > 0) normalized = value.trim();
+  if (!normalized) {
+    throw new ValidationError(`${field} deve ser um número inteiro positivo (ex: "123")`, { hint: hint || REQUIRED_FIELD_HINTS[field] });
   }
   return normalized;
 }
@@ -145,4 +166,4 @@ function isRealDate(y, m, d) {
   return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
 }
 
-module.exports = { REQUIRED_FIELD_HINTS, ID_PARAM_HINTS, ISO_DATE_PATTERN, isRealDate, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber, requireTicketNumber };
+module.exports = { REQUIRED_FIELD_HINTS, ID_PARAM_HINTS, ISO_DATE_PATTERN, isRealDate, ValidationError, isValidationError, requireField, parseIntStrict, requireIntField, normalizeTicketNumber, requireTicketNumber, requirePathIdField };

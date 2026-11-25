@@ -11,7 +11,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField, parseIntStrict } = require('../_shared/validators');
+const { parseIntStrict, requireTicketNumber } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 
 const RESOURCE_LABEL = 'deslocamentos';
@@ -38,9 +38,9 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, contract_id } = args || {};
+  const { contract_id } = args || {};
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   // `contract_id` e opcional; quando presente, e validado localmente ANTES de
   // virar query param — falha clara e imediata em vez de round-trip ate o 422

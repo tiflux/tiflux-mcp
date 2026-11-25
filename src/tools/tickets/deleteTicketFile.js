@@ -7,7 +7,8 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber, requirePathIdField } = require('../_shared/validators');
+const { isTicketNotFoundDetail, notFoundDetailText, TICKET_NOT_FOUND_HINT } = require('../_shared/ticketSubresourceErrors');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
 
 const schema = {
@@ -24,10 +25,8 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, file_id } = args;
-
-  requireField(args, 'ticket_number');
-  requireField(args, 'file_id', null, { hint: 'Informe file_id com o ID do arquivo. Para achar o ID, use get_ticket_files com o ticket_number.' });
+  const ticket_number = requireTicketNumber(args);
+  const file_id = requirePathIdField(args, 'file_id', { hint: 'Informe file_id com o ID do arquivo. Para achar o ID, use get_ticket_files com o ticket_number.' });
 
   try {
     const response = await api.deleteTicketFile(ticket_number, file_id);
@@ -45,6 +44,13 @@ async function execute(args, { api }) {
         }
       };
       const status = response.status;
+      // H22: no 404, o detail diz se faltou o ticket ou o arquivo.
+      const ticketMissing = status === 404 && isTicketNotFoundDetail(response);
+      if (ticketMissing) {
+        byStatus[404] = { title: `**❌ Ticket #${ticket_number} não encontrado**`, tail: `**Como resolver:** ${TICKET_NOT_FOUND_HINT}` };
+      }
+      // Ticket inexistente: o titulo ja diz tudo; o detail cru da API nao e repassado.
+      const detail = status === 404 && !ticketMissing ? notFoundDetailText(response) : null;
       const variant = byStatus[status] || {
         title: `**❌ Erro ao remover arquivo do ticket #${ticket_number}**`,
         tail: '*Verifique se o ticket e o arquivo existem e se você tem permissão.*'
@@ -55,6 +61,7 @@ async function execute(args, { api }) {
         `**Arquivo ID:** ${file_id}\n` +
         `**Código:** ${status}\n` +
         mensagem +
+        (detail ? `**Detalhes:** ${detail}\n` : '') +
         `\n${variant.tail}`
       );
     }

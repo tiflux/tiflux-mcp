@@ -10,7 +10,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField, normalizeTicketNumber } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 const { formatFileSize } = require('../_shared/markdown');
 const { footer, pagination, renderWithinBudget, cutCountLabel } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -60,14 +60,7 @@ function formatFilesList(ticketNumber, files, verbosity, { offset = 1, limit = D
 }
 
 async function execute(args, { api, verbosity }) {
-  requireField(args, 'ticket_number');
-  const ticket_number = normalizeTicketNumber(args.ticket_number);
-  if (!ticket_number) {
-    return errorResponse(
-      `**❌ Número de ticket inválido: "${args.ticket_number}"**\n\n` +
-      `*Informe só o número do ticket (ex: "123" ou "#123").*`
-    );
-  }
+  const ticket_number = requireTicketNumber(args);
 
   const offset = Math.max(1, Number.parseInt(args.offset, 10) || 1);
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number.parseInt(args.limit, 10) || DEFAULT_LIMIT));

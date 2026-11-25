@@ -11,7 +11,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 const { pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
@@ -199,9 +199,9 @@ function formatChecklistsList(ticketNumber, checklists, offset, limit, total, ve
 }
 
 async function execute(args, { api, verbosity }) {
-  const { ticket_number, offset = 1, limit = 20 } = args || {};
+  const { offset = 1, limit = 20 } = args || {};
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const response = await api.fetchTicketChecklists(ticket_number, { offset, limit });

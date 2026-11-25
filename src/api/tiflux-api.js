@@ -187,7 +187,7 @@ class TiFluxAPI {
       });
 
       if (status === 401) return { error: 'Token de API inválido ou expirado', status };
-      if (status === 404) return { error: 'Recurso não encontrado', status };
+      if (status === 404) return { error: 'Recurso não encontrado', status, ...this._extractErrorFields(rawBody) };
       if (status === 415) return { error: 'Tipo de mídia não suportado (verifique arquivos anexados)', status };
       if (status === 422) return { error: `Erro de validação: ${rawBody}`, status };
       return { error: `Erro HTTP ${status}: ${rawBody}`, status };
@@ -197,6 +197,27 @@ class TiFluxAPI {
       endpoint, method, error: error?.message, stack: error?.stack
     });
     return { error: `Erro interno: ${error?.message || 'desconhecido'}`, status: 'INTERNAL_ERROR' };
+  }
+
+  /**
+   * `errorCode`/`detail` do corpo JSON de erro da API v2 (ex.: 404
+   * `{ error_code: 40402, detail: { desk_id: ['Not Found!'] } }`), como campos de
+   * topo da resposta de erro (H22). So entram as chaves presentes; corpo vazio ou
+   * nao-JSON → `{}` (a resposta fica identica a de antes).
+   */
+  _extractErrorFields(rawBody) {
+    if (!rawBody || typeof rawBody !== 'string') return {};
+    let parsed;
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch {
+      return {};
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const fields = {};
+    if (parsed.error_code !== undefined && parsed.error_code !== null) fields.errorCode = parsed.error_code;
+    if (parsed.detail && typeof parsed.detail === 'object') fields.detail = parsed.detail;
+    return fields;
   }
 
   _extractErrorBody(apiError) {
@@ -262,7 +283,7 @@ class TiFluxAPI {
     if (options.include_filled_entity) queryParams.push('include_filled_entity=true');
 
     const queryString = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
-    return await this.makeRequest(`/tickets/${ticketId}${queryString}`);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketId)}${queryString}`);
   }
 
   /**
@@ -354,7 +375,7 @@ class TiFluxAPI {
       'Content-Length': Buffer.byteLength(jsonData)
     };
 
-    return await this.makeRequest(`/tickets/${ticketId}`, 'PUT', jsonData, headers);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketId)}`, 'PUT', jsonData, headers);
   }
 
   /**
@@ -367,7 +388,7 @@ class TiFluxAPI {
       'Content-Length': Buffer.byteLength(jsonData)
     };
 
-    return await this.makeRequest(`/tickets/${ticketNumber}/entities`, 'PUT', jsonData, headers);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/entities`, 'PUT', jsonData, headers);
   }
 
   /**
@@ -390,7 +411,7 @@ class TiFluxAPI {
     };
 
     return await this.makeRequest(
-      `/tickets/${ticketNumber}/checklists/${checklistId}/items/${index}`,
+      `/tickets/${encodeURIComponent(ticketNumber)}/checklists/${encodeURIComponent(checklistId)}/items/${encodeURIComponent(index)}`,
       'PUT',
       jsonData,
       headers
@@ -401,14 +422,14 @@ class TiFluxAPI {
    * Cancela um ticket específico
    */
   async cancelTicket(ticketNumber) {
-    return await this.makeRequest(`/tickets/${ticketNumber}/cancel`, 'PUT');
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/cancel`, 'PUT');
   }
 
   /**
    * Fecha um ticket específico
    */
   async closeTicket(ticketNumber) {
-    return await this.makeRequest(`/tickets/${ticketNumber}/close`, 'PUT');
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/close`, 'PUT');
   }
 
   /**
@@ -430,7 +451,7 @@ class TiFluxAPI {
       });
 
       return await this.makeRequestBinary(
-        `/tickets/${ticketNumber}/answers`,
+        `/tickets/${encodeURIComponent(ticketNumber)}/answers`,
         'POST',
         buffer,
         headers
@@ -1006,7 +1027,7 @@ class TiFluxAPI {
     });
 
     return await this.makeRequestBinary(
-      `/tickets/${ticketNumber}/internal_communications`,
+      `/tickets/${encodeURIComponent(ticketNumber)}/internal_communications`,
       'POST',
       buffer,
       headers
@@ -1027,7 +1048,7 @@ class TiFluxAPI {
     });
 
     return await this.makeRequestBinary(
-      `/tickets/${ticketNumber}/internal_communications`,
+      `/tickets/${encodeURIComponent(ticketNumber)}/internal_communications`,
       'POST',
       buffer,
       headers
@@ -1185,14 +1206,14 @@ class TiFluxAPI {
     params.append('offset', validOffset);
     params.append('limit', validLimit);
 
-    return await this.makeRequest(`/tickets/${ticketNumber}/internal_communications?${params.toString()}`);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/internal_communications?${params.toString()}`);
   }
 
   /**
    * Busca uma comunicacao interna especifica de um ticket
    */
   async getInternalCommunication(ticketNumber, communicationId) {
-    return await this.makeRequest(`/tickets/${ticketNumber}/internal_communications/${communicationId}`);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/internal_communications/${encodeURIComponent(communicationId)}`);
   }
 
   /**
@@ -1217,7 +1238,7 @@ class TiFluxAPI {
       'Content-Length': Buffer.byteLength(jsonData)
     };
 
-    return await this.makeRequest(`/tickets/${ticketNumber}/appointments`, 'POST', jsonData, headers);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/appointments`, 'POST', jsonData, headers);
   }
 
   /**
@@ -1236,7 +1257,7 @@ class TiFluxAPI {
     if (filters.start_date) params.append('start_date', filters.start_date);
     if (filters.end_date) params.append('end_date', filters.end_date);
 
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/appointments?${params.toString()}`);
+    const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/appointments?${params.toString()}`);
     return this._attachTotalItems(response);
   }
 
@@ -1251,7 +1272,7 @@ class TiFluxAPI {
     const limit = Math.min(200, Math.max(1, parseInt(filters.limit) || 20));
     params.append('offset', offset);
     params.append('limit', limit);
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/pre-appointments?${params.toString()}`);
+    const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/pre-appointments?${params.toString()}`);
     return this._attachTotalItems(response);
   }
 
@@ -1270,7 +1291,7 @@ class TiFluxAPI {
     params.append('offset', offset);
     params.append('limit', limit);
 
-    return await this.makeRequest(`/tickets/${ticketNumber}/stages-slas?${params.toString()}`);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/stages-slas?${params.toString()}`);
   }
 
   /**
@@ -1286,7 +1307,7 @@ class TiFluxAPI {
 
     const query = params.toString();
     const suffix = query ? `?${query}` : '';
-    return await this.makeRequest(`/tickets/${ticketNumber}/service-types${suffix}`);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/service-types${suffix}`);
   }
 
   /**
@@ -1302,7 +1323,7 @@ class TiFluxAPI {
 
     const query = params.toString();
     const suffix = query ? `?${query}` : '';
-    return await this.makeRequest(`/tickets/${ticketNumber}/shifts${suffix}`);
+    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/shifts${suffix}`);
   }
 
   /**
@@ -1317,7 +1338,7 @@ class TiFluxAPI {
    * @param {object} filters - { offset, limit }
    */
   async fetchTicketChecklists(ticketNumber, filters = {}) {
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/checklists?${this._pageQuery(filters)}`);
+    const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/checklists?${this._pageQuery(filters)}`);
     return this._attachTotalItems(response);
   }
 
@@ -1332,7 +1353,7 @@ class TiFluxAPI {
    * @param {object} filters - { offset, limit }
    */
   async fetchTicketExtraValues(ticketNumber, filters = {}) {
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/extra-values?${this._pageQuery(filters)}`);
+    const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/extra-values?${this._pageQuery(filters)}`);
     return this._attachTotalItems(response);
   }
 
@@ -1346,7 +1367,7 @@ class TiFluxAPI {
    * @param {object} filters - { offset, limit }
    */
   async fetchTicketInternalCosts(ticketNumber, filters = {}) {
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/internal-costs?${this._pageQuery(filters)}`);
+    const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/internal-costs?${this._pageQuery(filters)}`);
     return this._attachTotalItems(response);
   }
 
@@ -1361,7 +1382,7 @@ class TiFluxAPI {
    * @param {object} filters - { offset, limit }
    */
   async fetchTicketShiftEntries(ticketNumber, filters = {}) {
-    const response = await this.makeRequest(`/tickets/${ticketNumber}/shift-entries?${this._pageQuery(filters)}`);
+    const response = await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/shift-entries?${this._pageQuery(filters)}`);
     return this._attachTotalItems(response);
   }
 

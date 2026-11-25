@@ -9,7 +9,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
 
 const RESOURCE_LABEL = 'tipos de atendimento';
@@ -28,9 +28,9 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, date } = args || {};
+  const { date } = args || {};
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const filters = {};

@@ -8,7 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireField, requireTicketNumber } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const { validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_40MB } = require('../_shared/fileValidation');
 
@@ -33,9 +33,9 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, text, with_signature, files_base64 = [] } = args;
+  const { text, with_signature, files_base64 = [] } = args;
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
   requireField(args, 'text', null, { hint: 'Informe em text o conteúdo da resposta (aceita Markdown).' });
 
   try {

@@ -5,12 +5,14 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { apiFailureResponse, apiRejectionTail, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
+const { requireTicketNumber } = require('../_shared/validators');
 
 const schema = {
   name: 'cancel_ticket',
-  description: 'Cancelar um ticket específico no TiFlux',
+  description:
+    'Cancelar um ticket específico no TiFlux. Ticket com apontamento não pode ser cancelado (a API responde 422 "Already has appointments!"); ' +
+    'ticket já cancelado também dá 422. Um ticket cancelado pode ser reaberto com reopen_ticket.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -21,26 +23,23 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number } = args;
-
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const response = await api.cancelTicket(ticket_number);
 
     if (response.error) {
-      return errorResponse(
-        `**❌ Erro ao cancelar ticket #${ticket_number}**\n\n` +
-        `**Código:** ${response.status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique se o ticket existe e se você tem permissão para cancelá-lo.*`
-      );
+      // 422: o ticket existe e a regra barrou (ex.: "Already has appointments!"); a cauda mostra o `detail` (H54).
+      const tail = response.status === 422
+        ? apiRejectionTail(response, 'O TiFlux recusou o cancelamento pelos motivos acima.')
+        : '*Verifique se o ticket existe e se você tem permissão para cancelá-lo.*';
+      return apiFailureResponse(`**❌ Erro ao cancelar ticket #${ticket_number}**`, response, tail);
     }
 
     return textResponse(
       `**✅ Ticket #${ticket_number} cancelado com sucesso!**\n\n` +
       `**Mensagem:** ${response.data?.message || response.message || 'Ticket cancelado'}\n\n` +
-      `*O ticket foi cancelado e não pode mais receber atualizações.*`
+      `*O ticket foi cancelado. Se precisar, ele pode ser reaberto com reopen_ticket.*`
     );
   } catch (error) {
     return toolErrorResponse(`Erro ao cancelar ticket #${ticket_number}`, error);

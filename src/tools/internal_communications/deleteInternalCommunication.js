@@ -7,7 +7,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber, requirePathIdField } = require('../_shared/validators');
 const { ticketNumberSchemaProperty } = require('../_shared/schemaProps');
 
 const schema = {
@@ -24,10 +24,8 @@ const schema = {
 };
 
 async function execute(args, { api }) {
-  const { ticket_number, communication_id } = args;
-
-  requireField(args, 'ticket_number');
-  requireField(args, 'communication_id', null, { hint: 'Informe communication_id com o ID da comunicação interna. Para achar o ID, use list_internal_communications com o ticket_number.' });
+  const ticket_number = requireTicketNumber(args);
+  const communication_id = requirePathIdField(args, 'communication_id', { hint: 'Informe communication_id com o ID da comunicação interna. Para achar o ID, use list_internal_communications com o ticket_number.' });
 
   try {
     const response = await api.deleteInternalCommunication(ticket_number, communication_id);

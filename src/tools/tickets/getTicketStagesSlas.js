@@ -8,7 +8,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 const { footer, pagination, dateTime, durationMin, row } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 const { ticketSubresourceErrorResponse } = require('../_shared/ticketSubresourceErrors');
@@ -29,10 +29,10 @@ const schema = {
 };
 
 async function execute(args, { api, verbosity }) {
-  const { ticket_number, offset, limit } = args || {};
+  const { offset, limit } = args || {};
   const v = verbosity || 'rich';
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const filters = {};

@@ -14,7 +14,7 @@
 
 const { textResponse } = require('../_shared/response');
 const { errorResponse, apiFailureResponse, formatApiErrorDetail, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { ValidationError, requireField, parseIntStrict } = require('../_shared/validators');
+const { ValidationError, requireField, normalizeTicketNumber } = require('../_shared/validators');
 const { markdownToHtml } = require('../_shared/markdownToHtml');
 const {
   validateBase64Files, filesBase64SchemaProperty, tooManyFilesError, MAX_BASE64_BYTES_25MB
@@ -110,15 +110,11 @@ function formatAnswer(ticketNumber, answer, files) {
 
 function parseTicketNumber(value) {
   const message = 'ticket_number deve ser um número inteiro positivo (ex: 12345)';
-  const hint = 'Informe o número do ticket só com dígitos, sem # nem caminho. Para achar o número, use list_tickets.';
-  let parsed;
-  try {
-    parsed = parseIntStrict(value, 'ticket_number');
-  } catch {
-    throw new ValidationError(message, { hint });
-  }
-  if (parsed <= 0) throw new ValidationError(message, { hint });
-  return parsed;
+  const hint = 'Informe o número do ticket só com dígitos (o # inicial é aceito), sem caminho. Para achar o número, use list_tickets.';
+  // `#123` aceito como nas demais tools de ticket (normalizeTicketNumber); devolve number.
+  const normalized = normalizeTicketNumber(value);
+  if (!normalized || Number(normalized) <= 0) throw new ValidationError(message, { hint });
+  return Number(normalized);
 }
 
 async function execute(args, { api }) {

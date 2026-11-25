@@ -9,8 +9,9 @@
  */
 
 const { textResponse } = require('../_shared/response');
-const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
-const { requireField } = require('../_shared/validators');
+const { errorResponse, toolErrorResponse, apiFailureResponse, withValidationResponse } = require('../_shared/errors');
+const { TICKET_NOT_FOUND_HINT } = require('../_shared/ticketSubresourceErrors');
+const { requireTicketNumber } = require('../_shared/validators');
 const { footer, truncate, dateTime } = require('../_shared/format');
 const { formatEntityField } = require('../_shared/entityFields');
 
@@ -522,10 +523,10 @@ function formatTicket(ticketNumber, ticket, v) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const { ticket_number, show_entities, include_filled_entity } = args;
+  const { show_entities, include_filled_entity } = args;
   const v = verbosity || 'rich';
 
-  requireField(args, 'ticket_number');
+  const ticket_number = requireTicketNumber(args);
 
   try {
     const options = {};
@@ -535,11 +536,17 @@ async function execute(args, { api, verbosity }) {
     const response = await api.fetchTicket(ticket_number, options);
 
     if (response.error) {
-      return errorResponse(
-        `**❌ Erro ao buscar ticket #${ticket_number}**\n\n` +
-        `**Código:** ${response.status}\n` +
-        `**Mensagem:** ${response.error}\n\n` +
-        `*Verifique se o ticket existe e se você tem permissão para acessá-lo.*`
+      if (response.status === 404) {
+        return errorResponse(
+          `**🔍 Ticket #${ticket_number} não encontrado**\n\n` +
+          `*O número não existe nesta organização (ou o ticket foi removido).*\n\n` +
+          `**Como resolver:** ${TICKET_NOT_FOUND_HINT}`
+        );
+      }
+      return apiFailureResponse(
+        `**❌ Erro ao buscar ticket #${ticket_number}**`,
+        response,
+        '*Verifique se o ticket existe e se você tem permissão para acessá-lo.*'
       );
     }
 
