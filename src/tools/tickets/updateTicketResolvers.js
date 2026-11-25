@@ -11,8 +11,30 @@
 const { errorResponse } = require('../_shared/errors');
 const { fuzzyMatchItems, normalizeText, matchByName } = require('../_shared/fuzzyMatch');
 
-async function fetchStages(api, deskId) {
+/**
+ * 404 da busca de estagios = a mesa nao existe (H22c). Mesmo formato do 404 de mesa
+ * no PUT (H22b): Código/Mensagem ficam (contrato de saida: o Prisma le `Mensagem:`).
+ */
+function deskNotFoundResponse(deskId, response, ticketNumber, isTransfer = true) {
+  const title = ticketNumber ? `**❌ Erro ao atualizar ticket #${ticketNumber}**\n\n` : '';
+  // Sem transferencia, a mesa consultada e a ATUAL do ticket (stage_name resolvido nela):
+  // orientar a "mesa de destino" mandaria o agente trocar de mesa sem que ele pediu isso.
+  const label = isTransfer ? `Mesa ${deskId} não encontrada` : `Mesa ${deskId} (mesa atual do ticket) não encontrada`;
+  const hint = isTransfer
+    ? 'Use list_desks (ou desk_name) para achar o ID da mesa de destino e repita a chamada.'
+    : 'O stage_name é resolvido na mesa atual do ticket, que não foi encontrada. Use stage_id diretamente (search_stage lista os estágios de uma mesa) ou confira a mesa do ticket com get_ticket.';
+  return errorResponse(
+    `${title}**${label}**\n\n` +
+    `**Código:** 404\n**Mensagem:** ${response.error || 'Recurso não encontrado'}\n\n` +
+    `**Como resolver:** ${hint}`
+  );
+}
+
+async function fetchStages(api, deskId, { ticketNumber, isTransfer = true } = {}) {
   const stagesResponse = await api.searchStages(Number.parseInt(deskId, 10), { limit: 200 });
+  if (stagesResponse.error && stagesResponse.status === 404) {
+    return { error: deskNotFoundResponse(deskId, stagesResponse, ticketNumber, isTransfer) };
+  }
   if (stagesResponse.error) {
     return {
       error: errorResponse(
@@ -26,8 +48,8 @@ async function fetchStages(api, deskId) {
 }
 
 /** stage_name → { stageId, stageName } na mesa `deskId`. */
-async function resolveStageByName(api, deskId, stageName) {
-  const fetched = await fetchStages(api, deskId);
+async function resolveStageByName(api, deskId, stageName, opts = {}) {
+  const fetched = await fetchStages(api, deskId, opts);
   if (fetched.error) return fetched;
 
   const matching = matchByName(fetched.stages, stageName, s => s.name);
@@ -59,8 +81,8 @@ async function resolveStageByName(api, deskId, stageName) {
 }
 
 /** 1o estagio da mesa-destino (transferencia sem stage_id/stage_name). */
-async function resolveFirstStage(api, deskId) {
-  const fetched = await fetchStages(api, deskId);
+async function resolveFirstStage(api, deskId, opts = {}) {
+  const fetched = await fetchStages(api, deskId, opts);
   if (fetched.error) return fetched;
 
   const { stages } = fetched;

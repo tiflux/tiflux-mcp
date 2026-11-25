@@ -144,6 +144,53 @@ const API_ERROR_HINTS = [
   {
     pattern: /Requestor e-mail can not be blank/i,
     hint: 'A mesa exige solicitante: informe requestor_email (ou requestor_name/requestor_id; use search_requestor).'
+  },
+  // A5 — fechamento/cancelamento/abertura. Textos confirmados no api_rails (locales
+  // en.yml de service_desk/ticket e ticket.rb). A generica "Can not be blank" NAO
+  // entra: o campo ja aparece em `Detalhes:` e a dica afirmaria um campo errado.
+  {
+    pattern: /at least one appointment to close this ticket/i,
+    hint: 'A mesa exige apontamento para fechar: lance um apontamento com create_appointment e feche de novo.'
+  },
+  {
+    pattern: /at least one ticket answer to (close|cancel) this ticket/i,
+    hint: 'A mesa exige uma resposta de atendente: registre-a com create_ticket_answer (resposta registrada como cliente não conta) e tente de novo.'
+  },
+  {
+    pattern: /Can't close ticket in first stage/i,
+    hint: 'O ticket está no 1º estágio: mova-o para outro estágio com update_ticket (stage_name) antes de fechar.'
+  },
+  {
+    pattern: /cannot be closed without a responsible/i,
+    hint: 'Defina o responsável com update_ticket (responsible_id ou responsible_name) e feche de novo.'
+  },
+  {
+    pattern: /not possible to close (a|this) ticket without a catalog item/i,
+    hint: 'Defina o item de catálogo com update_ticket (services_catalogs_item_id ou catalog_item_name; itens em search_catalog_item) e feche de novo.'
+  },
+  {
+    pattern: /required checklists not filled/i,
+    hint: 'Preencha os checklists obrigatórios: veja-os com get_ticket_checklists e preencha com update_ticket_checklist_item.'
+  },
+  {
+    pattern: /close ticket with (stopped|paused) SLA/i,
+    hint: 'O SLA está pausado: retome com update_ticket { stopped: false } e feche de novo.'
+  },
+  {
+    pattern: /(close|cancel) ticket with active equipment loans/i,
+    hint: 'O ticket tem empréstimo de equipamento ativo: devolva o empréstimo pela interface do TiFlux e tente de novo.'
+  },
+  {
+    pattern: /has pre appointment\(s\)/i,
+    hint: 'O ticket tem pré-apontamento pendente: veja-os com list_pre_appointments e conclua ou remova antes de fechar.'
+  },
+  {
+    pattern: /requires at least one 'file' to open a ticket/i,
+    hint: 'A mesa exige anexo na abertura: envie ao menos um arquivo em files_base64 no create_ticket.'
+  },
+  {
+    pattern: /Resource group can not be blank/i,
+    hint: 'A mesa exige equipamento na abertura e o create_ticket não envia equipamento: abra o ticket pela interface do TiFlux ou em outra mesa (equipamentos do cliente em list_equipments).'
   }
 ];
 
@@ -154,7 +201,10 @@ const API_ERROR_HINTS = [
  * @returns {string} dicas unidas por espaco, ou '' quando nenhuma casa
  */
 function apiErrorHint(response) {
-  const text = typeof response?.error === 'string' ? response.error : '';
+  // O 422 traz o `detail` dentro da string `error`; o 404 o expoe como campo de topo (H22).
+  const errorText = typeof response?.error === 'string' ? response.error : '';
+  const detail = response?.detail && typeof response.detail === 'object' ? JSON.stringify(response.detail) : '';
+  const text = `${errorText} ${detail}`;
   return API_ERROR_HINTS.filter(({ pattern }) => pattern.test(text)).map(({ hint }) => hint).join(' ');
 }
 

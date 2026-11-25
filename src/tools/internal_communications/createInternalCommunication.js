@@ -36,7 +36,7 @@ const schema = {
         description: 'Conteúdo da comunicação interna. Aceita Markdown (negrito, listas, cabeçalhos, código) — o MCP converte automaticamente para HTML antes de enviar à API.'
       },
       files_base64: filesBase64SchemaProperty(
-        'Lista de arquivos em formato base64 para anexar (máximo 10 arquivos de 25MB cada)',
+        'Lista de arquivos em formato base64 para anexar (máximo 10 arquivos de 25MB cada). Arquivos .svg não são aceitos pelo TiFlux (recusados antes do envio).',
         '"documento.pdf", "planilha.csv"'
       )
     },

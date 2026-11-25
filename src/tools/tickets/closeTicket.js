@@ -36,7 +36,8 @@ async function execute(args, { api }) {
       const tail = response.status === 422
         ? apiRejectionTail(response, 'O TiFlux recusou o fechamento pelos motivos acima.')
         : '*Verifique se o ticket existe e se você tem permissão para fechá-lo.*';
-      return apiFailureResponse(`**❌ Erro ao fechar ticket #${ticket_number}**`, response, tail);
+      // A5: dica acionavel (`Como resolver:`) para as recusas conhecidas; Código/Mensagem intactos.
+      return apiFailureResponse(`**❌ Erro ao fechar ticket #${ticket_number}**`, response, tail, { hints: true });
     }
 
     return textResponse(

@@ -64,7 +64,7 @@ const schema = {
       followers: { type: 'string', description: 'Emails dos seguidores separados por vírgula (opcional)' },
       parent_ticket_number: { type: 'number', description: 'Número do ticket pai. O ticket criado será vinculado como filho deste ticket.' },
       files_base64: filesBase64SchemaProperty(
-        'Lista de arquivos em formato base64 para anexar ao ticket (máximo 10 arquivos de 25MB cada)'
+        'Lista de arquivos em formato base64 para anexar ao ticket (máximo 10 arquivos de 25MB cada). Arquivos .svg não são aceitos pelo TiFlux (recusados antes do envio).'
       )
     },
     required: ['title', 'description']
@@ -211,8 +211,13 @@ async function execute(args, { api }) {
     // Usar valores padrao das variaveis de ambiente se nao informados
     finalClientId = finalClientId || process.env.TIFLUX_DEFAULT_CLIENT_ID;
     finalDeskId = finalDeskId || process.env.TIFLUX_DEFAULT_DESK_ID;
-    const finalPriorityId = priority_id || process.env.TIFLUX_DEFAULT_PRIORITY_ID;
-    let finalCatalogItemId = services_catalogs_item_id || process.env.TIFLUX_DEFAULT_CATALOG_ITEM_ID;
+    // H28: prioridade e item de catalogo sao escopados por mesa — os defaults do env
+    // so valem quando a mesa final e a TIFLUX_DEFAULT_DESK_ID (senao a API recusaria
+    // um id de outra mesa).
+    const onDefaultDesk = Boolean(process.env.TIFLUX_DEFAULT_DESK_ID) &&
+      String(finalDeskId) === String(process.env.TIFLUX_DEFAULT_DESK_ID);
+    const finalPriorityId = priority_id || (onDefaultDesk ? process.env.TIFLUX_DEFAULT_PRIORITY_ID : undefined);
+    let finalCatalogItemId = services_catalogs_item_id || (onDefaultDesk ? process.env.TIFLUX_DEFAULT_CATALOG_ITEM_ID : undefined);
 
     // Se catalog_item_name foi fornecido, buscar o ID do item de catalogo
     if (catalog_item_name && !services_catalogs_item_id && finalDeskId) {

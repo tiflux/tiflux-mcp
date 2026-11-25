@@ -57,6 +57,66 @@ td.addRule('unsafeImage', {
   replacement: (_content, node) => node.getAttribute('alt') || ''
 });
 
+// Tabela sem linha de cabecalho (<th>/<thead>) — tipicamente tabela de LAYOUT, como
+// assinatura de e-mail. O gfm so converte tabela com cabecalho e faz `keep` (HTML cru)
+// das demais; aqui elas viram texto: uma linha por <tr>, celulas de uma linha unidas
+// por " · " (celula com varias linhas/tabela aninhada → uma celula por bloco).
+// Regra usa a mesma definicao de cabecalho do turndown-plugin-gfm (`isHeadingRow`).
+const CELL_SEP = '';
+
+function isFirstTbody(el) {
+  const prev = el.previousSibling;
+  return el.nodeName === 'TBODY' &&
+    (!prev || (prev.nodeName === 'THEAD' && /^\s*$/.test(prev.textContent)));
+}
+
+function isHeadingRow(tr) {
+  const parent = tr.parentNode;
+  return parent.nodeName === 'THEAD' || (
+    parent.firstChild === tr &&
+    (parent.nodeName === 'TABLE' || isFirstTbody(parent)) &&
+    Array.prototype.every.call(tr.childNodes, n => n.nodeName === 'TH')
+  );
+}
+
+function isLayoutTable(table) {
+  return Boolean(table) && (!table.rows?.[0] || !isHeadingRow(table.rows[0]));
+}
+
+function closestTable(node) {
+  for (let cur = node.parentNode; cur; cur = cur.parentNode) {
+    if (cur.nodeName === 'TABLE') return cur;
+  }
+  return null;
+}
+
+td.addRule('layoutTableCell', {
+  filter: node => (node.nodeName === 'TD' || node.nodeName === 'TH') && isLayoutTable(closestTable(node)),
+  replacement: content => `${content.trim()}${CELL_SEP}`
+});
+
+td.addRule('layoutTableRow', {
+  filter: node => node.nodeName === 'TR' && isLayoutTable(closestTable(node)),
+  replacement: content => {
+    const cells = content.split(CELL_SEP).map(c => c.trim()).filter(Boolean);
+    if (cells.length === 0) return '';
+    const joined = cells.some(c => c.includes('\n')) ? cells.join('\n\n') : cells.join(' · ');
+    return `\n${joined}\n`;
+  }
+});
+
+td.addRule('layoutTable', {
+  filter: node => node.nodeName === 'TABLE' && isLayoutTable(node),
+  replacement: (content, node) => {
+    const body = content.replace(/\n{3,}/g, '\n\n').trim();
+    if (!body) return '';
+    // Dentro de celula de tabela GFM a quebra de linha desmancha a linha `| … |`: achata.
+    const outer = closestTable(node);
+    if (outer && !isLayoutTable(outer)) return body.split('\n').map(l => l.trim()).filter(Boolean).join(' / ');
+    return `\n\n${body}\n\n`;
+  }
+});
+
 /**
  * Converte HTML para Markdown.
  * - Input vazio/null/undefined → retorna ""

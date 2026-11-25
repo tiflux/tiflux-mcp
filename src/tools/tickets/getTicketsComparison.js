@@ -29,11 +29,33 @@ const { resolveDeskName } = require('../_shared/deskResolver');
 const { resolveClientName } = require('../_shared/clientResolver');
 const { footer } = require('../_shared/format');
 const { previousPeriod, previousCalendarPeriod, validatePeriod } = require('../_shared/periodMath');
-const { capIds, calcDelta, formatDeltaStr } = require('../_shared/reportMath');
+const { calcDelta, formatDeltaStr } = require('../_shared/reportMath');
 const { zeroFillTemporalBuckets } = require('../_shared/temporalBuckets');
 const { renderAppliedFilters } = require('../_shared/appliedFilters');
 const { diagnoseZero } = require('../_shared/zeroDiagnostics');
-const { normalizeRequestorEmails } = require('./ticketListFilters');
+const { normalizeRequestorEmails, capIdFilters } = require('./ticketListFilters');
+
+// Rotulos do aviso de corte dos filtros *_ids (H40; mesmo aviso do list_tickets).
+const ID_FILTER_LABELS = {
+  desk_ids: 'mesa', client_ids: 'cliente', responsible_ids: 'responsável', priority_ids: 'prioridade', services_catalogs_item_ids: 'item de catálogo'
+};
+
+/** Eco dos filtros de id/e-mail aplicados (H40): todos os que foram enviados a API. */
+function extraFilterEntries({ responsibleIds, requestorEmail, priorityIds, catalogIds }) {
+  const entries = [];
+  if (responsibleIds) entries.push({ label: 'Responsável', value: responsibleIds, origin: 'informado' });
+  if (requestorEmail) entries.push({ label: 'E-mail do solicitante', value: requestorEmail, origin: 'informado' });
+  if (priorityIds) entries.push({ label: 'Prioridade', value: priorityIds, origin: 'informado' });
+  if (catalogIds) entries.push({ label: 'Item de catálogo', value: catalogIds, origin: 'informado' });
+  return entries;
+}
+
+function capWarningsText(warnings, v) {
+  if (warnings.length === 0) return '';
+  const prefix = v === 'compact' ? '⚠️ ' : '> ⚠️ ';
+  const lines = warnings.map(w => prefix + w).join('\n');
+  return v === 'compact' ? lines : lines + '\n\n';
+}
 
 // Teto explicito de buckets por chamada. Em modo group_by a API atual ignora
 // `limit` e devolve todos os buckets (validado ao vivo: 66 buckets com limit=20);
@@ -84,7 +106,7 @@ Exemplos: "últimos 6 meses vs os 6 anteriores" → só start/end; "mesa X por m
       filter_by: {
         type: 'string',
         enum: ['open', 'closed', 'canceled', 'all'],
-        description: 'Filtro por status. Padrão depende de date_type: "all" para created_at (abertos + fechados + cancelados); "closed" para solved_in_time (resolvidos). Use "all" sob solved_in_time para incluir cancelados também (ex: 358 fechados + 31 cancelados = 389). Use "open" com created_at para snapshot de demanda ativa.'
+        description: 'Filtro por status. Padrão depende de date_type: "all" para created_at (abertos + fechados + cancelados); "closed" para solved_in_time (resolvidos). Regra: "all" = abertos + fechados + cancelados; sob solved_in_time (só tem data de fechamento quem foi fechado ou cancelado), "all" = fechados + cancelados. Use "open" com created_at para snapshot de demanda ativa.'
       },
       desk_ids: {
         type: 'string',
@@ -265,7 +287,8 @@ async function execute(args, { api, verbosity, logger }) {
   }
 
   // --- Resolver nomes em IDs ---
-  let finalDeskIds = capIds(desk_ids);
+  const capped = capIdFilters({ desk_ids, client_ids, responsible_ids, priority_ids, services_catalogs_item_ids }, ID_FILTER_LABELS);
+  let finalDeskIds = capped.values.desk_ids;
   let resolvedDeskInfo = null;
   if (desk_name && !desk_ids) {
     const resolved = await resolveDeskName(api, desk_name);
@@ -278,16 +301,19 @@ async function execute(args, { api, verbosity, logger }) {
     };
   }
 
-  let finalClientIds = capIds(client_ids);
+  let finalClientIds = capped.values.client_ids;
   if (client_name && !client_ids) {
     const resolved = await resolveClientName(api, client_name);
     if (resolved.error) return resolved.response;
     finalClientIds = String(resolved.clientId);
   }
 
-  const finalResponsibleIds = capIds(responsible_ids);
-  const finalPriorityIds = capIds(priority_ids);
-  const finalCatalogIds = capIds(services_catalogs_item_ids);
+  const finalResponsibleIds = capped.values.responsible_ids;
+  const finalPriorityIds = capped.values.priority_ids;
+  const finalCatalogIds = capped.values.services_catalogs_item_ids;
+  // desk_name/client_name so substituem *_ids AUSENTE, e *_ids ausente nao gera aviso
+  // de corte: todo aviso de capIdFilters vale para o que foi enviado.
+  const capWarnings = capped.warnings;
 
   // H13: o TiFlux grava requestor_email em minusculas e a API compara exato.
   const normalizedRequestorEmail = normalizeRequestorEmails(requestor_email);
@@ -379,6 +405,12 @@ async function execute(args, { api, verbosity, logger }) {
     }
   }
   if (finalClientIds) filterEntries.push({ label: 'Cliente', value: finalClientIds, origin: client_name ? 'resolvido' : 'informado' });
+  filterEntries.push(...extraFilterEntries({
+    responsibleIds: finalResponsibleIds,
+    requestorEmail: normalizedRequestorEmail,
+    priorityIds: finalPriorityIds,
+    catalogIds: finalCatalogIds
+  }));
   if (date_type !== 'created_at') filterEntries.push({ label: 'Tipo de data', value: 'fechamento/resolução (solved_in_time)', origin: 'informado' });
   filterEntries.push({
     label: 'Status',
@@ -387,6 +419,7 @@ async function execute(args, { api, verbosity, logger }) {
   });
 
   const filtersBlock = renderAppliedFilters(filterEntries, v);
+  const capNote = capWarningsText(capWarnings, v);
   const assumptionNote = (filterByAssumed && v !== 'compact')
     ? `**⚠️ Suposição de status:** \`filter_by\` não informado com \`date_type="solved_in_time"\` — assumiu \`filter_by="closed"\`. Use \`filter_by="all"\` para incluir cancelados.\n\n`
     : '';
@@ -403,6 +436,7 @@ async function execute(args, { api, verbosity, logger }) {
     let out = `**📊 Comparação de tickets**\n\n`;
     out += assumptionNote;
     if (filtersBlock) out += `${filtersBlock}\n`;
+    if (capNote) out += v === 'compact' ? `${capNote}\n` : capNote;
     out += `Nenhum ticket encontrado em ambos os períodos com os filtros aplicados.`;
     if (diagText) out += `\n\n${diagText}`;
     return textResponse(out);
@@ -443,7 +477,7 @@ async function execute(args, { api, verbosity, logger }) {
   if (v === 'compact') {
     const deltaStr = formatDeltaStr(totalDelta, totalDeltaPct);
     const bucketsStr = rows.map(r => `${compactRowLabel(r)}:${r.current}/${r.previous}`).join(' · ');
-    const filtersLine = filtersBlock ? `\n${filtersBlock}` : '';
+    const filtersLine = (filtersBlock ? `\n${filtersBlock}` : '') + (capNote ? `\n${capNote}` : '');
     const line1 = `Comparação por ${unitLabel}${dtSuffix}: atual ${currentTotal} vs anterior ${compareTotal} → Δ ${deltaStr}`;
     const line2 = bucketsStr ? `Buckets (atual/anterior): ${bucketsStr}` : '';
     return textResponse(line2 ? `${line1}\n${line2}${filtersLine}` : `${line1}${filtersLine}`);
@@ -454,6 +488,7 @@ async function execute(args, { api, verbosity, logger }) {
   let out = assumptionNote;
   out += `**📊 Comparação de tickets por ${unitLabel}**${dtSuffix}\n\n`;
   if (filtersBlock) out += `${filtersBlock}\n`;
+  out += capNote;
   out += `| | Período atual | Período anterior | Δ |\n|---|---|---|---|\n`;
   out += `| **Total** | **${currentTotal}** | **${compareTotal}** | **${deltaStr}** |\n\n`;
 

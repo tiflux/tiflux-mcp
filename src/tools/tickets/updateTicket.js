@@ -362,12 +362,12 @@ async function execute(rawArgs, { api }) {
 
     // Estagio: por nome, ou 1o estagio da mesa-destino em transferencia.
     if (stage_name && !stage_id) {
-      const r = await resolveStageByName(api, effectiveDeskId, stage_name);
+      const r = await resolveStageByName(api, effectiveDeskId, stage_name, { ticketNumber: ticket_number, isTransfer: isDeskTransfer });
       if (r.error) return r.error;
       finalStageId = r.stageId;
       plan.stage = { id: r.stageId, name: r.stageName };
     } else if (isDeskTransfer && !stage_id) {
-      const r = await resolveFirstStage(api, effectiveDeskId);
+      const r = await resolveFirstStage(api, effectiveDeskId, { ticketNumber: ticket_number });
       if (r.error) return r.error;
       finalStageId = r.stageId;
       plan.stage = { id: r.stageId, name: r.stageName };

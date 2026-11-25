@@ -16,13 +16,13 @@ const MAX_FILES = 10;
 
 const schema = {
   name: 'upload_ticket_files',
-  description: 'Fazer upload de arquivos para um ticket existente no TiFlux. Aceita arquivos em formato base64 (máximo 10 arquivos de 25MB cada).',
+  description: 'Fazer upload de arquivos para um ticket existente no TiFlux. Aceita arquivos em formato base64 (máximo 10 arquivos de 25MB cada; .svg não é aceito pelo TiFlux e é recusado antes do envio).',
   inputSchema: {
     type: 'object',
     properties: {
       ticket_number: ticketNumberSchemaProperty('Número do ticket onde os arquivos serão anexados (ex: "123", "456")'),
       files_base64: filesBase64SchemaProperty(
-        'Lista de arquivos em formato base64 para anexar ao ticket (máximo 10 arquivos de 25MB cada)'
+        'Lista de arquivos em formato base64 para anexar ao ticket (máximo 10 arquivos de 25MB cada). Arquivos .svg não são aceitos pelo TiFlux (recusados antes do envio).'
       )
     },
     required: ['ticket_number', 'files_base64']

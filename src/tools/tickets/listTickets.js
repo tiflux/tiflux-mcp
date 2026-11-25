@@ -222,26 +222,22 @@ function ticketRichBlock(ticket, index) {
   const closedLine = (solvedInTime !== null && solvedInTime !== undefined)
     ? `\n   ✅ **Fechado em:** ${dateTime(solvedInTime, 'rich')}`
     : '';
-
-  // Resumo da descricao (primeiras 100 caracteres)
-  let descriptionSummary = '';
-  if (ticket.description) {
-    descriptionSummary = ticket.description.length > 100
-      ? ticket.description.substring(0, 100) + '...'
-      : ticket.description;
-    descriptionSummary = `\n   📄 ${descriptionSummary}`;
-  }
+  // Solicitante (H14): `requestor.name` vem na view :index; sem nome, a linha some.
+  // (O resumo de `description` saiu: a view :index nao traz o campo — era codigo morto.)
+  const requestorName = ticket.requestor?.name;
+  const requestorLine = requestorName ? `   🙋 **Solicitante:** ${requestorName}\n` : '';
 
   return `**${index + 1}. Ticket #${ticketNumber}**\n` +
     `   📝 **Título:** ${title}\n` +
     `   👤 **Responsável:** ${responsibleName}\n` +
     `   🏢 **Cliente:** ${clientName}\n` +
+    requestorLine +
     `   🗂️ **Mesa:** ${deskName}\n` +
     `   📊 **Estágio:** ${stageName}\n` +
     `   🚨 **Status:** ${status}\n` +
     `   🔴 **Prioridade:** ${priority}\n` +
     `   🗃️ **Catálogo:** ${catalog}\n` +
-    `   📅 **Criado em:** ${createdAt}${closedLine}${slaRichLine(ticket)}${descriptionSummary}\n\n`;
+    `   📅 **Criado em:** ${createdAt}${closedLine}${slaRichLine(ticket)}\n\n`;
 }
 
 /**
@@ -429,7 +425,7 @@ const schema = {
       filter_by: {
         type: 'string',
         enum: ['open', 'closed', 'canceled', 'all'],
-        description: 'Modo de filtro por status, com PRECEDÊNCIA sobre is_closed. "open" = apenas abertos; "closed" = apenas FECHADOS (resolvidos, NÃO inclui cancelados); "canceled" = apenas CANCELADOS; "all" = TODOS os status numa única consulta. Sob date_type="solved_in_time": all = closed + canceled (ex: 358 + 31 = 389); omitido → o MCP assume "closed" e avisa; "open" é contradição e retorna erro sem chamar a API.'
+        description: 'Modo de filtro por status, com PRECEDÊNCIA sobre is_closed. "open" = apenas abertos; "closed" = apenas FECHADOS (resolvidos, NÃO inclui cancelados); "canceled" = apenas CANCELADOS; "all" = TODOS os status numa única consulta. Regra: "all" = abertos + fechados + cancelados; sob date_type="solved_in_time" (só tem data de fechamento quem foi fechado ou cancelado), "all" = fechados + cancelados; omitido → o MCP assume "closed" e avisa; "open" é contradição e retorna erro sem chamar a API.'
       },
       date_type: {
         type: 'string',

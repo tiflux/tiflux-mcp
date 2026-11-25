@@ -46,7 +46,7 @@ function formatStagesList(finalDeskId, stages) {
     text += `${index + 1}. **ID:** ${stage.id} | **Nome:** ${stage.name} | **Ordem:** ${stage.index} | **Tipo:** ${stageType} | **Tempo Max:** ${maxTime}\n`;
   });
 
-  text += '\n*Para atualizar um ticket para um estagio, use o ID do estagio no parametro `stage_id` ou use o nome no parametro `stage_name` junto com `desk_id` ou `desk_name`.*';
+  text += '\n*Para atualizar um ticket para um estagio, use o ID do estagio no parametro `stage_id` ou o nome no parametro `stage_name`. Sem `desk_id`/`desk_name`, o `update_ticket` resolve o `stage_name` na mesa ATUAL do ticket; informe a mesa so ao transferir.*';
   return text;
 }
 

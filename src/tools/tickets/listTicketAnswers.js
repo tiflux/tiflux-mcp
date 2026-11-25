@@ -9,13 +9,13 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireTicketNumber } = require('../_shared/validators');
-const { stripHtml } = require('../_shared/markdown');
+const { htmlToMarkdown } = require('../_shared/htmlToMarkdown');
 const { footer, pagination, dateTime } = require('../_shared/format');
 const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_ticket_answers',
-  description: 'Listar respostas (comunicações com o cliente) de um ticket específico, com paginação',
+  description: 'Listar respostas (comunicações com o cliente) de um ticket específico, com paginação e total. A prévia de cada resposta sai em Markdown (sem HTML), cortada em 200 caracteres; a origem é rotulada (TiFlux Web, E-mail, Portal do cliente, API, Agente). Texto completo: get_ticket_answer.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -29,18 +29,35 @@ const schema = {
   }
 };
 
-function formatAnswersList(ticketNumber, answers, offset, limit, verbosity) {
-  let text = `**💬 Respostas do Ticket #${ticketNumber}** (${answers.length} encontradas)\n\n`;
+// Rotulo de answer_origin (H43). Valor fora do mapa sai como veio; null → "—".
+// Exportado: get_ticket_answer usa o mesmo rotulo.
+const ANSWER_ORIGIN_LABELS = {
+  tiflux_web: 'TiFlux Web',
+  email: 'E-mail',
+  client_portal: 'Portal do cliente',
+  api: 'API',
+  agent: 'Agente'
+};
+
+function answerOriginLabel(origin) {
+  if (origin === null || origin === undefined || origin === '') return '—';
+  return Object.prototype.hasOwnProperty.call(ANSWER_ORIGIN_LABELS, origin) ? ANSWER_ORIGIN_LABELS[origin] : String(origin);
+}
+
+function formatAnswersList(ticketNumber, answers, offset, limit, verbosity, total) {
+  const knownTotal = total !== undefined && total !== null && total !== answers.length;
+  const countText = knownTotal ? `${answers.length} de ${total}` : `${answers.length}`;
+  let text = `**💬 Respostas do Ticket #${ticketNumber}** (${countText} encontradas)\n\n`;
 
   answers.forEach((answer, index) => {
     const answerId = answer.id || 'N/A';
     const authorName = answer.author || 'Autor não informado';
     const answerTime = answer.answer_time ? dateTime(answer.answer_time, verbosity) : 'Data não informada';
-    const origin = answer.answer_origin || 'origem não informada';
+    const origin = answerOriginLabel(answer.answer_origin);
 
     let preview = '';
     if (answer.name) {
-      preview = stripHtml(answer.name).trim();
+      preview = htmlToMarkdown(String(answer.name)).trim();
       if (preview.length > 200) {
         preview = preview.substring(0, 200) + '...';
       }
@@ -66,7 +83,7 @@ function formatAnswersList(ticketNumber, answers, offset, limit, verbosity) {
   const currentLimit = Math.min(200, Math.max(1, Number.parseInt(limit) || 20));
 
   const v = verbosity || 'rich';
-  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: answers.length, unit: 'respostas' }, v);
+  const paginationInfo = pagination({ offset: currentOffset, limit: currentLimit, count: answers.length, total, unit: 'respostas' }, v);
   const footerStr = footer(v);
   const sep = footerStr ? '\n' : '';
   return `${text}${paginationInfo}${sep}${footerStr}`;
@@ -101,11 +118,11 @@ async function execute(args, { api, verbosity }) {
       );
     }
 
-    return textResponse(formatAnswersList(ticket_number, answers, offset, limit, verbosity));
+    return textResponse(formatAnswersList(ticket_number, answers, offset, limit, verbosity, response.total));
   } catch (error) {
     return toolErrorResponse(`Erro ao listar respostas do ticket #${ticket_number}`, error);
   }
 }
 
 // Validação lançada antes do try volta como "Problema / Como resolver" (não como erro de protocolo).
-module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar respostas do ticket', execute), format: formatAnswersList };
+module.exports = { name: schema.name, schema, execute: withValidationResponse('Erro ao listar respostas do ticket', execute), format: formatAnswersList, answerOriginLabel };

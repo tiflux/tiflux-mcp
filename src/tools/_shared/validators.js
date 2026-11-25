@@ -113,7 +113,8 @@ function normalizeTicketNumber(value) {
   if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
   if (typeof value !== 'string') return null;
   const cleaned = value.trim().replace(/^#/, '');
-  return /^\d+$/.test(cleaned) ? cleaned : null;
+  // "0"/"000" recusados como o numero 0 ja e (numero de ticket e > 0).
+  return /^\d+$/.test(cleaned) && /[1-9]/.test(cleaned) ? cleaned : null;
 }
 
 /**

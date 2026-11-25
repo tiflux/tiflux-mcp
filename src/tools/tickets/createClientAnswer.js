@@ -45,7 +45,7 @@ const schema = {
         description: 'Nome do cliente que aparece como autor da resposta (ex: "Maria Souza")'
       },
       files_base64: filesBase64SchemaProperty(
-        'Lista de arquivos em formato base64 para anexar (máximo 10 arquivos de 25MB cada)',
+        'Lista de arquivos em formato base64 para anexar (máximo 10 arquivos de 25MB cada). Arquivos .svg não são aceitos pelo TiFlux (recusados antes do envio).',
         '"documento.pdf", "print.png"'
       )
     },

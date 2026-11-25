@@ -51,7 +51,8 @@ const schema = {
       value: {
         description:
           'Valor a preencher. Use para campos `text`, `textarea`, `value` (qualquer string/número) ' +
-          'e `radio` (id da opção escolhida). Envie `null` para limpar qualquer tipo de campo. ' +
+          'e `radio` (id da opção escolhida). `null` limpa campos simples (text, textarea, value, radio); ' +
+          'checkbox NÃO se limpa com null (a API recusa com 422): desmarque com `options: [{ id, checked: false }]`. ' +
           'Mutuamente exclusivo com `options`.',
         oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'null' }]
       },

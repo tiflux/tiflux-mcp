@@ -294,13 +294,31 @@ Exemplo de erro da API com dica (mesa que exige prioridade):
 **Como resolver:** A mesa exige prioridade: chame list_desk_priorities com o desk_id e informe priority_id.
 ```
 
-As linhas `**Código:**` e `**Mensagem:**` não mudam de formato. Hoje a dica automática cobre as exigências de mesa na criação e na atualização de ticket (prioridade, item de catálogo e solicitante) e, desde a v2.71.0, o "Can't update ticket to first stage" do `update_ticket`. Desde a v2.70.0, todas as ferramentas que validam parâmetro obrigatório usam o formato `Problema` / `Como resolver` quando ele falta (ou respondem com uma mensagem própria, listada mais abaixo); nenhuma devolve mais erro de protocolo por parâmetro ausente quando a chamada traz `arguments` (mesmo vazio, `{}`). Com `arguments` omitido, a garantia vale para todas menos 5 ferramentas ainda não ajustadas (`list_clients`, `list_tickets`, `create_ticket`, `search_requestor` e `create_internal_communication`), que nesse caso seguem devolvendo erro de protocolo: envie sempre `arguments`, nem que seja `{}`. Sempre que existe uma ferramenta que descobre o valor, a dica diz qual é: sem `ticket_number` aponta `list_tickets`; sem `client_id`, `search_client` ou `list_clients`; sem `requestor_id`, `list_requestors` ou `search_requestor`; sem o `id` de um endereço ou contato, `list_client_addresses` ou `list_client_contacts`; sem `contract_id` ou `contract_group_id`, `list_contracts` (o grupo é a linha "· grupo"); sem `knowledge_id`, `list_knowledges`; sem `folder_id` ou `knowledge_folder_ids`, `list_knowledge_folders`; sem `reminder_id`, `list_consumption_reminders`; sem `entity_id`, `list_entities`; sem `entity_field_id`, `list_entity_fields`; sem `equipment_id`, `list_equipments`; sem `equipment_type_id`, `list_equipment_types`; sem `technical_group_id`, `list_technical_groups`; sem `role_group_id`, `list_role_groups`; sem a mesa (`desk_id` ou `desk_name`) em `search_stage` e `search_catalog_item`, `list_desks`; sem o `id` de um usuário, `search_user`; de um chat, `list_my_chats`, `list_inbox_chats` ou `list_in_attendance_chats`; de um catálogo, área ou item de serviço, `list_services_catalogs`, `list_services_catalog_areas` ou `list_services_catalog_items`; de um campo personalizado, subcampo ou opção, `list_entities`, `list_entity_fields` ou `list_entity_field_options`; sem `integration_id` em `send_message`, `list_whatsapp_cloud_templates` ou `list_gupshup_templates`; e `entities` vazio em `update_client_entities`/`update_requestor_entities`, `list_entities` e `list_entity_fields`. Onde não há ferramenta de descoberta (nome, e-mail, telefone, horário), a dica diz o formato esperado. Parâmetro presente mas malformado só recebe esse formato onde a ferramenta confere o valor antes de chamar a API (por exemplo, `delete_requestor` e as ferramentas de contrato recusam ID que não seja inteiro positivo, com a mesma dica do ID ausente; `create_appointment` recusa `attendance`, `attendance_kind` e IDs de valorização que não sejam inteiros; desde a v2.71.0, todas as ferramentas de ticket e de comunicação interna (além de `create_appointment` e `list_appointments`) recusam `ticket_number` que não seja só o número, com ou sem `#`; datas, `limit` e `events_limit` fora do formato nas ferramentas de contrato também saem assim; `list_appointments_global` e `list_appointments_report` recusam, sem chamar a API, `start_date`/`end_date` que não existam no calendário (`2026-13-01`, `2026-02-30`, `31/02/2026`) e `end_date` anterior a `start_date` quando as duas vêm em `YYYY-MM-DD`; os outros formatos de data que a API aceita (`01/11/2026`, `2026-11-1`, `2026-11-01T00:00:00`) e qualquer formato que a ferramenta não reconheça seguem para a API como vieram; `list_pre_appointments` recusa `ticket_number` que não seja só dígitos; `update_my_profile` recusa campo em branco; `list_role_group_users` recusa `email` que não seja texto ou passe de 255 caracteres; as ferramentas de recurso e de usuário e as de escrita de chat (`update_chat`, `archive_chat`, `cancel_chat`, `send_message`) recusam ID que não seja inteiro); nas demais, o valor segue para a API e a resposta vem como erro da API (`Código`/`Mensagem`). Ficam de fora, com mensagem própria, as validações específicas de `list_tickets`, `get_tickets_comparison`, `get_tickets_feedback_report`, `merge_ticket`, `search_requestor` (que pede ao menos um filtro), `list_appointments_global` e `list_appointments_report` (período ausente e filtros), `get_chats_feedback_report` (período), `get_desk`, `list_desk_priorities` e `list_desk_services_catalogs` (mesa ausente: "Erro de validacao"), `create_desk` ("Erro de validação ao criar mesa"), `list_services_catalog_areas` e `list_services_catalog_items` ("Parâmetro obrigatório ausente"), `update_my_profile` e `update_user` ("Nenhum campo para atualizar"), os resultados de busca do `search_catalog_item` (nenhum item, vários itens), as regras de valorização do `create_appointment` ("Regra de negócio violada"), o título obrigatório do `create_knowledge_folder`, o "nenhum campo para atualizar" de `update_contract`, `update_knowledge`, `update_knowledge_folder` e `update_consumption_reminder`, e os percentuais/e-mails dos lembretes de consumo, além de checagens pontuais como limite de itens ou de anexos.
+As linhas `**Código:**` e `**Mensagem:**` não mudam de formato. Hoje a dica automática cobre as exigências de mesa na criação e na atualização de ticket (prioridade, item de catálogo e solicitante), desde a v2.71.0 o "Can't update ticket to first stage" do `update_ticket` e, desde a v2.72.0, as recusas conhecidas de `close_ticket`, `cancel_ticket` e `create_ticket` (ver abaixo). Desde a v2.70.0, todas as ferramentas que validam parâmetro obrigatório usam o formato `Problema` / `Como resolver` quando ele falta (ou respondem com uma mensagem própria, listada mais abaixo); nenhuma devolve mais erro de protocolo por parâmetro ausente quando a chamada traz `arguments` (mesmo vazio, `{}`). Com `arguments` omitido, a garantia vale para todas menos 5 ferramentas ainda não ajustadas (`list_clients`, `list_tickets`, `create_ticket`, `search_requestor` e `create_internal_communication`), que nesse caso seguem devolvendo erro de protocolo: envie sempre `arguments`, nem que seja `{}`. Sempre que existe uma ferramenta que descobre o valor, a dica diz qual é: sem `ticket_number` aponta `list_tickets`; sem `client_id`, `search_client` ou `list_clients`; sem `requestor_id`, `list_requestors` ou `search_requestor`; sem o `id` de um endereço ou contato, `list_client_addresses` ou `list_client_contacts`; sem `contract_id` ou `contract_group_id`, `list_contracts` (o grupo é a linha "· grupo"); sem `knowledge_id`, `list_knowledges`; sem `folder_id` ou `knowledge_folder_ids`, `list_knowledge_folders`; sem `reminder_id`, `list_consumption_reminders`; sem `entity_id`, `list_entities`; sem `entity_field_id`, `list_entity_fields`; sem `equipment_id`, `list_equipments`; sem `equipment_type_id`, `list_equipment_types`; sem `technical_group_id`, `list_technical_groups`; sem `role_group_id`, `list_role_groups`; sem a mesa (`desk_id` ou `desk_name`) em `search_stage` e `search_catalog_item`, `list_desks`; sem o `id` de um usuário, `search_user`; de um chat, `list_my_chats`, `list_inbox_chats` ou `list_in_attendance_chats`; de um catálogo, área ou item de serviço, `list_services_catalogs`, `list_services_catalog_areas` ou `list_services_catalog_items`; de um campo personalizado, subcampo ou opção, `list_entities`, `list_entity_fields` ou `list_entity_field_options`; sem `integration_id` em `send_message`, `list_whatsapp_cloud_templates` ou `list_gupshup_templates`; e `entities` vazio em `update_client_entities`/`update_requestor_entities`, `list_entities` e `list_entity_fields`. Onde não há ferramenta de descoberta (nome, e-mail, telefone, horário), a dica diz o formato esperado. Parâmetro presente mas malformado só recebe esse formato onde a ferramenta confere o valor antes de chamar a API (por exemplo, `delete_requestor` e as ferramentas de contrato recusam ID que não seja inteiro positivo, com a mesma dica do ID ausente; `create_appointment` recusa `attendance`, `attendance_kind` e IDs de valorização que não sejam inteiros; desde a v2.71.0, todas as ferramentas de ticket e de comunicação interna (além de `create_appointment` e `list_appointments`) recusam `ticket_number` que não seja só o número, com ou sem `#`; datas, `limit` e `events_limit` fora do formato nas ferramentas de contrato também saem assim; `list_appointments_global` e `list_appointments_report` recusam, sem chamar a API, `start_date`/`end_date` que não existam no calendário (`2026-13-01`, `2026-02-30`, `31/02/2026`) e `end_date` anterior a `start_date` quando as duas vêm em `YYYY-MM-DD`; os outros formatos de data que a API aceita (`01/11/2026`, `2026-11-1`, `2026-11-01T00:00:00`) e qualquer formato que a ferramenta não reconheça seguem para a API como vieram; `list_pre_appointments` recusa `ticket_number` que não seja só o número (desde a v2.72.0 aceita `#123`, como as demais de ticket); `"0"`/`"000"` também são recusados como número de ticket (v2.72.0); `update_my_profile` recusa campo em branco; `list_role_group_users` recusa `email` que não seja texto ou passe de 255 caracteres; as ferramentas de recurso e de usuário e as de escrita de chat (`update_chat`, `archive_chat`, `cancel_chat`, `send_message`) recusam ID que não seja inteiro); nas demais, o valor segue para a API e a resposta vem como erro da API (`Código`/`Mensagem`). Ficam de fora, com mensagem própria, as validações específicas de `list_tickets`, `get_tickets_comparison`, `get_tickets_feedback_report`, `merge_ticket`, `search_requestor` (que pede ao menos um filtro), `list_appointments_global` e `list_appointments_report` (período ausente e filtros), `get_chats_feedback_report` (período), `get_desk`, `list_desk_priorities` e `list_desk_services_catalogs` (mesa ausente: "Erro de validacao"), `create_desk` ("Erro de validação ao criar mesa"), `list_services_catalog_areas` e `list_services_catalog_items` ("Parâmetro obrigatório ausente"), `update_my_profile` e `update_user` ("Nenhum campo para atualizar"), os resultados de busca do `search_catalog_item` (nenhum item, vários itens), as regras de valorização do `create_appointment` ("Regra de negócio violada"), o título obrigatório do `create_knowledge_folder`, o "nenhum campo para atualizar" de `update_contract`, `update_knowledge`, `update_knowledge_folder` e `update_consumption_reminder`, e os percentuais/e-mails dos lembretes de consumo, além de checagens pontuais como limite de itens ou de anexos.
 
 **New in v2.71.0 — erros das ferramentas de ticket:**
 - `ticket_number` malformado (`"1/x"`, `"123/reopen?"`) é recusado antes de chamar a API em todas as ferramentas de ticket e de comunicação interna, com `**Problema:** ticket_number deve ser só o número do ticket (ex: "12345" ou "#12345")` e `**Como resolver:**` apontando `list_tickets`. `"#123"` é aceito em todas (antes: `list_ticket_extra_values`, `list_ticket_internal_costs`, `list_ticket_shift_entries` e `create_client_answer` recusavam o `#`; `update_ticket` respondia `ticket_number deve ser um número inteiro válido`; `get_ticket_files` respondia `**❌ Número de ticket inválido: "..."**`).
 - Um ID inteiro malformado (`parseIntStrict`) em qualquer ferramenta passa a trazer a mesma dica do ID ausente quando o campo tem dica padrão (`client_id`, `contract_id`, `requestor_id`, `knowledge_id`, `folder_id`, `entity_id`, `entity_field_id`, `equipment_id`, `technical_group_id`, `role_group_id`): só uma linha `**Como resolver:**` a mais; o `**Problema:**` não muda.
 - 404 com o recurso certo: `get_ticket` de um número que não existe responde `**🔍 Ticket #N não encontrado**` + `**Como resolver:**` (`list_tickets`), sem as linhas `Código`/`Mensagem` (antes: `**❌ Erro ao buscar ticket #N**` + `Código: 404` + `Mensagem: Recurso não encontrado`). Os sub-recursos do ticket (checklists, apontamentos, respostas, arquivos) distinguem ticket inexistente de item inexistente pelo detalhe que a API devolve (ex.: `field index 999 does not exist`), e o 404 de ticket ganha a linha `**Como resolver:**`. `update_ticket` para mesa inexistente responde `**Mesa <id> não encontrada**` + `list_desks`.
 - 422 de `close_ticket`, `cancel_ticket` e `update_ticket`: `Código` e `Mensagem` seguem iguais; a cauda "Verifique se o ticket existe…" dá lugar a `**Detalhes:**` (motivo por campo) + "O TiFlux recusou … pelos motivos acima".
+
+**New in v2.72.0 — `Como resolver:` nas recusas de fechar, cancelar e abrir ticket:** quando a API recusa com uma destas mensagens (o texto vem no `**Detalhes:**`), entra um parágrafo `**Como resolver:**` com a ferramenta que resolve. `Código` e `Mensagem` não mudam.
+
+| Mensagem da API | Dica |
+|---|---|
+| `There must be at least one appointment to close this ticket` | lance um apontamento com `create_appointment` |
+| `There must be at least one ticket answer to close/cancel this ticket` | registre uma resposta de atendente com `create_ticket_answer` (resposta registrada como cliente não conta) |
+| `Can't close ticket in first stage` | mova o ticket de estágio com `update_ticket` (`stage_name`) |
+| `The ticket cannot be closed without a responsible` | defina `responsible_id`/`responsible_name` no `update_ticket` |
+| `It is not possible to close this ticket without a catalog item` | defina `services_catalogs_item_id`/`catalog_item_name` (`search_catalog_item`) |
+| `There are required checklists not filled` | `get_ticket_checklists` + `update_ticket_checklist_item` |
+| `Unable to close ticket with stopped SLA` (ou `paused SLA`) | retome com `update_ticket { stopped: false }` |
+| `Can't close/cancel ticket with active equipment loans` | devolva o empréstimo de equipamento pela interface do TiFlux |
+| `This ticket has pre appointment(s), remove or complete them to close` | `list_pre_appointments` e conclua ou remova |
+| `This desk requires at least one 'file' to open a ticket` | anexe um arquivo em `files_base64` no `create_ticket` |
+| `Resource group can not be blank` | a mesa exige equipamento, que o `create_ticket` não envia: abra pela interface do TiFlux ou em outra mesa |
+
+A genérica `Can not be blank` não ganha dica (o campo já aparece em `Detalhes:`). Também na v2.72.0: `update_ticket` com `desk_id` inexistente **sem** `stage_id` responde `**Mesa <id> não encontrada**` com `Código`/`Mensagem` + `list_desks` (antes: `**Erro ao buscar estagios da mesa ID N**`, sem `Como resolver`).
 
 **Sucesso de criação:** as ferramentas `create_*` trazem o identificador do que foi criado já na primeira linha (ex.: `**✅ Ticket #103395 criado com sucesso!**`, `**✅ Comunicação interna #7001 criada com sucesso no ticket #103395!**`). Assim, várias criações em sequência ficam distinguíveis mesmo para quem mostra só a primeira linha.
 
@@ -330,8 +348,10 @@ Comprehensive ticket information including:
 - SLA (status, expirations — shown in Brasília time in `rich` —, **closing date/time** (`Fechado em`, from `sla_info.solved_in_time`, only when the ticket is closed or canceled — cleared again on reopen), **resolved-in-time flag** (`Resolvido no prazo: Sim/Não`, from `sla_info.attend_sla_solution`, only on closed tickets). On open tickets the API computes `attend_sla` / `attend_sla_solution` live (`now < expiration`: `true` while within the deadline, flips to `false` once it breaches, even without any ticket activity), so they are shown as the current SLA state: `SLA de atendimento` / `SLA de resolução: no prazo | estourado`. `desactivate_sla_reason` when set)
 - Equipment linked to the ticket (when `equipment.id` is not null)
 - Feedback/rating (when available) — rating and comment from the client's evaluation
-- Additional info: followers, worked hours, total resolution time (`closed_ticket_total_spent_solving`), last answer type, reopens, URLs
+- Additional info: followers, worked hours, total resolution time (`closed_ticket_total_spent_solving`), last answer type (`Última resposta: atendente | cliente`), reopens (`Última reabertura` in Brasília time), URLs
 - Custom fields: when present, includes field type, current value, `required` flag (shown as `(obrigatório)` suffix), and options already set for `single_select`/`checkbox` fields (with IDs for `list_entity_field_options`)
+- **Legacy catalog fields** (`custom_fields`, old service-catalog format, read-only): block `Campos do catálogo (formato antigo)` with `title: value` (checkbox → checked options; radio → chosen option); omitted when empty/null
+- **Description in Markdown** (`rich`): converted from the API HTML (line breaks, links, images as `![](url)`), capped at 8,000 characters with a warning pointing to the internal URL (`compact` keeps the 800-char summary)
 
 **Verbosity (`compact` mode):**
 - Hierarchy: single line `Pai: #N | Filhos: #A, #B` (numbers only, no titles)
@@ -348,6 +368,8 @@ Comprehensive ticket information including:
   ```
   The verdict comes from `attend_sla_solution` / `attend_sla` (computed live by the API on open tickets). `SLA pausado` appears only when `sla_info.stopped` is true. This replaces the old `SLA expira: <raw>` line, which showed the **stage** deadline (in raw UTC) as if it were the resolution deadline. The `rich` output is unchanged.
 - Equipment, feedback, resolution time, and low-value flags are omitted in compact
+
+**New in v2.72.0:** `rich` output — legacy catalog fields block (`Campos do catálogo (formato antigo)`), description in Markdown (no raw HTML) capped at 8,000 characters with a warning, `Última reabertura` in Brasília time (was raw ISO), `Última resposta: atendente/cliente` (was `technical_answer`/`client_answer`) and the desk `Tipo de apontamento` labelled (`com valorização`, `sem valorização`, `sem apontamentos`).
 
 **New in v2.64.0:** the `compact` output replaces `SLA expira: <raw>` (which was the **stage** deadline, in raw UTC) with labelled deadlines — `Resolução vence`, `Atendimento vence` (with `no prazo`/`estourado`), `Prazo do estágio` and `SLA pausado: sim — <reason>`. All `compact` dates (every tool) now come in Brasília time with explicit offset (`2026-11-12T22:10-03:00`) instead of UTC `Z` (`2026-11-13T01:10Z`) — same instant, still ISO 8601, but the day matches Brasília. The `rich` output is unchanged.
 
@@ -379,7 +401,7 @@ Create a new ticket in Tiflux. **Required:** `title`, `description`, the client 
 - `responsible_name` (string, optional): Responsible user name for automatic search (alternative to responsible_id)
 - `followers` (string, optional): Comma-separated follower emails
 - `parent_ticket_number` (number, optional): Parent ticket number — the created ticket will be linked as a child of this ticket
-- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.png"}]` (max 10 files, 25MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.png"}]` (max 10 files, 25MB each). `.svg` files are rejected before the API call (the API refuses them and the ticket would not be created).
 
 **New in v2.4.0:** Support for base64 file upload via `files_base64`. The ticket is sent as `multipart/form-data`. **Note for Server mode (Lambda):** `files_base64` payloads are subject to the 6MB API Gateway limit.
 
@@ -391,7 +413,7 @@ Create a new ticket in Tiflux. **Required:** `title`, `description`, the client 
 - When `client_name`, `desk_name` or `catalog_item_name` matches nothing or more than one record, the message ends with a `Como resolver` line.
 - The success message starts with the ticket number: `**✅ Ticket #<number> criado com sucesso!**` (before: `**✅ Ticket criado com sucesso!**`).
 
-> **SDK mode only (`npx @tiflux/mcp`):** the environment variables `TIFLUX_DEFAULT_CLIENT_ID`, `TIFLUX_DEFAULT_DESK_ID`, `TIFLUX_DEFAULT_PRIORITY_ID` and `TIFLUX_DEFAULT_CATALOG_ITEM_ID` still work as a fallback when the matching parameter is omitted. They do not exist in Server mode (`mcp.tiflux.com`), where the client and the desk must always be sent.
+> **SDK mode only (`npx @tiflux/mcp`):** the environment variables `TIFLUX_DEFAULT_CLIENT_ID`, `TIFLUX_DEFAULT_DESK_ID`, `TIFLUX_DEFAULT_PRIORITY_ID` and `TIFLUX_DEFAULT_CATALOG_ITEM_ID` still work as a fallback when the matching parameter is omitted. Since v2.72.0, `TIFLUX_DEFAULT_PRIORITY_ID` and `TIFLUX_DEFAULT_CATALOG_ITEM_ID` are only applied when the final desk is `TIFLUX_DEFAULT_DESK_ID` (priorities and catalog items belong to a desk; on another desk the API would reject them). They do not exist in Server mode (`mcp.tiflux.com`), where the client and the desk must always be sent.
 
 **Fixed in v2.50.1:** `Criado em` in the success response now shows the creation date/time in Brasília time (previously the raw ISO string from the API, e.g. `2026-10-01T14:50:45Z`).
 
@@ -403,7 +425,7 @@ Update an existing ticket in Tiflux. **Changing the ticket's client is not possi
 - `title` (string, optional): New ticket title
 - `description` (string, optional): New ticket description. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
 - `client_id` (number, optional): The ticket's client ID. It does **not** change the client (not possible via the API; use the TiFlux interface) and is never sent in the update. It only helps find the requestor by name (`requestor_name`) in the right client. Sent alone, it returns a local error explaining this; sent with other fields, it is ignored and the summary says so. Numeric IDs (`desk_id`, `stage_id`, `priority_id`, `status_id`, `services_catalogs_item_id`, `responsible_id`, `requestor_id`, `ticket_reference_number`) must be integers (or digit strings): a non-numeric value returns a local validation error and nothing is updated.
-- `desk_id` (number, optional): Desk ID. If it differs from the ticket's **current** desk, transfers the ticket; if it is the same desk, it is ignored (not a transfer). Stages and priorities are scoped per desk — if no stage is provided, the MCP auto-resolves the first stage of the destination desk.
+- `desk_id` (number, optional): Desk ID. If it differs from the ticket's **current** desk, transfers the ticket; if it is the same desk, it is ignored (not a transfer). Stages and priorities are scoped per desk — if no stage is provided, the MCP auto-resolves the first stage of the destination desk. A desk that does not exist answers `**Mesa <id> não encontrada**` (with `Código`/`Mensagem`) + `list_desks`, with or without `stage_id` (since v2.72.0 also without it). With `stage_name` and no desk change, the stage is looked up in the ticket's current desk; if that desk is not found the error says `**Mesa <id> (mesa atual do ticket) não encontrada**` and points to `stage_id`/`get_ticket` instead of `list_desks`.
 - `desk_name` (string, optional): Desk name for automatic search (alternative to desk_id). Accepts partial names — e.g. `"cansados"` resolves to `"Dev - Cansados"` (see Smart Name Resolution). **Prefer this when the user references a name without qualifying the entity.**
 - `stage_id` (number, optional): Stage/phase ID. Always takes precedence over auto-resolution.
 - `stage_name` (string, optional): Stage name for automatic search (alternative to stage_id). **Without a desk, it uses the ticket's current desk.** An exact name (ignoring case/accents) wins over similar names ("Pendente" vs "Pendente cliente"). Always takes precedence over auto-resolution.
@@ -516,6 +538,8 @@ Cancel a specific ticket in Tiflux. A ticket with appointments cannot be cancell
 
 **New in v2.71.0:** a 422 shows the reason under `**Detalhes:**` (e.g. `• **base:** Already has appointments!`) instead of the tail "Verifique se o ticket existe"; `Código`/`Mensagem` are unchanged. The success message now says the ticket can be reopened with `reopen_ticket` (before: "não pode mais receber atualizações").
 
+**New in v2.72.0:** known refusals (`at least one ticket answer to cancel`, `active equipment loans`) add a `**Como resolver:**` paragraph (see [Formato de erros](#formato-de-erros)); `Already has appointments!` stays only in `Detalhes:`.
+
 **Parameters:**
 - `ticket_number` (string, required): Ticket number to be cancelled (e.g., "37", "123")
 
@@ -527,7 +551,7 @@ Cancel a specific ticket in Tiflux. A ticket with appointments cannot be cancell
 ```
 
 ### list_tickets
-List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response). The listing already includes both the **opening** date/time (`Criado em`, with time in `rich`) and, when the ticket is closed or cancelled, the **closing** date/time (`Fechado em` in `rich`; `| fechado ...` suffix in `compact`) — there's no need to call `get_ticket` per ticket just to get these dates. On **open** tickets it also shows the **SLA deadline** (resolution, pending first attendance, and whether the SLA is paused) — no `get_ticket` per ticket is needed to know when each one is due. The API does not sort by SLA deadline: the consumer sorts. With `sla_expiring_before` + `limit: 200`, one page usually covers the whole desk.
+List tickets with filtering options. Catalog and priority are automatically shown in every ticket card — no extra API calls needed (already included in `GET /tickets` response). The listing already includes both the **opening** date/time (`Criado em`, with time in `rich`) and, when the ticket is closed or cancelled, the **closing** date/time (`Fechado em` in `rich`; `| fechado ...` suffix in `compact`) — there's no need to call `get_ticket` per ticket just to get these dates. On **open** tickets it also shows the **SLA deadline** (resolution, pending first attendance, and whether the SLA is paused) — no `get_ticket` per ticket is needed to know when each one is due. Each `rich` card also shows the **requestor** (`Solicitante: <name>`, omitted when the ticket has none). The API does not sort by SLA deadline: the consumer sorts. With `sla_expiring_before` + `limit: 200`, one page usually covers the whole desk.
 
 **Parameters:**
 - `desk_ids` (string, optional): Comma-separated desk IDs (e.g., "1,2,3") — **max 15**. Duplicates are removed and, above 15, only the first 15 are applied with a warning in the response. The same applies to `client_ids`, `stage_ids`, `responsible_ids` and `requestor_ids`.
@@ -547,7 +571,7 @@ List tickets with filtering options. Catalog and priority are automatically show
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Items per page (default: 20, max: 200). Values above 200 are clamped to 200 (and below 1 to 1) before calling the API, so pagination hints match the page actually returned.
 - `is_closed` (boolean, optional): Legacy status flag. Prefer `filter_by` for more granular control. `is_closed: true` = only closed; `is_closed: false` = only open.
-- `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Under `date_type="solved_in_time"`, "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
+- `filter_by` (string, optional): Status filter with precedence over `is_closed`: "open" (open tickets only), "closed" (resolved/closed, excludes cancelled), "canceled" (cancelled only — robust with custom status names), or "all" (all statuses). Rule: "all" = open + closed + cancelled; under `date_type="solved_in_time"` (only closed or cancelled tickets have a closing date), "all" returns closed + cancelled together. **If omitted with `date_type="solved_in_time"`, the MCP assumes `"closed"` and announces this in the response** — use `"all"` to include cancelled too.
 - `date_type` (string, optional): Date axis for filtering: "created_at" (creation date, default) or "solved_in_time" (**closing date** — also recorded on cancellation; cleared again on reopen). Accepts timezone offsets beyond Z (e.g., `-03:00`). **`date_type="solved_in_time"` + `filter_by="open"` is contradictory — the MCP returns an error immediately, without calling the API.**
 - `group_by` (string, optional): Aggregates the ticket COUNT instead of returning the list. One of 11 exact values: `day`, `week`, `month`, `desk`, `responsible`, `stage`, `client`, `status`, `day,responsible`, `week,responsible`, `month,responsible` (no space after the comma — the API validates the exact string). "day"/"week"/"month" group by period (combine with `date_type` + date range); "desk" groups by desk; "responsible"/"stage"/"client"/"status" group by that dimension; "<period>,responsible" crosses period × responsible in **a single call, for any number of people** (do not filter by `responsible_ids` nor call once per person). The API returns `{ group_by, date_type, total, buckets }` — bucket shapes and the rendered output are described in "`group_by` by dimension and by period × responsible" below. Use for comparison/trend (e.g., "opened per day this week"), per-desk breakdowns, rankings ("who closed the most") and team-performance tables. **When `start_datetime`/`end_datetime` are provided and at least 1 bucket is returned, missing periods in the window are zero-filled (e.g., "2026-02" between "2026-01" and "2026-03" appears with count 0).** The window's labels use the calendar of the offset `start_datetime` was written in (`-03:00` → Brasília; `Z`/plain date → UTC), so no out-of-range row appears at the edges.
 - `sla_expiring_before` (string, optional): Filters OPEN (and non-stopped) tickets whose RESOLUTION SLA (`solve_expiration`) is due before the given ISO 8601 datetime, including already overdue. Use for "SLA at risk" (e.g., pass end-of-today). Combine with `group_by=desk` for "desks with SLA at risk".
@@ -585,6 +609,8 @@ List tickets with filtering options. Catalog and priority are automatically show
 **Compact line (`compact`, explicit or automatic):** one line per ticket — `#N title | client | desk | status | stage | responsible | priority | catalog | criado YYYY-MM-DD`, e.g. `#10000 Impressora não imprime em rede (0) | Cliente 00 | Suporte N2 | Aberto | Em atendimento | Técnico 00 | Alta | Infraestrutura › Impressoras › Manutenção | criado 2026-09-01`. The creation date is the day in Brasília time (`America/Sao_Paulo`), not the UTC day — a ticket created at 22:00 in Brasília stays on that day. Missing fields show `—`. The description is not included; use `get_ticket #N` for it.
 
 When the ticket is closed or cancelled (`sla_info.solved_in_time` present), the compact line gets a `| fechado <date -03:00>` suffix (e.g. `| fechado 2026-09-22T18:45-03:00`) and the `rich` card gets an extra `✅ **Fechado em:** <date, time — Brasília>` line right after `📅 **Criado em:**` (which now also shows the time, not just the date, in Brasília time).
+
+**New in v2.72.0:** the `rich` card gains `🙋 Solicitante: <name>` (from `requestor.name`) and loses the `📄` description summary (the list endpoint never returns the description, so the line was dead code).
 
 **New in v2.64.0:** SLA deadline per open ticket (with ` (estourado)` when already breached), `search` / `update_start_datetime` / `update_end_datetime` filters (`search` alone needs 3+ characters to skip the desk), weekly buckets with dates, and `compact` dates in Brasília time with offset (`-03:00` instead of `Z`).
 
@@ -712,7 +738,7 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 
 **Default `filter_by` by `date_type`:**
 - `created_at` (default): `filter_by="all"` — historical comparisons count all statuses (open, closed, cancelled).
-- `solved_in_time`: `filter_by="closed"` — comparisons by closing date assume resolved tickets; use `filter_by="all"` to include cancelled too (e.g., 358 closed + 31 cancelled = 389). This aligns with `list_tickets` so both tools return the same number for the same query.
+- `solved_in_time`: `filter_by="closed"` — comparisons by closing date assume resolved tickets; use `filter_by="all"` to include cancelled too. Rule: `"all"` = open + closed + cancelled; under `solved_in_time` (only closed or cancelled tickets have a closing date) that means closed + cancelled. This aligns with `list_tickets` so both tools return the same number for the same query.
 
 **Periods without tickets show up as 0 on both sides.** The API simply omits a period that had no ticket (it never returns `count: 0`) — without zero-filling, a gap in the middle of either period shifts every following row by one position, making the delta (Δ) wrong for the rest of the table. This tool fills every missing `day`/`week`/`month` bucket (not `desk`, which is matched by desk name instead) inside each period's own window before pairing the two sides, so a month/week/day with zero tickets always appears explicitly with `0`, in both the current and the comparison column.
 
@@ -736,6 +762,8 @@ Compare ticket COUNTS between two time periods in a single call. Returns totals,
 - `requestor_email` (string, optional): Requestor email filter (comma-separated for several). Case and surrounding spaces don't matter — the MCP sends the emails in lowercase.
 - `priority_ids` (string, optional): Comma-separated priority IDs (max 15). Passthrough.
 - `services_catalogs_item_ids` (string, optional): Comma-separated catalog item IDs (max 15). Passthrough.
+
+**Filters echo and ID cap (v2.72.0):** the `Filtros aplicados` block now lists every filter sent to the API — besides desk, client, date type and status, also `Responsável`, `E-mail do solicitante` (as sent, in lowercase), `Prioridade` and `Item de catálogo`. Every `*_ids` filter is deduplicated and, above 15 IDs, only the first 15 are sent **with a warning in the response** (`O filtro de mesa (desk_ids) recebeu 16 IDs…`) — before, the cut was silent.
 
 **Example — compare last 6 months vs the 6 before (automatic calendar-aligned period: Jul–Dec 2025):**
 ```json
@@ -884,6 +912,8 @@ Close a specific ticket in Tiflux. Preconditions enforced by the API (the desk d
 
 **New in v2.71.0:** when the API refuses (422), the error keeps `Código`/`Mensagem` and adds `**Detalhes:**` with the reason per field (e.g. `• **stage_id:** Can't close ticket in first stage`) followed by "O TiFlux recusou o fechamento pelos motivos acima" (before: the tail "Verifique se o ticket existe e se você tem permissão para fechá-lo").
 
+**New in v2.72.0:** for the known refusals (no appointment, no agent answer, first stage, no responsible, no catalog item, required checklists, stopped SLA, active equipment loan, pending pre-appointments) a `**Como resolver:**` paragraph names the tool that fixes it (e.g. `create_appointment`). `Código`/`Mensagem` unchanged. See [Formato de erros](#formato-de-erros).
+
 **Parameters:**
 - `ticket_number` (string, required): Ticket number to be closed (e.g., "37", "123")
 
@@ -904,13 +934,15 @@ Close a specific ticket in Tiflux. Preconditions enforced by the API (the desk d
 ```
 
 ### create_ticket_answer
-Create a new answer (client communication) in a specific ticket.
+Create a new answer (client communication) in a specific ticket. Attachments: up to 10 files of 25MB each, no `.svg` (rejected before the API call). The confirmation describes the signature in text: `Assinatura: enviada com assinatura | sem assinatura | usuário sem assinatura cadastrada` (translated from the API message; an unknown message is shown as is).
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number where answer will be created
 - `text` (string, required): Answer content that will be sent to the client. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
 - `with_signature` (boolean, optional): Include user signature in the answer (default: false)
-- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 40MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each; `.svg` not accepted)
+
+**New in v2.72.0:** the per-file limit is 25MB (the documented 40MB was wrong: the API has the same 25MB limit as the other attachment tools); `.svg` files fail locally with a clear message; `**Com assinatura:** Sim/Não` became `**Assinatura:**` with the API text translated.
 
 **New in v1.3.0:** Support for base64 file upload via `files_base64` parameter.
 
@@ -937,7 +969,7 @@ Register an answer **on behalf of the client** in a ticket — the message is re
 - `ticket_number` (string, required): Ticket number
 - `text` (string, required): Client's answer. Accepts Markdown — the MCP converts it to HTML before sending (`name` field).
 - `author_name` (string, required): Client name shown as the author
-- `files_base64` (array, optional): `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each)
+- `files_base64` (array, optional): `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each; `.svg` not accepted)
 
 **Example:**
 ```json
@@ -1588,7 +1620,7 @@ Search for stages of a specific desk to use in ticket updates.
 - `limit` (number, optional): Results per page (default: 20, max: 200)
 - `offset` (number, optional): Page number (default: 1)
 
-**Note:** At least one parameter (desk_id or desk_name) must be provided.
+**Note:** At least one parameter (desk_id or desk_name) must be provided. The footer reminds that `update_ticket` accepts the stage ID (`stage_id`) or the name (`stage_name`); without `desk_id`/`desk_name`, `update_ticket` resolves `stage_name` in the ticket's **current** desk (pass the desk only when transferring).
 
 **Example:**
 ```json
@@ -1644,7 +1676,7 @@ Create a new internal communication in a ticket.
 **Parameters:**
 - `ticket_number` (string, required): Ticket number where communication will be created
 - `text` (string, required): Communication content. Accepts Markdown (bold, lists, headings, code) — the MCP automatically converts it to HTML before sending to the API.
-- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each)
+- `files_base64` (array, optional): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each; `.svg` not accepted — rejected before the API call since v2.72.0)
 
 **New in v1.3.0:** Support for base64 file upload via `files_base64` parameter.
 
@@ -1700,7 +1732,7 @@ Upload files to an existing ticket in Tiflux. Files must be provided as base64-e
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number where files will be attached (e.g., "123", "456")
-- `files_base64` (array, required): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each)
+- `files_base64` (array, required): Array of base64 encoded files `[{content: "base64...", filename: "file.pdf"}]` (max 10 files, 25MB each; `.svg` not accepted — rejected before the API call since v2.72.0)
 
 **Example:**
 ```json
@@ -1743,15 +1775,17 @@ List the full history of a ticket as it moved through the desk's stages, with th
 - `limit` (number, optional): Records per page (default: 20, max: 200)
 
 **Returns:**
-For each stage transition, the formatted output includes:
+Stage transitions **most recent first**. For each one, the formatted output includes:
 - Stage name and desk
 - Time spent in expedient (`HH:MM`)
-- Whether the SLA was met (`✅ Sim` / `❌ Não`)
+- `SLA do estágio` label (**new in v2.72.0**, same vocabulary as `get_ticket`/`list_tickets`): `✅ no prazo` / `❌ estourado` once the ticket left the stage (`attended_at` set); on the current (most recent) stage `⏳ em andamento (vence <date>)` or `⚠️ estourado (desde <date>)`; `— sem SLA de estágio` when there is no expiration; `— sem registro de saída` on an older row without `attended_at` (when the SLA is paused the API deletes the current stage row and clears the previous row's exit — never shown as `❌` anymore). In `compact` the `sla` column carries `no_prazo` / `estourado` / `em_andamento` / `sem_sla` / `sem_saida` (was `true`/`false`).
 - SLA expiration timestamp
 - When the ticket entered the stage and who moved it
 - When (if) the ticket was attended in this stage and by whom
 
 **Empty result:** Tickets on desks **without an active SLA** return an empty list with an explanatory message — this is expected behavior, not an error.
+
+**Pagination:** since v2.72.0 the footer shows the total (`X-Total-Items`) and stops suggesting a next page once it is reached.
 
 **Example:**
 ```json
@@ -1771,7 +1805,7 @@ List the service types available for billing/valorization of an appointment on a
 
 **Returns:**
 Two sections in the formatted output:
-- **📄 Contratos / Adendos vigentes** — for each `contract_rider`: contract name, add-on number (`rider_number`), validity period (`start_date` → `cancel_date`), and the add-on ID.
+- **📄 Contratos / Adendos vigentes** — for each `contract_rider`: contract name **with the contract ID** (`Contrato: <name> (ID <contract.id>)`, new in v2.72.0 — the ID accepted by `get_ticket_shifts.contract_id`), add-on number (`rider_number`), validity period (`start_date` → `cancel_date`), and the add-on ID.
 - **🔧 Serviços avulsos** — for each `loose_service`: `id` + `name`.
 
 Each list can be independently empty (shows "none found" for that section); **both empty** returns an explanatory message (no contracts/services applicable for that ticket on the given date).
@@ -1789,7 +1823,7 @@ List the displacements (travel/visit) **available** (registered) for valorizatio
 
 **Parameters:**
 - `ticket_number` (string, required): Ticket number (e.g., "98875", "123")
-- `contract_id` (number, optional): Contract ID (positive integer) to filter displacements linked to a specific contract. Omit to return all displacements applicable to the ticket. A non-integer value fails locally with a clear message, without calling the API.
+- `contract_id` (number, optional): Contract ID, **not the add-on ID** (positive integer; the `ID N` next to the contract in `get_ticket_service_types`). With it, **only** that contract's displacements are returned — the generic, client and contract-group ones are left out. Omit to return all displacements applicable to the ticket. A non-integer value fails locally with a clear message, without calling the API.
 
 **Returns:**
 List of available displacements. Each displacement includes:
@@ -1797,7 +1831,7 @@ List of available displacements. Each displacement includes:
 - `reference` scope label (All = generic for all clients/contracts; Client = exclusive to the client; Contract = exclusive to the contract; Shared = group of contracts)
 - Linked `contract` or `client` when present (not shown for generic "All" items)
 
-Empty result returns a friendly explanatory message.
+Empty result returns a friendly explanatory message; with `contract_id` (since v2.72.0) it explains that the generic/client/group displacements were left out and suggests querying again without `contract_id`.
 
 **Example:**
 ```json
@@ -1929,7 +1963,7 @@ Fill or clear a single checklist field for a ticket. One field per call (1:1 wit
 - `ticket_number` (string, required): Ticket number (e.g., "98875")
 - `checklist_id` (number, required): Checklist ID — the ID in parentheses in the `get_ticket_checklists` header (e.g. `### 1. Checklist 1 (ID: 4539)` → `4539`), not the order number
 - `index` (number, required): Field position within the checklist (from `get_ticket_checklists`)
-- `value` (string | number | null, optional): Value to fill. Use for `text`, `textarea`, `value` fields (any string/number) and `radio` (the option id). Send `null` to clear any field type. Mutually exclusive with `options`.
+- `value` (string | number | null, optional): Value to fill. Use for `text`, `textarea`, `value` fields (any string/number) and `radio` (the option id). `null` clears simple fields (text, textarea, value, radio); a **checkbox is not cleared with `null`** (the API answers 422 "does not accept the value attribute", shown under `Detalhes:`): uncheck it with `options: [{ id, checked: false }]`. Mutually exclusive with `options`.
 - `options` (array, optional): For `checkbox` fields only. Array of `{ id, checked }` — send only the options you want to change; others remain unchanged. Use the ids from `get_ticket_checklists`. Mutually exclusive with `value`.
 
 **Payload by field type:**
@@ -1939,7 +1973,8 @@ Fill or clear a single checklist field for a ticket. One field per call (1:1 wit
 | `text` / `textarea` / `value` | `{ "value": "text content" }` |
 | `radio` | `{ "value": "<option_id>" }` (id from `get_ticket_checklists`) |
 | `checkbox` | `{ "options": [{ "id": "<option_id>", "checked": true }] }` |
-| Clear any field | `{ "value": null }` |
+| Clear a simple field (text/textarea/value/radio) | `{ "value": null }` |
+| Clear a checkbox | `{ "options": [{ "id": "<option_id>", "checked": false }] }` |
 
 **Examples:**
 ```json
@@ -1952,7 +1987,7 @@ Fill or clear a single checklist field for a ticket. One field per call (1:1 wit
 // Mark checkbox options
 { "ticket_number": "98875", "checklist_id": 2, "index": 4, "options": [{ "id": "a", "checked": true }, { "id": "b", "checked": false }] }
 
-// Clear any field
+// Clear a simple field (checkbox: use options with checked: false)
 { "ticket_number": "98875", "checklist_id": 2, "index": 1, "value": null }
 ```
 
@@ -1973,10 +2008,10 @@ List answers (communications with the client) of a specific ticket, paginated.
 
 **Returns:**
 Each answer includes:
-- Author name, date/time (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone), origin (`agent`, `client`, etc.)
+- Author name, date/time (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone), origin labelled (**new in v2.72.0:** `TiFlux Web`, `E-mail`, `Portal do cliente`, `API`, `Agente`; an unknown value is shown as is, empty → `—`)
 - File count indicator
-- Preview of the content (first 200 characters)
-- Pagination info with hint for next page
+- Preview of the content (first 200 characters), converted from HTML to Markdown (**new in v2.72.0:** line breaks, links and images as `![](url)`, no `&nbsp;`)
+- Pagination info with the total (`X-Total-Items`, **new in v2.72.0**: header `N de TOTAL encontradas`) and hint for next page
 
 **Example:**
 ```json
@@ -1995,7 +2030,7 @@ Get the full detail of a specific answer from a ticket, including attached files
 - `answer_id` (integer, required): ID of the answer to retrieve
 
 **Returns:**
-- Full answer content (untruncated), author, date (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone), origin
+- Full answer content in Markdown (**new in v2.72.0:** converted from the API HTML — line breaks, entities, links, images as `![](url)`; capped at 40,000 characters with a warning), author, date (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone), origin labelled (`TiFlux Web`, `E-mail`, `Portal do cliente`, `API`, `Agente`)
 - Complete list of attached files with name, **ID**, type, size and download URL. **New in v2.71.0:** each file shows `(ID: <id>)` — the `file_id` accepted by `delete_ticket_answer_file`. A 404 tells a missing ticket (`Ticket #N não encontrado`) from a missing/deleted answer (`Resposta não encontrada` + the API detail, e.g. `answer was deleted`, + `list_ticket_answers`).
 
 **Example:**
@@ -2043,20 +2078,23 @@ Remove a file attached to a specific ticket answer in Tiflux.
 **Returns:** Confirmation that the file was removed.
 
 ### get_ticket_histories
-List the event history (timeline) of a ticket, showing field changes, stage transitions, and other events. Paginated.
+List the event history (timeline) of a ticket, showing field changes, stage transitions, appointments and other events. Paginated.
+
+**What the API v2 history covers:** only **stages** and **appointments**. Answers, attachments, checklists, internal communications, SLA and field edits without a stage change are **not** in it — use `list_ticket_answers`, `get_ticket_files`, `get_ticket_checklists`, `list_internal_communications` and `get_ticket_stages_slas`. The response says so.
 
 **Parameters:**
 - `ticket_number` (integer, required): Ticket number to retrieve history for
-- `history_of` (integer, required): History area to query — `0` = stage history, `1` = appointment history
+- `history_of` (integer, optional — **new in v2.72.0**, was required): `0` = stage history only, `1` = appointment history only. **Omitted (default):** the MCP fetches both sources — only the pages of 200 needed to cover `offset × limit` (up to 5 × 200 per source, with a warning if it cuts) —, merges them by date (most recent first) and paginates locally with exact `offset`/`limit`; the total is the sum of the two API totals. Each event is tagged `· estágio` or `· apontamento`. If one source fails (e.g. no permission for appointments), the other is returned with a warning naming the failed `history_of`.
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Events per page (default: 20, max: 200)
-- `type_id_attr` (integer, optional): Filter by attribute type
-- `operation` (string, optional): Filter by operation type (`"created"`, `"updated"`, `"deleted"`) — only considered when `history_of=1`
+- `type_id_attr` (integer, optional, ≥ 1): **Appointment ID** — filters the history of that appointment; only with `history_of=1` (with `history_of=0` or in the combined mode it is ignored with a warning)
+- `operation` (string, optional): Filter by operation type (`"created"`, `"updated"`, `"deleted"`) — only considered when `history_of=1` (ignored with a warning in the combined mode)
 
 **Returns:**
 For each event:
 - Action description, user, date/time (**fixed in v2.50.1:** Brasília time — previously used the host process's timezone, showing the wrong day for events between 21h–0h on a Lambda running in UTC), event type and operation
 - Diff of changed fields with old → new values. **Fixed in v2.50.1:** date-time values with a timezone (e.g. `changed_first_stage_at: "2026-10-01T15:28:17Z"`, or any column saved as `...000Z`) are shown in Brasília time (`01/10/2026, 12:28:17`; `compact`: short ISO in Brasília time with offset, `2026-10-01T12:28-03:00` — UTC `Z` until v2.63) instead of raw ISO — detected by the value, not the field name. Appointment time-of-day values (`init_time`/`end_time`) are `HH:MM` strings already in the organization's timezone and are shown as-is. Plain dates and other values are unchanged.
+- **New in v2.72.0:** appointment events (created/deleted, where `changes` is null) show `🕒 Apontamento:` with the API `appointment_details` (date, duration, displacement, contract, user, attendance type); `action_details`, when not empty, appears under `ℹ️ Detalhes:`. The footer shows the total (`X-Total-Items`).
 
 **Example:**
 ```json
@@ -2071,7 +2109,7 @@ Reopen a closed or canceled ticket. Tickets that have been billed cannot be reop
 
 **Parameters:**
 - `ticket_number` (integer, required): Ticket number to reopen
-- `disapproval_reason` (string, optional): Required when reopening a ticket pending review (disapproval-based reopening)
+- `disapproval_reason` (string, optional): Becomes a **public answer** to the client on the ticket. Only used when the ticket is closed pending review (then it is required); on a cancelled or already reviewed ticket the API ignores it.
 
 **Business Rules:**
 - Tickets that have been **billed** cannot be reopened (API returns 422)
@@ -2352,7 +2390,7 @@ List open (in-progress) time records for a specific ticket. A pre-appointment re
 > **Permission note:** Requires the "Criar e editar apontamentos" (create and edit appointments) permission and a Tickets license. If your API key returns a `403`, check these permissions or use an admin key.
 
 **Parameters:**
-- `ticket_number` (string, required): Ticket number to list pre-appointments from
+- `ticket_number` (string, required): Ticket number to list pre-appointments from (accepts `#123` since v2.72.0; anything other than the number fails locally)
 - `offset` (number, optional): Page number (default: 1)
 - `limit` (number, optional): Pre-appointments per page (default: 20, max: 200)
 

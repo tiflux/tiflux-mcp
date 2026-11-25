@@ -2,15 +2,20 @@
  * Helper compartilhado: validacao de arquivos base64 para upload.
  *
  * Reutilizado por createTicket, createInternalCommunication, createTicketAnswer e uploadTicketFiles.
- * O limite de tamanho e configuravel via parametro para cobrir os dois casos:
- *   - 25MB (createTicket, createInternalCommunication): MAX_BASE64_BYTES_25MB
- *   - 40MB (createTicketAnswer): MAX_BASE64_BYTES_40MB
+ * Limite por arquivo: 25MB (MAX_BASE64_BYTES_25MB) em todas as tools de anexo — a API v2
+ * tem o mesmo teto para respostas (H23; o antigo 40MB de createTicketAnswer era falso).
+ * `.svg` e recusado antes da API (H25): a API devolve 422 ".svg files are not allowed
+ * for upload" e, no create_ticket, o ticket nem e criado.
  */
 
 const { errorResponse } = require('./errors');
 
 const MAX_BASE64_BYTES_25MB = 26214400; // 25MB
-const MAX_BASE64_BYTES_40MB = 41943040; // 40MB
+
+/** true quando o nome termina em .svg (caixa/espacos nao importam). */
+function isSvgFilename(filename) {
+  return typeof filename === 'string' && /\.svg$/i.test(filename.trim());
+}
 
 /**
  * Valida um array de objetos files_base64.
@@ -61,6 +66,15 @@ function validateBase64Files(filesBase64, maxBytes, maxLabel) {
         `**❌ Nome de arquivo inválido no arquivo base64 #${i + 1}**\n\n` +
         `O nome do arquivo não pode conter aspas (") nem quebras de linha.\n\n` +
         `*Renomeie o arquivo e tente novamente.*`
+      );
+    }
+
+    if (isSvgFilename(file.filename)) {
+      return errorResponse(
+        `**❌ Arquivo .svg não é aceito**\n\n` +
+        `**Arquivo:** ${file.filename}\n\n` +
+        `O TiFlux recusa anexos .svg (nada foi enviado).\n\n` +
+        `**Como resolver:** Converta o arquivo para .png ou .pdf, ou compacte em .zip, e envie de novo.`
       );
     }
 
@@ -134,6 +148,6 @@ module.exports = {
   validateBase64Files,
   filesBase64SchemaProperty,
   tooManyFilesError,
-  MAX_BASE64_BYTES_25MB,
-  MAX_BASE64_BYTES_40MB
+  isSvgFilename,
+  MAX_BASE64_BYTES_25MB
 };

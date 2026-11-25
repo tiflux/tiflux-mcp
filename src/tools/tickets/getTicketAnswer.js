@@ -9,12 +9,21 @@ const { textResponse } = require('../_shared/response');
 const { errorResponse, toolErrorResponse, withValidationResponse } = require('../_shared/errors');
 const { requireTicketNumber, requirePathIdField } = require('../_shared/validators');
 const { isTicketNotFoundDetail, notFoundDetailText, TICKET_NOT_FOUND_HINT } = require('../_shared/ticketSubresourceErrors');
-const { stripHtml } = require('../_shared/markdown');
-const { footer, dateTime } = require('../_shared/format');
+const { htmlToMarkdown } = require('../_shared/htmlToMarkdown');
+const { footer, dateTime, RESPONSE_ITEM_BUDGET } = require('../_shared/format');
+const { answerOriginLabel } = require('./listTicketAnswers');
+
+/** Texto da resposta em Markdown (H32), com teto de RESPONSE_ITEM_BUDGET e aviso. */
+function answerContent(html) {
+  if (!html) return 'Conteúdo não disponível';
+  const md = htmlToMarkdown(String(html)).trim();
+  if (md.length <= RESPONSE_ITEM_BUDGET) return md;
+  return `${md.slice(0, RESPONSE_ITEM_BUDGET)}…\n\n*⚠️ Resposta cortada em ${RESPONSE_ITEM_BUDGET.toLocaleString('pt-BR')} de ${md.length.toLocaleString('pt-BR')} caracteres; para o texto completo, abra o ticket no TiFlux.*`;
+}
 
 const schema = {
   name: 'get_ticket_answer',
-  description: 'Obter o detalhe completo de uma resposta específica de um ticket, incluindo os arquivos anexados com o ID de cada um (o file_id de delete_ticket_answer_file).',
+  description: 'Obter o detalhe completo de uma resposta específica de um ticket, incluindo os arquivos anexados com o ID de cada um (o file_id de delete_ticket_answer_file). O texto sai em Markdown (quebras de linha, links e imagens como ![](url), sem HTML), com teto de 40.000 caracteres e aviso; a origem é rotulada (TiFlux Web, E-mail, Portal do cliente, API, Agente).',
   inputSchema: {
     type: 'object',
     properties: {
@@ -71,11 +80,8 @@ async function execute(args, { api, verbosity }) {
 
     const authorName = answer.author || 'Autor não informado';
     const answerTime = answer.answer_time ? dateTime(answer.answer_time, verbosity) : 'Data não informada';
-    const origin = answer.answer_origin || 'origem não informada';
-
-    const content = answer.name
-      ? stripHtml(answer.name).trim()
-      : 'Conteúdo não disponível';
+    const origin = answerOriginLabel(answer.answer_origin);
+    const content = answerContent(answer.name);
 
     let filesSection = '';
     if (Array.isArray(answer.files) && answer.files.length > 0) {

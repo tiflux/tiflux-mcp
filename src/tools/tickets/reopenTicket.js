@@ -22,7 +22,7 @@ const schema = {
       },
       disapproval_reason: {
         type: 'string',
-        description: 'Motivo da reprovação/reabertura (obrigatório para tickets pendentes de revisão)'
+        description: 'Motivo da reprovação/reabertura. Vira RESPOSTA PÚBLICA ao cliente no ticket. Só é usado quando o ticket está fechado aguardando revisão (aí é obrigatório); em ticket cancelado ou já revisado a API ignora o motivo.'
       }
     },
     required: ['ticket_number']

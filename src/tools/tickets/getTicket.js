@@ -14,10 +14,63 @@ const { TICKET_NOT_FOUND_HINT } = require('../_shared/ticketSubresourceErrors');
 const { requireTicketNumber } = require('../_shared/validators');
 const { footer, truncate, dateTime } = require('../_shared/format');
 const { formatEntityField } = require('../_shared/entityFields');
+const { htmlToMarkdown } = require('../_shared/htmlToMarkdown');
+
+// Teto da descricao no rich (H17): descricoes longas estouravam a resposta sem aviso.
+const RICH_DESCRIPTION_MAX = 8000;
+
+// Rotulos de enums crus da API (H17). Valor fora do mapa sai como veio.
+const LAST_ANSWER_TYPE_LABELS = { technical_answer: 'atendente', client_answer: 'cliente' };
+const APPOINTMENT_TYPE_LABELS = {
+  'Appointments with Valorization': 'com valorização',
+  'Appointments with no Valorization': 'sem valorização',
+  'Without Appointments': 'sem apontamentos'
+};
+
+function labelOf(map, value) {
+  return Object.prototype.hasOwnProperty.call(map, value) ? map[value] : value;
+}
+
+/** Valor legivel de um campo legado de catalogo (checkbox/radio pela opcao marcada). */
+function legacyCustomFieldValue(field) {
+  const options = Array.isArray(field.options) ? field.options : [];
+  if (field.type === 'checkbox') {
+    return options.filter(o => o?.value).map(o => o.description ?? o.name ?? o.id).join(', ');
+  }
+  if (field.type === 'radio') {
+    const chosen = options.find(o => o?.id === field.value);
+    if (chosen) return chosen.description ?? chosen.name ?? String(chosen.id);
+  }
+  if (field.value === null || field.value === undefined) return '';
+  return typeof field.value === 'object' ? JSON.stringify(field.value) : String(field.value);
+}
+
+/**
+ * Bloco "Campos do catalogo (formato antigo)" (H16): `custom_fields` e a coluna legada
+ * com os campos do catalogo antes do formato de entities. So leitura; `[]`/`null` → sem bloco.
+ */
+function legacyCatalogFieldsBlock(customFields) {
+  if (!Array.isArray(customFields) || customFields.length === 0) return '';
+  const lines = customFields
+    .filter(f => f && typeof f === 'object')
+    .map(f => `  • ${f.title || 'Sem título'}: ${legacyCustomFieldValue(f) || '—'}`);
+  if (lines.length === 0) return '';
+  return `\n**Campos do catálogo (formato antigo):**\n${lines.join('\n')}\n`;
+}
+
+/** Descricao do rich em Markdown (H17), cortada em RICH_DESCRIPTION_MAX com aviso + URL interna. */
+function richDescription(ticket) {
+  if (!ticket.description) return 'Sem descrição';
+  const md = htmlToMarkdown(String(ticket.description)).trim();
+  if (!md) return 'Sem descrição';
+  if (md.length <= RICH_DESCRIPTION_MAX) return md;
+  const where = ticket.url_internal_path ? `abra a URL interna (${ticket.url_internal_path})` : 'abra o ticket no TiFlux';
+  return `${md.slice(0, RICH_DESCRIPTION_MAX)}…\n\n*⚠️ Descrição cortada em ${RICH_DESCRIPTION_MAX.toLocaleString('pt-BR')} de ${md.length.toLocaleString('pt-BR')} caracteres; para o texto completo, ${where}.*`;
+}
 
 const schema = {
   name: 'get_ticket',
-  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (área ID/nome, catálogo ID/nome, item ID/nome), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado, incluindo "Fechado em" com data/hora de fechamento em horário de Brasília e "Resolvido no prazo" quando o ticket está fechado; em ticket aberto, "SLA de atendimento"/"SLA de resolução" mostram o estado atual — no prazo ou estourado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) e campos personalizados opcionais. Datas e horas (criação, atualização, expirações de SLA e fechamento) em horário de Brasília (no compact, ISO com offset -03:00). No compact, os prazos saem rotulados: "Resolução vence" e "Atendimento vence" (com no prazo/estourado), "Prazo do estágio" e "SLA pausado".',
+  description: 'Buscar um ticket específico no TiFlux pelo número. Retorna informações completas incluindo: hierarquia (ticket pai e tickets filhos/desdobramentos), solicitante (quem abriu o ticket), resumo de checklists (com aviso se bloqueiam o fechamento), status (ID e nome), prioridade (ID e nome), mesa (ID e nome), estágio (ID, nome e emoji indicator), catálogo de serviços (item ID/nome, área e catálogo), responsável (ID, nome e email), cliente (ID, nome e status), seguidores, horas trabalhadas, SLA (status detalhado, incluindo "Fechado em" com data/hora de fechamento em horário de Brasília e "Resolvido no prazo" quando o ticket está fechado; em ticket aberto, "SLA de atendimento"/"SLA de resolução" mostram o estado atual — no prazo ou estourado), equipamento vinculado, feedback/avaliação, URLs (interna e externa) campos personalizados opcionais e, em tickets antigos, os \"Campos do catálogo (formato antigo)\". A descrição sai em Markdown (sem HTML), cortada em 8.000 caracteres com aviso e a URL interna; \"Última resposta\" sai como atendente/cliente. Datas e horas (criação, atualização, expirações de SLA e fechamento) em horário de Brasília (no compact, ISO com offset -03:00). No compact, os prazos saem rotulados: "Resolução vence" e "Atendimento vence" (com no prazo/estourado), "Prazo do estágio" e "SLA pausado".',
   inputSchema: {
     type: 'object',
     properties: {
@@ -271,7 +324,7 @@ function formatTicket(ticketNumber, ticket, v) {
     deskInfo += `  • Nome interno: ${ticket.desk.name || 'N/A'}\n`;
     deskInfo += `  • Ativa: ${ticket.desk.active ? 'Sim' : 'Não'}\n`;
     if (ticket.desk.appointment_type) {
-      deskInfo += `  • Tipo de apontamento: ${ticket.desk.appointment_type}\n`;
+      deskInfo += `  • Tipo de apontamento: ${labelOf(APPOINTMENT_TYPE_LABELS, ticket.desk.appointment_type)}\n`;
     }
   }
 
@@ -465,7 +518,7 @@ function formatTicket(ticketNumber, ticket, v) {
     additionalInfo += `**Reaberturas:** ${ticket.reopen_count}\n`;
   }
   if (ticket.last_reopen_date) {
-    additionalInfo += `**Última reabertura:** ${ticket.last_reopen_date}\n`;
+    additionalInfo += `**Última reabertura:** ${dateTime(ticket.last_reopen_date, 'rich')}\n`;
   }
   if (ticket.is_grouped) {
     additionalInfo += `**Agrupado:** Sim\n`;
@@ -474,7 +527,7 @@ function formatTicket(ticketNumber, ticket, v) {
     additionalInfo += `**Revisado:** Sim\n`;
   }
   if (ticket.last_answer_type) {
-    additionalInfo += `**Última resposta:** ${ticket.last_answer_type}\n`;
+    additionalInfo += `**Última resposta:** ${labelOf(LAST_ANSWER_TYPE_LABELS, ticket.last_answer_type)}\n`;
   }
   if (ticket.created_with_ai) {
     additionalInfo += `**Criado com IA:** Sim\n`;
@@ -517,8 +570,9 @@ function formatTicket(ticketNumber, ticket, v) {
          `${equipmentInfo}` +
          `${feedbackInfo}` +
          `${slaInfo}` +
+         `${legacyCatalogFieldsBlock(ticket.custom_fields)}` +
          `${urlInfo}\n` +
-         `**Descrição:**\n${ticket.description || 'Sem descrição'}${entitiesText}\n\n` +
+         `**Descrição:**\n${richDescription(ticket)}${entitiesText}\n\n` +
          `${footer(verbosity)}`;
 }
 

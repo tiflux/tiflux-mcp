@@ -17,7 +17,7 @@
 const { textResponse } = require('../_shared/response');
 const { errorResponse, withValidationResponse, toolErrorResponse } = require('../_shared/errors');
 const { footer, pagination } = require('../_shared/format');
-const { requireField, ValidationError, REQUIRED_FIELD_HINTS } = require('../_shared/validators');
+const { requireTicketNumber } = require('../_shared/validators');
 const { ticketNumberSchemaProperty, paginationSchemaProperties } = require('../_shared/schemaProps');
 const { escapeCell } = require('../_shared/markdown');
 
@@ -89,15 +89,11 @@ function format(ticketNumber, items, offset, limit, verbosity, total) {
 }
 
 async function execute(args, { api, verbosity }) {
-  const { ticket_number, offset, limit } = args;
+  const { offset, limit } = args;
 
-  requireField(args, 'ticket_number');
-
-  // Validacao de formato: ticket_number deve conter apenas digitos para evitar
-  // path traversal no URL interpolado (/tickets/${ticket_number}/pre-appointments).
-  if (!/^\d+$/.test(String(ticket_number))) {
-    throw new ValidationError('ticket_number deve conter apenas dígitos', { hint: REQUIRED_FIELD_HINTS.ticket_number });
-  }
+  // Contrato unico do `#` (H29): aceita "#123", recusa o que nao e numero > 0
+  // (evita path traversal no URL interpolado /tickets/${ticket_number}/pre-appointments).
+  const ticket_number = requireTicketNumber(args);
 
   // Clamp identico ao aplicado em api.listPreAppointments, para que a heuristica
   // de "proxima pagina" no formatter use o mesmo limit que chegou a API (BL-008).

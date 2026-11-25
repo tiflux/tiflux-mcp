@@ -31,7 +31,7 @@ const schema = {
     type: 'object',
     properties: {
       ticket_number: { type: 'string', description: 'Número do ticket para listar os deslocamentos disponíveis (ex: "98875", "123")' },
-      contract_id: { type: 'number', description: 'ID do contrato (número inteiro positivo) para filtrar deslocamentos vinculados a esse contrato específico (opcional). Omita para retornar todos os deslocamentos aplicáveis ao ticket. Valor não inteiro falha localmente com mensagem clara, sem chamar a API.' }
+      contract_id: { type: 'number', description: 'ID do contrato, não do aditivo (número inteiro positivo; o "ID N" ao lado do contrato em get_ticket_service_types). Opcional: com ele vêm SÓ os deslocamentos daquele contrato — os gerais, do cliente e de grupo de contratos ficam de fora. Omita para retornar todos os deslocamentos aplicáveis ao ticket. Valor não inteiro falha localmente com mensagem clara, sem chamar a API.' }
     },
     required: ['ticket_number']
   }
@@ -71,7 +71,10 @@ async function execute(args, { api }) {
         `*Nenhum deslocamento aplicável encontrado para este ticket.*\n\n` +
         `Possíveis motivos:\n` +
         `• O ticket não possui deslocamentos cadastrados no plano/contrato.\n` +
-        `• O filtro por contrato não retornou deslocamentos para este ticket.`
+        (contractId !== undefined
+          ? `• O filtro contract_id traz só os deslocamentos daquele contrato: os gerais, do cliente e de grupo ficam de fora.\n\n` +
+            `**Sugestão:** consulte de novo sem contract_id para ver todos os deslocamentos aplicáveis ao ticket.`
+          : `• Nenhum deslocamento geral, do cliente ou de contrato se aplica a este ticket.`)
       );
     }
 

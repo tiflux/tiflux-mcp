@@ -70,12 +70,15 @@ async function execute(args, { api }) {
     } else {
       contractRiders.forEach(rider => {
         const contractName = rider.contract?.name || '—';
+        // H39: o ID do CONTRATO (nao do aditivo) e o que get_ticket_shifts.contract_id aceita.
+        const contractId = rider.contract?.id;
+        const contractLabel = contractId !== undefined && contractId !== null ? `${contractName} (ID ${contractId})` : contractName;
         const riderNumber = rider.rider_number !== undefined ? rider.rider_number : '—';
         const startDate = rider.start_date || '—';
         const cancelDate = rider.cancel_date || '—';
         const riderId = rider.id !== undefined ? rider.id : '—';
 
-        text += `**Contrato:** ${contractName}\n`;
+        text += `**Contrato:** ${contractLabel}\n`;
         text += `• **Adendo nº:** ${riderNumber}\n`;
         text += `• **Vigência:** ${startDate} → ${cancelDate}\n`;
         text += `• **ID do adendo:** ${riderId}\n\n`;

@@ -13,7 +13,7 @@ const crypto = require('node:crypto');
 const HttpClient = require('../infrastructure/http/HttpClient');
 const { APIError, TimeoutError, NetworkError } = require('../utils/errors');
 const ClientFingerprint = require('../telemetry/ClientFingerprint');
-const { MAX_BASE64_BYTES_25MB, MAX_BASE64_BYTES_40MB } = require('../tools/_shared/fileValidation');
+const { MAX_BASE64_BYTES_25MB } = require('../tools/_shared/fileValidation');
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
@@ -442,7 +442,7 @@ class TiFluxAPI {
         return { error: 'Campo "name" é obrigatório', status: 'VALIDATION_ERROR' };
       }
 
-      const processed = this._processAttachments(answerData.files, MAX_BASE64_BYTES_40MB, '40MB');
+      const processed = this._processAttachments(answerData.files, MAX_BASE64_BYTES_25MB, '25MB');
       if (processed.error) return processed;
 
       const { buffer, headers } = this._buildMultipart({
@@ -1291,7 +1291,7 @@ class TiFluxAPI {
     params.append('offset', offset);
     params.append('limit', limit);
 
-    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/stages-slas?${params.toString()}`);
+    return this._attachTotalItems(await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/stages-slas?${params.toString()}`));
   }
 
   /**
@@ -2248,7 +2248,7 @@ class TiFluxAPI {
     params.append('offset', validOffset);
     params.append('limit', validLimit);
 
-    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/answers?${params.toString()}`);
+    return this._attachTotalItems(await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/answers?${params.toString()}`));
   }
 
   /**
@@ -2277,7 +2277,7 @@ class TiFluxAPI {
     if (params.type_id_attr != null) qs.append('type_id_attr', params.type_id_attr);
     if (params.operation != null) qs.append('operation', params.operation);
 
-    return await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/histories?${qs.toString()}`);
+    return this._attachTotalItems(await this.makeRequest(`/tickets/${encodeURIComponent(ticketNumber)}/histories?${qs.toString()}`));
   }
 
   /**
