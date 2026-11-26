@@ -6,6 +6,7 @@ const TiFluxAPI = require('../../api/tiflux-api');
 
 const slices = [
   require('./listEntities'),
+  require('./getEntity'),
   require('./listEntityFields'),
   require('./listEntityFieldOptions'),
   require('./createEntity'),

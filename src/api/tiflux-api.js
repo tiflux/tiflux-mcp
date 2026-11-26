@@ -2161,6 +2161,18 @@ class TiFluxAPI {
   }
 
   /**
+   * Retorna um campo personalizado (entity) por ID, incluindo desk_ids
+   * (a listagem GET /entities nao traz desk_ids).
+   * GET /entities/{id}
+   * Guardrail BE-003: so transporte.
+   *
+   * @param {number|string} id
+   */
+  async getEntity(id) {
+    return await this.makeRequest(`/entities/${encodeURIComponent(id)}`);
+  }
+
+  /**
    * Atualiza um campo personalizado (entity). Update parcial.
    * PUT /entities/{id}
    * Guardrail BE-003: so transporte.

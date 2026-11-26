@@ -12,7 +12,7 @@ const { paginationSchemaProperties } = require('../_shared/schemaProps');
 
 const schema = {
   name: 'list_entities',
-  description: 'Listar campos personalizados (entities) disponiveis na organizacao TiFlux. Use para descobrir quais grupos de campos personalizados existem, em quais aplicacoes estao habilitados (ticket, client, etc.) e seus IDs — necessarios para usar list_entity_fields.',
+  description: 'Listar campos personalizados (entities) disponiveis na organizacao TiFlux. Use para descobrir quais grupos de campos personalizados existem, em quais aplicacoes estao habilitados (ticket, client, etc.) e seus IDs — necessarios para usar list_entity_fields e get_entity. A listagem nao traz as mesas vinculadas: para ver em quais mesas um campo aparece (e demais detalhes), use get_entity.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -49,7 +49,7 @@ function formatEntitiesList(entities) {
     text += `| ${entity.id} | ${entity.name || '—'} | ${appliedIn} | ${active} |\n`;
   });
 
-  text += '\n*Para ver os subcampos de uma entity, use `list_entity_fields` com o `entity_id` correspondente.*';
+  text += '\n*Para ver os subcampos de uma entity, use `list_entity_fields` com o `entity_id` correspondente. Para ver detalhes e as mesas vinculadas, use `get_entity` com o `id`.*';
   return text;
 }
 

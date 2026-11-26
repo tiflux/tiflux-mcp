@@ -3971,7 +3971,7 @@ List templates from the WhatsApp Cloud (Meta) integration available in the organ
 ---
 
 ### list_entities
-List custom field groups (entities) available in the Tiflux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields`.
+List custom field groups (entities) available in the Tiflux organization. Use to discover which custom field groups exist, which applications they apply to (`ticket`, `client`, etc.), and their IDs — required for `list_entity_fields` and `get_entity`. The list does not include linked desks: to see which desks a field applies to (and other details), use `get_entity`.
 
 **Parameters:**
 
@@ -3998,6 +3998,43 @@ List custom field groups (entities) available in the Tiflux organization. Use to
 |---|---|---|---|
 | 10 | Classificação do Chamado | ticket | Sim |
 | 11 | Dados do Atendimento | ticket | Sim |
+```
+
+### get_entity
+Show the details of a custom field group (entity): name, where it applies (`applied_in`), active, description, `menu_item`, catalog link or equipment type, and **the linked desks by name**. Use it to answer "which desks does field X show up on?" — `list_entities` does not return desks.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `id` | number | yes | — | ID of the custom field group (entity). Obtain via `list_entities` |
+
+**Desks section:**
+- `applied_in: "ticket"` with linked desks → table `| ID | Mesa |` with the desk names (active desks from one paginated `GET /desks` call; inactive ones via `GET /desks/{id}`, in batches of 5 and at most 50 lookups per call; if a name cannot be resolved the row shows `#<id> (nome indisponivel)` and the tool does not fail).
+- `applied_in: "ticket"` with **no** linked desk (`desk_ids: []`) → "**Todas as mesas**": a ticket field without desks applies to **every** desk of the organization.
+- Any other `applied_in` → "não se aplica".
+
+Errors: 404 suggests `list_entities`; 403 points to the `manage_entities` role. The footer reminds that `update_entity` accepts `add_desk_ids`/`remove_desk_ids`.
+
+**Example:**
+```json
+{ "id": 10 }
+```
+
+**Example response:**
+```
+**Campo personalizado #10: Classificação do Chamado**
+
+**Aplicado em:** ticket
+**Ativo:** Sim
+**Item de menu:** Nao
+
+**Mesas vinculadas (2):**
+
+| ID | Mesa |
+|---|---|
+| 14 | Suporte N1 |
+| 15 | Infra |
 ```
 
 ### list_entity_fields
@@ -4115,7 +4152,9 @@ Partially update an existing custom field group (entity) — only the informed f
 | `description` | string | no | New description |
 | `active` | boolean | no | Activate (`true`) or inactivate (`false`) the group. `false` hides all its subfields from forms |
 | `menu_item` | boolean | no | Whether the field is a menu item. Cannot be changed on entities with `applied_in="solicitant"` or a catalog `applied_in` (API returns 422) |
-| `desk_ids` | number[] | no | Only meaningful on entities with `applied_in="ticket"` |
+| `desk_ids` | number[] | no | **Replaces** the whole desk list. `[]` makes the field apply to **all** desks. Only meaningful on entities with `applied_in="ticket"`. Cannot be combined with `add_desk_ids`/`remove_desk_ids` |
+| `add_desk_ids` | number[] | no | Desks to **include**, keeping the ones already linked. Unknown desk IDs are rejected before sending. Refused when the field currently applies to **all** desks (no desk linked) — see below. Up to 50 IDs. Only `applied_in="ticket"` |
+| `remove_desk_ids` | number[] | no | Desks to **remove**, keeping the others. Refuses to remove the last desk (see below). Up to 50 IDs. Only `applied_in="ticket"` |
 | `equipment_type_id` | number | no | Only meaningful on entities with `applied_in="equipment"` |
 
 At least one updatable field besides `id` is required. `applied_in` and the catalog link cannot be changed (see note above).
@@ -4125,7 +4164,13 @@ At least one updatable field besides `id` is required. `applied_in` and the cata
 { "id": 10, "active": false }
 ```
 
-**Returns:** confirmation with the updated fields and the current state (name, `active`, desk IDs). When `active: false` is sent, the response warns that subfields disappear from forms and shows how to reactivate.
+**Including/removing a desk without overwriting the others:** with `add_desk_ids`/`remove_desk_ids` the MCP reads the current desks (`GET /entities/{id}`), computes `current ∪ add − remove` (current order kept, new ones at the end) and sends the merged list in `PUT /entities/{id}` together with any other informed field. Local errors, without calling `PUT`: `desk_ids` combined with add/remove; the same desk in both lists; entity not applied to `ticket`; `add_desk_ids`/`remove_desk_ids`/`desk_ids` with an ID that is not a positive integer, or add/remove with more than 50 IDs; `desk_ids` returned by the API in an unexpected format; `add_desk_ids` with a desk ID that does not exist. If nothing changes (desk already linked / not linked), the tool answers "nada a alterar" without `PUT`. Removing the **last** desk is refused: a ticket field with no desk applies to **all** desks, so taking out the last one would spread the field instead of hiding it — to do that on purpose, send `desk_ids: []` explicitly (to hide the field, use `active: false`). Likewise, `add_desk_ids` on a field that currently has **no** desk (applies to all desks) is refused: including a desk would restrict the field to it instead of keeping the others — to do that on purpose, confirm with the user and send `desk_ids: [...]` explicitly. The read-then-write is not atomic (the API has no ETag): a desk change made in the portal between the read and the write can be overwritten.
+
+```json
+{ "id": 10, "add_desk_ids": [20], "remove_desk_ids": [15] }
+```
+
+**Returns:** confirmation with the updated fields and the current state (name, `active`, linked desks by name). With add/remove, lines `Incluidas` / `Removidas` / `Ja vinculadas` / `Nao estavam vinculadas`. When the final desk list is empty (`desk_ids: []`), it warns that the field now shows up on **all** desks. A desk ID that does not exist in the organization (or belongs to another one) sent in `desk_ids` makes the API answer 404 without applying anything; the tool reports "Mesa nao encontrada" (not "entity not found"). When `active: false` is sent, the response warns that subfields disappear from forms and shows how to reactivate.
 
 #### create_entity_field
 Create a subfield (entity_field) inside an existing custom field group (entity). For `field_type` `single_select`/`checkbox`, accepts inline `options[]` — recommended, since it avoids the "Padrão" placeholder and returns the option IDs in the same response.
@@ -4802,10 +4847,11 @@ The MCP server integrates with the following Tiflux API v2 endpoints:
 - `PUT /chats/{id}/archive` - Finish (archive) a chat
 - `PUT /chats/{id}/cancel` - Cancel (discard) a chat, no body; 202 with `job_id`, processed asynchronously (`cancel_chat`)
 - `GET /entities` - List custom field groups (`list_entities`)
+- `GET /entities/{id}` - Custom field group details, including `desk_ids` (`get_entity`; also read by `update_entity` before `add_desk_ids`/`remove_desk_ids`)
 - `GET /entities/{entity_id}/fields` - List custom subfields of an entity (`list_entity_fields`)
 - `GET /entity_fields/{entity_field_id}/options` - List options of a single_select/checkbox field (`list_entity_field_options`)
 - `POST /entities` - Create a custom field group, optionally linked to a services catalog/area/item, desks or an equipment type (`create_entity`). Requires `manage_entities` role; catalog/ticket/equipment `applied_in` also requires a Tickets license
-- `PUT /entities/{id}` - Partially update a custom field group: rename, change description/desks/equipment type/menu_item, activate/inactivate (`update_entity`). `applied_in` and the catalog link are immutable (400 if sent)
+- `PUT /entities/{id}` - Partially update a custom field group: rename, change description/desks/equipment type/menu_item, activate/inactivate (`update_entity`). `desk_ids` replaces the whole list (`[]` = all desks); `add_desk_ids`/`remove_desk_ids` are merged by the MCP before the PUT. `applied_in` and the catalog link are immutable (400 if sent)
 - `POST /entities/{entity_id}/fields` - Create a subfield (entity_field); accepts inline `options[]` for single_select/checkbox (`create_entity_field`). Omitting `options` on those types auto-creates a "Padrão" placeholder option
 - `PUT /entities/{entity_id}/fields/{id}` - Partially update a subfield: rename, change `required` (`update_entity_field`). `field_type` is immutable (400 if sent)
 - `POST /entity_fields/{entity_field_id}/options` - Add an option to a single_select/checkbox subfield (`create_entity_field_option`)
